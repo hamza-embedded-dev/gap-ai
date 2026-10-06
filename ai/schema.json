@@ -1,55 +1,42 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "GAP AI Output",
+  "title": "ParsedPlan",
+  "description": "Single source of truth for the AI output. Prompts, test set, backend validation and web types must all follow this file.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "intent",
-    "title",
-    "category",
-    "date",
-    "time",
-    "recurrence",
-    "needs_weather_check",
-    "confidence"
+    "intent", "title", "category", "date", "time", "duration_minutes",
+    "recurrence", "language", "needs_weather_check",
+    "clarification_question", "confidence"
   ],
   "properties": {
-    "intent": {
-      "type": "string",
-      "enum": [
-        "create_plan",
-        "update_plan",
-        "reschedule_plan",
-        "complete_plan",
-        "postpone_plan",
-        "skip_plan",
-        "query"
-      ]
+    "intent": { "enum": ["create_plan", "clarify", "unsupported"] },
+    "title": { "type": ["string", "null"] },
+    "category": { "enum": ["sport", "study", "work", "meeting", "health", "social", "personal", "other"] },
+    "date": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "time": { "type": ["string", "null"], "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+    "duration_minutes": { "type": ["integer", "null"], "minimum": 5, "maximum": 1440 },
+    "recurrence": { "type": ["string", "null"], "description": "RRULE subset, e.g. FREQ=WEEKLY;BYDAY=TU" },
+    "language": { "enum": ["tr", "en"] },
+    "needs_weather_check": { "type": "boolean" },
+    "clarification_question": { "type": ["string", "null"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "intent": { "const": "create_plan" } } },
+      "then": {
+        "properties": {
+          "title": { "type": "string" },
+          "date": { "type": "string" },
+          "time": { "type": "string" },
+          "clarification_question": { "type": "null" }
+        }
+      }
     },
-    "title": {
-      "type": "string"
-    },
-    "category": {
-      "type": ["string", "null"]
-    },
-    "date": {
-      "type": ["string", "null"],
-      "format": "date"
-    },
-    "time": {
-      "type": ["string", "null"],
-      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
-    },
-    "recurrence": {
-      "type": ["string", "null"]
-    },
-    "needs_weather_check": {
-      "type": "boolean"
-    },
-    "confidence": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1
+    {
+      "if": { "properties": { "intent": { "const": "clarify" } } },
+      "then": { "properties": { "clarification_question": { "type": "string" } } }
     }
-  }
+  ]
 }

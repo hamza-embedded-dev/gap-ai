@@ -34,3 +34,27 @@ htmlcov/
 # Secrets / credentials
 *.pem
 *.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firmware (Wi-Fi credentials and build output)
+.pio/
+esp32/**/secrets.h
+esp32/**/config_local.h
+
+# Study / participant data (never commit)
+tokens*.csv
+tokens*.json
+participants*.csv
+study-private/
+
+# Raw media (upload to YouTube/Drive, not to the repo)
+*.mp4
+*.mov
+*.mkv
+
+# Credentials
+credentials.json
+secrets/
