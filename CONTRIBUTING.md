@@ -1,3 +1,55 @@
+# Katkıda Bulunma Rehberi
+
+Projeye katkı sağlarken süreçlerimizin düzenli ve güvenli ilerlemesi için lütfen aşağıdaki kurallara uyun:
+
+## Dal (Branch) Yönetimi ve Pull Request'ler
+
+* **`main` dalı korumalıdır:** Doğrudan `main` dalına kod göndermeyin (push yapmayın). Kendi işiniz için her zaman yeni bir dal açın ve tamamladığınızda bir **Pull Request (PR)** oluşturun.
+* **Dal isimlendirmeleri:** `<rol>/<kısa-konu>` formatında olmalıdır.
+* *Örnekler:* `b1/api-skeleton`, `w2/demo-login`, `d1/audio-upload`
+
+
+## Commit Mesajları
+
+Commit mesajlarınız `tür: kısa açıklama` formatında olmalıdır. Kullanabileceğiniz türler şunlardır:
+
+* `feat`: Yeni bir özellik
+* `fix`: Hata (bug) düzeltmesi
+* `docs`: Dokümantasyon değişiklikleri
+* `test`: Test eklemeleri veya güncellemeleri
+* `chore`: Derleme süreçleri, paket güncellemeleri gibi rutin işler
+
+## Kod İnceleme Süreci
+
+* Her Pull Request en az bir kişi tarafından okunur ve incelenir.
+* Sadece kodun "çalışıyor" olması yeterli değildir; yazdığınız kodun **neden ve nasıl çalıştığını** tam olarak bilmelisiniz.
+
+## API ve Şemalar
+
+* API veri yapıları (payload) için **tek otorite** `docs/api-contract.md` ve `ai/schema.json` dosyalarıdır.
+* Kendi inisiyatifinizle yeni uç noktalar (endpoint) veya veri alanları uydurmayın.
+* Bu kaynak dosyalarda bir değişiklik yapılması gerekiyorsa, bu değişikliğin mutlaka **entegratör** ve **kod inceleyicisi (reviewer)** tarafından onaylanması şarttır.
+
+## Güvenlik ve Gizlilik
+
+* API anahtarlarını, token'ları, Wi-Fi şifrelerini veya gerçek katılımcı verilerini **asla** commitlemeyin.
+* Hassas ayarlar için git tarafından yoksayılan `.env` dosyasını kullanın ve örnek şablonları `.env.example` dosyasında tutun.
+* Gizli anahtarları, şifreleri veya gerçek kullanıcı verilerini ChatGPT vb. **yapay zeka (AI) araçlarına yapıştırmayın**.
+
+## Lisanslar
+
+* Projeye dışarıdan eklediğiniz her kütüphanenin, fontun, ikonun veya kod parçasının (snippet) lisansını mutlaka kontrol edin.
+
+## Sürüm Takvimi
+
+* **`main` dalı her zaman hatasız çalışmalıdır.**
+* Özellik dondurma (Feature Freeze) tarihi olan **19 Ekim 2026** sonrasında projeye yeni özellik eklenmeyecektir. Bu tarihten sonra yalnızca hata düzeltmeleri (bug fix), güvenlik yamaları, testler ve dokümantasyon güncellemeleri kabul edilecektir.
+
+
+
+
+
+
 # Contributing
 
 - `main` is protected: work on a branch and open a pull request.
