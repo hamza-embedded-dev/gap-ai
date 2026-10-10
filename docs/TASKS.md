@@ -3,16 +3,23 @@
 Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 30 Ekim 2026, 20:00 (Türkiye saati).** Hedef gönderim günü: **29 Ekim**. Demo, jüri dönemi bitene kadar (15 Aralık) ayakta kalmalıdır.
 
 
-## Takımlar
+## Takımlar ve sorumlular
 
-| Takım | Üyeler | Sorumluluk |
-|---|---|---|
-| Donanım Ekibi | Ahmet ve Eren | ESP32 cihazı, ses kaydı, butonlar, ekran ve donanım çekimleri |
-| Backend ve AI Pilotları | Hamza Fatih, Ülkü Sena, Ece Ulvi, Ahmet Zeren ve Burak Varol | FastAPI, Whisper ve Nemotron entegrasyonu, analiz motoru, Nebius dağıtımı |
-| Web UI Ekibi | Sevde Betül ve Taylan | Web uygulaması, tasarım, Capacitor ile mobil uygulama, yayına alma |
-| Veri ve Test | Mustafa Kerem | Supabase şeması, demo verisi, testler ve ölçümler |
-| Hikaye ve Sunum | Ahmet ve Hamza | Hikaye, demo videosu, Devpost metinleri, görseller |
-| Entegrasyon | Hamza Yüksel | Repo, ortak sözleşmeler, uçtan uca test, README ve gönderim |
+| Kod | Sorumlu | Ekip | Ana teslim |
+|---|---|---|---|
+| B1 | Hamza Fatih | Backend/AI | FastAPI iskeleti ve plan API uçları |
+| B2 | Ülkü Sena | Backend/AI | Nemotron entegrasyonu ve plan çıkarma |
+| B3 | Ece Ulvi | Backend/AI | Supabase bağlantısı ve plan/sonuç kayıtları |
+| B4 | Ahmet Zeren | Backend/AI ve Donanım | Backend-donanım entegrasyonu ve cihaz sonuç bildirimi |
+| B5 | Burak Varol | Backend/AI | Whisper ses tanıma entegrasyonu ve hata yönetimi |
+| W1 | Taylan | Web | Plan oluşturma, plan listesi ve sonuç bildirme arayüzü |
+| W2 | Sevde Betül | Web | Analiz/öneri arayüzü ve web dağıtımı |
+| D1 | Ahmet Zeren | Donanım | ESP32 butonları, ekranı ve API bağlantısı |
+| D2 | Eren | Donanım | Mikrofon, ses kaydı ve ses yükleme |
+| V1 | Mustafa Kerem | Veri/Test | Demo verisi, test senaryoları ve hata raporları |
+| E | Hamza Yüksel | Entegrasyon | API sözleşmesi, bağımlılıklar, PR inceleme ve teslim koordinasyonu |
+
+**Kişi sayımı:** Ahmet Zeren hem B4 hem D1 görevini yürütür; tek kişi sayılır.
 
 ## Alınacak kararlar (ilk hafta)
 
