@@ -1,0 +1,299 @@
+from __future__ import annotations
+
+import threading
+import hashlib
+import json
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from uuid import uuid4
+
+import pytest
+import httpx
+from pydantic import ValidationError
+
+from app.api.errors import APIError
+from app.api.plans import PlanCreateRequest, canonical_request_hash, create_plan
+from app.db.plans import AuthenticatedUser, SupabasePlanStore
+
+
+def _valid_plan(**changes: object) -> dict[str, object]:
+    plan: dict[str, object] = {
+        "intent": "create_plan",
+        "title": "Run",
+        "category": "sport",
+        "date": "2026-10-15",
+        "time": "18:30",
+        "duration_minutes": 60,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": None,
+        "confidence": 0.95,
+    }
+    plan.update(changes)
+    return plan
+
+
+class FakePlanStore:
+    def __init__(self) -> None:
+        self.plans: dict[str, dict[str, object]] = {}
+        self.requests: dict[tuple[str, str], dict[str, object]] = {}
+        self._lock = threading.Lock()
+        self.create_count = 0
+
+    def get_user_for_token_hash(self, token_hash: str):
+        raise AssertionError("Authentication is injected for these route unit tests.")
+
+    def create_plan(self, plan: dict[str, object]) -> dict[str, object]:
+        with self._lock:
+            self.create_count += 1
+            snapshot = self._snapshot(plan)
+            self.plans[snapshot["id"]] = snapshot
+            return snapshot
+
+    def create_plan_idempotently(
+        self,
+        *,
+        user_id: str,
+        idempotency_key: str,
+        request_hash: str,
+        plan: dict[str, object],
+    ):
+        with self._lock:
+            key = (user_id, idempotency_key)
+            existing = self.requests.get(key)
+            if existing is not None:
+                return existing["response_snapshot"], existing["request_hash"] != request_hash
+            self.create_count += 1
+            snapshot = self._snapshot(plan)
+            self.plans[snapshot["id"]] = snapshot
+            self.requests[key] = {
+                "request_hash": request_hash,
+                "response_snapshot": snapshot,
+                "plan_id": snapshot["id"],
+            }
+            return snapshot, False
+
+    def delete_plan(self, user_id: str, idempotency_key: str) -> None:
+        record = self.requests[(user_id, idempotency_key)]
+        self.plans.pop(record["plan_id"], None)
+        record["plan_id"] = None
+
+    def _snapshot(self, plan: dict[str, object]) -> dict[str, object]:
+        return {
+            "id": str(uuid4()),
+            "title": plan["title"],
+            "category": plan["category"],
+            "planned_start": plan["planned_start"],
+            "planned_end": plan["planned_end"],
+            "recurrence_rule": plan["recurrence_rule"],
+            "source": plan["source"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "latest_outcome": None,
+        }
+
+
+@pytest.fixture
+def store_and_users() -> tuple[FakePlanStore, AuthenticatedUser, AuthenticatedUser]:
+    return (
+        FakePlanStore(),
+        AuthenticatedUser("user-one", "Europe/Istanbul", False, None),
+        AuthenticatedUser("user-two", "Europe/Istanbul", False, None),
+    )
+
+
+def _call(
+    store: FakePlanStore,
+    user: AuthenticatedUser,
+    payload: dict[str, object],
+    key: str | None = None,
+) -> dict[str, object]:
+    return create_plan(
+        PlanCreateRequest.model_validate(payload),
+        user,
+        store,
+        key,
+    )
+
+
+def test_first_idempotent_request_creates_plan_and_stores_snapshot(store_and_users) -> None:
+    store, user, _ = store_and_users
+    response = _call(store, user, {"parsed_plan": _valid_plan(), "source": "text"}, "once")
+
+    assert response["latest_outcome"] is None
+    record = store.requests[(user.id, "once")]
+    assert record["response_snapshot"] == response
+    assert store.create_count == 1
+
+
+def test_request_hash_uses_canonical_utf8_json_and_sha256() -> None:
+    request = PlanCreateRequest.model_validate(
+        {"parsed_plan": _valid_plan(), "source": "text"}
+    )
+    canonical = json.dumps(
+        request.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    assert canonical_request_hash(request) == hashlib.sha256(canonical).hexdigest()
+
+
+def test_unknown_request_field_is_rejected_before_idempotency_hashing() -> None:
+    payload = {"parsed_plan": _valid_plan(), "source": "text", "unexpected": "value"}
+
+    with pytest.raises(ValidationError):
+        PlanCreateRequest.model_validate(payload)
+
+
+def test_same_key_and_payload_replays_stored_response(store_and_users) -> None:
+    store, user, _ = store_and_users
+    payload = {"parsed_plan": _valid_plan(), "source": "text"}
+
+    first = _call(store, user, payload, "once")
+    second = _call(store, user, payload, "once")
+
+    assert second == first
+    assert store.create_count == 1
+
+
+def test_changed_payload_with_existing_key_returns_contract_422(store_and_users) -> None:
+    store, user, _ = store_and_users
+    _call(store, user, {"parsed_plan": _valid_plan(), "source": "text"}, "once")
+
+    with pytest.raises(APIError) as error:
+        _call(store, user, {"parsed_plan": _valid_plan(title="Study"), "source": "text"}, "once")
+
+    assert error.value.status_code == 422
+    assert error.value.error == "validation_error"
+    assert store.create_count == 1
+
+
+def test_impossible_calendar_date_returns_contract_422_without_creating_plan(store_and_users) -> None:
+    store, user, _ = store_and_users
+    payload = {"parsed_plan": _valid_plan(date="2026-02-31"), "source": "text"}
+
+    with pytest.raises(APIError) as error:
+        _call(store, user, payload, "invalid-date")
+
+    assert error.value.status_code == 422
+    assert error.value.error == "validation_error"
+    assert store.create_count == 0
+
+
+def test_empty_title_allowed_by_contract_and_database_schema(store_and_users) -> None:
+    store, user, _ = store_and_users
+
+    response = _call(store, user, {"parsed_plan": _valid_plan(title=""), "source": "text"})
+
+    assert response["title"] == ""
+
+
+def test_same_key_is_independent_between_users(store_and_users) -> None:
+    store, user_one, user_two = store_and_users
+    payload = {"parsed_plan": _valid_plan(), "source": "text"}
+
+    first = _call(store, user_one, payload, "shared-key")
+    second = _call(store, user_two, payload, "shared-key")
+
+    assert first["id"] != second["id"]
+    assert store.create_count == 2
+
+
+def test_concurrent_same_key_requests_create_only_one_plan(store_and_users) -> None:
+    store, user, _ = store_and_users
+    payload = {"parsed_plan": _valid_plan(), "source": "text"}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(lambda _: _call(store, user, payload, "racing-key"), range(8)))
+
+    assert len({response["id"] for response in responses}) == 1
+    assert store.create_count == 1
+
+
+def test_supabase_rpc_retries_transaction_conflict_then_uses_snapshot() -> None:
+    calls = 0
+    snapshot = {"id": "original-plan"}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(409, json={"code": "40001"}, request=request)
+        return httpx.Response(
+            200,
+            json={"conflict": False, "response_snapshot": snapshot},
+            request=request,
+        )
+
+    store = SupabasePlanStore("https://example.invalid", "test-service-key")
+    store._client.close()
+    store._client = httpx.Client(transport=httpx.MockTransport(respond))
+    try:
+        result, conflict = store.create_plan_idempotently(
+            user_id="user-one",
+            idempotency_key="same-key",
+            request_hash="request-hash",
+            plan={
+                "title": "Run",
+                "category": "sport",
+                "planned_start": "2026-10-15T18:30:00+03:00",
+                "planned_end": "2026-10-15T19:30:00+03:00",
+                "recurrence_rule": None,
+                "source": "text",
+            },
+        )
+    finally:
+        store._client.close()
+
+    assert calls == 2
+    assert result == snapshot
+    assert conflict is False
+
+
+def test_replay_after_plan_deletion_keeps_original_snapshot(store_and_users) -> None:
+    store, user, _ = store_and_users
+    payload = {"parsed_plan": _valid_plan(), "source": "text"}
+    first = _call(store, user, payload, "deleted-plan")
+    store.delete_plan(user.id, "deleted-plan")
+
+    replay = _call(store, user, payload, "deleted-plan")
+
+    assert replay == first
+    assert store.requests[(user.id, "deleted-plan")]["plan_id"] is None
+    assert store.create_count == 1
+
+
+def test_missing_idempotency_key_preserves_regular_create_behavior(store_and_users) -> None:
+    store, user, _ = store_and_users
+    payload = {"parsed_plan": _valid_plan(), "source": "text"}
+
+    first = _call(store, user, payload)
+    second = _call(store, user, payload)
+
+    assert first["id"] != second["id"]
+    assert store.requests == {}
+    assert store.create_count == 2
+
+
+@pytest.mark.parametrize("intent", ["clarify", "unsupported"])
+def test_non_create_intents_are_rejected(store_and_users, intent: str) -> None:
+    store, user, _ = store_and_users
+    parsed = _valid_plan(
+        intent=intent,
+        title=None,
+        category=None,
+        date=None,
+        time=None,
+        duration_minutes=None,
+        recurrence=None,
+        clarification_question="Which day?" if intent == "clarify" else None,
+    )
+
+    with pytest.raises(APIError) as error:
+        _call(store, user, {"parsed_plan": parsed, "source": "text"}, "not-created")
+
+    assert error.value.status_code == 422
+    assert error.value.error == "validation_error"
+    assert store.create_count == 0
