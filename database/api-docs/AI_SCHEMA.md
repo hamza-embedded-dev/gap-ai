@@ -1,6 +1,8 @@
 # GAP: Yapay Zekâ Servisleri Entegrasyon Şeması (AI_SCHEMA)
 
-Bu belge; Nebius Serverless üzerinde çalışan FastAPI orkestratörünün **Groq Cloud (Whisper STT & TTS)** ve **Nebius Token Factory (NVIDIA Nemotron LLM)** ile olan doğrudan iletişimini, API uç noktalarını, parametrelerini, prompt yapısını ve `ai/schema.json` uyumunu eksiksiz olarak tanımlar.
+> **Tarihsel teknik not — etkin sözleşme değildir.** Bu belge eski entegrasyon taslağıdır; endpoint ve payload sözleşmeleri için [docs/api-contract.md](../../docs/api-contract.md), AI çıktısı için [ai/schema.json](../../ai/schema.json), güncel kararlar için [docs/decisions.md](../../docs/decisions.md) kullanılmalıdır. TTS bölümü yalnızca tarihsel bir entegrasyon önerisidir; TTS MVP için isteğe bağlıdır.
+
+Bu belge, önceki bir entegrasyon taslağını korur. İçindeki endpoint, yanıt ve sağlayıcı ayrıntıları güncel uygulama gereksinimi olarak yorumlanmamalıdır.
 
 ---
 

@@ -2,7 +2,11 @@
 
 > It doesn't just remember your life. It understands it and acts on it.
 
-GAP is a Personal AI assistant that compares what you planned with what you actually did, learns behavioral patterns, and turns those patterns into practical suggestions.
+GAP is a personal AI assistant project intended to compare what a user planned with what they did, identify behavioral patterns, and turn those patterns into practical suggestions.
+
+## Implementation status
+
+This repository currently contains project documentation, the shared API contract and AI schema, and a mock FastAPI prototype. The production backend, database migrations, React/PWA client, and ESP32 firmware are not yet present. The flow below describes the intended product, not a completed implementation. Text responses are required; text-to-speech (TTS) is optional for the MVP.
 
 ## Core flow
 
@@ -20,7 +24,7 @@ Text or voice input
 - PostgreSQL / Supabase
 - React / PWA
 - NVIDIA Nemotron through Nebius Token Factory
-- Weather tool
+- Weather-based suggestions (MVP target)
 - Optional ESP32 experience
 
 ## Repository structure

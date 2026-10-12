@@ -1,8 +1,8 @@
 # GAP: FastAPI Merkez Sunucu Sözleşmesi (FastAPI_SCHEMA)
 
-Bu belge; Nebius Serverless üzerinde çalışan **FastAPI** merkez sunucusunun **ESP32 Donanımı** ve **Supabase Kalıcı Veritabanı** ile olan tüm iletişimini, veri modellerini ve istek/yanıt sözleşmelerini eksiksiz ve öz (concise) olarak tanımlar.
+> **Tarihsel teknik not — etkin sözleşme değildir.** Bu belge eski API taslağıdır. Geçerli endpoint ve payload'lar için [docs/api-contract.md](../../docs/api-contract.md), AI çıktısı için [ai/schema.json](../../ai/schema.json), alınan kararlar için [docs/decisions.md](../../docs/decisions.md) kullanılmalıdır. Buradaki ikili ses yanıtı ve zorunlu TTS açıklamaları geçerli değildir; TTS MVP için isteğe bağlıdır.
 
-> **Not:** Groq (Whisper STT / TTS) ve Nemotron API (LLM) servislerinin iç prompt ve çağrı parametreleri [`docs/AI_SCHEMA.md`](file:///home/ahmet/Desktop/tmp/gap-ai/docs/AI_SCHEMA.md) dosyasında tanımlanmıştır.
+Bu belge önceki bir donanım entegrasyonu taslağını korur. İçindeki endpoint, yanıt ve sağlayıcı ayrıntıları güncel uygulama gereksinimi olarak yorumlanmamalıdır.
 
 ---
 

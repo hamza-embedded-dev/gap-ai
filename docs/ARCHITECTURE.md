@@ -2,17 +2,19 @@
 
 *Bu belge, GAP sisteminin bileşenlerini, veri akışını ve Nebius/NVIDIA altyapısı, Groq ses tanıma hizmeti ve barındırma yaklaşımını anlatır.*
 
+> **Hedef mimari:** Bu belge tasarlanan sistemi açıklar; bileşenlerin tamamının depoda uygulanmış olduğu anlamına gelmez. Ortak API için `docs/api-contract.md`, AI çıktısı için `ai/schema.json`, alınan kararlar için `docs/decisions.md` geçerlidir. Web istemcisi React'tir. Ses mono PCM/WAV, 16 kHz, 16-bit ve en fazla 10 saniyedir. TTS, MVP için isteğe bağlıdır.
+
 ## 1. Genel Mimari Şeması
 
 ```mermaid
 flowchart TD
     subgraph K["Kullanıcı Katmanı"]
-        W["Web Uygulaması<br/>React / Svelte vb. + Capacitor"]
+        W["Web Uygulaması<br/>React / PWA + Capacitor"]
         E["ESP32 Donanım<br/>Mikrofon, Buton, Ekran"]
     end
 
     subgraph N["Nebius Yapay Zekâ Bulutu (Sunucusuz)"]
-        B["FastAPI Sunucusu<br/>Akış Yöneticisi & İş Mantığı<br/>7/24 çalışan kod"]
+        B["FastAPI Sunucusu<br/>İstek işleme ve iş mantığı<br/>Sunucusuz çalıştırma hedefi"]
         A["Analiz Motoru<br/>Python (Gap İstatistikleri)"]
     end
 
@@ -48,18 +50,18 @@ flowchart TD
 
 Bu katman yalnızca veri toplar ve gösterir; iş mantığı içermez.
 
-- **Web Uygulaması:** React, Svelte gibi bir web çatısıyla yazılır (seçim takıma bağlı), Capacitor ile Android ve iOS uygulamasına paketlenir. Kullanıcıdan yazılı girdi ya da mikrofonla sesli girdi (Blob biçiminde) alır. Analiz grafiklerini gösterir.
-- **ESP32:** I2S mikrofonla sesi 16 kHz WAV olarak kaydeder ve HTTPS üzerinden doğrudan FastAPI'ye gönderir. Fiziksel butonlarla (yapıldı, ertelendi, atlandı) planın durumunu bildirir.
+- **Web Uygulaması:** React ile geliştirilmesi kararlaştırılmıştır. Kullanıcıdan yazılı girdi ya da mikrofonla sesli girdi alır ve analizleri gösterir. Capacitor ile mobil paketleme bir proje hedefidir.
+- **ESP32:** I2S mikrofonla mono PCM/WAV, 16 kHz, 16-bit ses kaydeder; kayıt en fazla 10 saniyedir. Kaydı HTTPS üzerinden FastAPI'ye gönderir. Fiziksel butonlarla (yapıldı, ertelendi, atlandı) planın durumunu bildirir.
 
 ### 2.2 Sunucu Katmanı (FastAPI)
 
-Sistemin beyni ve trafik yöneticisidir. FastAPI uygulaması Docker konteyneri olarak paketlenir; API sunucusunun sürekli açık kalacağı varsayılmaz.
+Sistemin istek yöneticisi ve iş mantığı katmanıdır. FastAPI uygulamasının Docker konteyneri olarak paketlenmesi hedeflenir; API sunucusunun sürekli açık kalacağı varsayılmaz.
 
 - **API Geçidi:** İstemcilerden gelen HTTP(S) isteklerini (/parse, /voice, /plans/{id}/outcome) karşılar.
 - **Akış Yöneticisi:** Gelen sesi önce konuşma tanımaya (Whisper) gönderir, ardından Uzun Süreli Hafızadaki geçmiş davranışlarla birleştirip dil modeline (LLM) iletir.
 - **GAP Analiz Motoru:** Yapay zekânın yapmaması gereken matematiksel hesapları (uyum yüzdesi, hangi gün ve saatlerde erteleme yapıldığı, gecikme süresi) yapar.
 - **Zamanlanmış Görevler:** Zamanlayıcı işleri API sunucusundan ayrı zamanlanmış görevler olarak çalışır.
-- **Geçici Veri Depolama:** Nebius tarafında bellek/önbellekte tutulur: oturum bilgisi, ses ve metin ara sonuçları, sık kullanılan istatistiklerin önbelleği. Sunucu yeniden başlarsa silinebilir; bu yüzden kalıcı hiçbir veri burada tutulmaz.
+- **Geçici Veri:** İstek sırasında gereken ses ve metin ara sonuçları bellekte tutulabilir. Kalıcı kullanıcı ve plan verileri Supabase/PostgreSQL'de saklanır; sunucu belleği kalıcı depolama değildir.
 
 ### 2.3 Yapay Zekâ Katmanı (Groq ve Nebius Token Factory)
 
