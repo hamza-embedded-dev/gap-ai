@@ -185,7 +185,7 @@ Plan oluşturulduğunda yanıt, transkriptin ve "ParsedPlan" sonucunun yanında 
 
 "POST /plans"
 
-Doğrulanmış ve kullanıcı tarafından onaylanmış bir planı kaydeder. Backend "planned_start" ve "planned_end" değerlerini "date", "time", "duration_minutes" (varsayılan 60 dakika) ve kullanıcının saat diliminden oluşturur.
+Doğrulanmış ve kullanıcı tarafından onaylanmış bir planı kaydeder. `parsed_plan`, `ai/schema.json` dosyasına uygun olmalıdır; bu nedenle `duration_minutes` alanı istekte bulunmalıdır. Değeri `null` ise backend 60 dakikalık varsayılan süreyi kullanır. Alanın atlanması `422 validation_error` ile reddedilir. Backend `planned_start` ve `planned_end` değerlerini `date`, `time`, süre ve kullanıcının saat diliminden oluşturur.
 
 İstek:
 
