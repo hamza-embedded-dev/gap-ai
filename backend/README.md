@@ -19,4 +19,4 @@ From this directory:
 uv run --extra dev pytest
 ```
 
-Production configuration fails closed: set `ENVIRONMENT=production` and provide a `TOKEN_HASH_PEPPER` containing at least 32 characters. No secret has a fallback value. Provider/database settings are intentionally not validated until those integrations are implemented.
+The `/plans` endpoint uses the configured Supabase PostgREST API. Set `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and `TOKEN_HASH_PEPPER`; production requires the pepper to contain at least 32 characters. The idempotent create path calls `create_plan_idempotently` from `../database/migrations/20261013_001_gate1_core.sql`, which must be installed in PostgreSQL 15 or newer. Tests use an in-memory store and do not require Supabase credentials. The migration has not been executed or validated against PostgreSQL; the backend test suite does not execute SQL.

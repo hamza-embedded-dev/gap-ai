@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     token_hash_pepper: SecretStr | None = Field(
         default=None, validation_alias="TOKEN_HASH_PEPPER"
     )
+    supabase_url: str | None = Field(default=None, validation_alias="SUPABASE_URL")
+    supabase_service_key: SecretStr | None = Field(
+        default=None, validation_alias="SUPABASE_SERVICE_KEY"
+    )
 
     @model_validator(mode="after")
     def require_production_pepper(self) -> "Settings":
