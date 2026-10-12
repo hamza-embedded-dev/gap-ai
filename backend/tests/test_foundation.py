@@ -4,10 +4,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi import FastAPI, HTTPException as StarletteHTTPException
+from fastapi import FastAPI
 from pydantic import ValidationError
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import trio
 
 from app.api.errors import (
@@ -21,6 +22,7 @@ from app.api.errors import (
     request_validation_response,
 )
 from app.config import Settings
+from app.main import app as api_app
 from app.schemas.parsed_plan import ParsedPlan, SCHEMA_PATH
 
 
@@ -182,8 +184,7 @@ def test_request_validation_uses_contract_error_shape() -> None:
     reason="Windows socket-pair initialization is blocked in this sandbox; covered by Linux CI",
 )
 def test_asgi_404_uses_contract_error_shape() -> None:
-    app = _asgi_test_app()
-    response = _run_asgi_request(app, "GET", "/missing")
+    response = _run_asgi_request(api_app, "GET", "/missing")
     assert response.status_code == 404
     assert response.json() == {"error": "not_found", "message": "Not Found"}
 

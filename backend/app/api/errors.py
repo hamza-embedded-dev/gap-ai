@@ -1,8 +1,9 @@
 from collections.abc import Mapping
 
-from fastapi import FastAPI, HTTPException as StarletteHTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 CONTRACT_ERRORS_BY_STATUS = {
     401: "unauthorized",
