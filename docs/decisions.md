@@ -47,3 +47,11 @@ Ayrıntılı dahili plan ve görev panosu Türkçe tutulur ve herkese açık dep
 - Ortak API hata kodları: `413 payload_too_large`, `422 validation_error`, `502 parse_failed` ve `503 llm_unavailable`.
 
 D-009 kararlarıyla çelişen API sözleşmesi, AI şeması, veritabanı şeması ve mimari belgeler güncellenmelidir.
+
+## D-010 (2026-10-12) Gate 1 kimlik doğrulama ve saat dilimi davranışı
+
+- `POST /parse` geçerli bir Bearer token gerektirir; backend D-001 uyarınca kullanıcıyı token üzerinden belirler.
+- Tarih ve saat yorumlamasında kimliği doğrulanmış kullanıcının kayıtlı saat dilimi tek otoritedir. İstek `timezone` alanı içeriyorsa kayıtlı saat dilimiyle aynı olmalıdır; farklıysa mevcut `422 validation_error` döndürülür. Alan yoksa kayıtlı saat dilimi kullanılır.
+- `POST /plans`, D-006 uyarınca `planned_start` ve `planned_end` değerlerini kullanıcının kayıtlı saat diliminden türetir.
+- D-003 kapsamındaki demo kullanıcısının varsayılan saat dilimi `Europe/Istanbul`'dur.
+- `GET /insights`, uygun ve sonuç bildirilmiş plan yoksa `adherence_pct` için `null` döndürür.

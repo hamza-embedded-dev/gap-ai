@@ -33,7 +33,7 @@ Kimlik doğrulama
 - Kimlik doğrulaması gereken isteklerde "Authorization: Bearer <token>" kullanılır.
 - Tokenlar uzun ve tahmin edilemez olmalıdır. Veritabanında yalnızca token özeti (hash) saklanır. Ham tokenlar loglanmaz.
 - İlk giriş bağlantısındaki "?t=<token>" değeri web istemcisi tarafından bir kez okunur ve "history.replaceState" ile adres çubuğundan kaldırılır. Sonraki isteklerde Bearer başlığı kullanılır. Token tek kullanımlık değildir; iptal edilene kadar geçerlidir.
-- Demo erişimi ayrıdır: "POST /demo/session", izole ve geçici bir demo kullanıcısı için token döndürür.
+- Demo erişimi ayrıdır: "POST /demo/session", izole ve geçici bir demo kullanıcısı için token döndürür. Demo kullanıcısının varsayılan saat dilimi "Europe/Istanbul"'dur.
 - Her sorgu, kimliği doğrulanmış kullanıcının verileriyle sınırlandırılır. Yetkilendirme backend tarafından yapılır.
 
 Ortak nesneler
@@ -144,7 +144,7 @@ Her iki alan da isteğe bağlıdır. Yanıt güncellenmiş profildir.
 
 "POST /parse"
 
-Doğal dildeki metni doğrulanmış bir "ParsedPlan" nesnesine dönüştürür. Veritabanına yazmaz. Web akışında plan, kullanıcı onayından sonra "POST /plans" ile kaydedilir.
+Geçerli bir "Authorization: Bearer <token>" gerektirir. Doğal dildeki metni doğrulanmış bir "ParsedPlan" nesnesine dönüştürür. Veritabanına yazmaz. Web akışında plan, kullanıcı onayından sonra "POST /plans" ile kaydedilir.
 
 İstek:
 
@@ -155,7 +155,7 @@ Doğal dildeki metni doğrulanmış bir "ParsedPlan" nesnesine dönüştürür. 
   "timezone": "Europe/Istanbul"
 }
 
-"language" isteğe bağlıdır. Web'deki ses girdisinin transkripti de metin olarak bu endpoint'e gönderilebilir.
+"language" ve "timezone" isteğe bağlıdır. Tarih ve saat yorumlamasında backend, doğrulanmış kullanıcının kayıtlı saat dilimini kullanır. İstek "timezone" alanı içeriyorsa bu değer kullanıcının kayıtlı saat dilimiyle eşleşmelidir; farklıysa mevcut "422 validation_error" döndürülür. Alan gönderilmezse kayıtlı saat dilimi kullanılır. Web'deki ses girdisinin transkripti de metin olarak bu endpoint'e gönderilebilir.
 
 Yanıt, "ai/schema.json" dosyasındaki "ParsedPlan" biçimindedir. "intent" değeri "clarify" ise istemci "clarification_question" alanını gösterir ve plan oluşturmaz.
 
@@ -320,7 +320,7 @@ Yanıt:
   "data_label": "real"
 }
 
-"adherence_pct", bitiş zamanı geçmiş ve sonucu bildirilmiş planlarda "done / (done + postponed + skipped)" oranıdır. Sonucu olmayan geçmiş planlar "unreported" sayılır ve paydadan çıkarılır. Planın son sonuç olayı uyum hesabında kullanılır; tüm "postponed" olayları örüntü analizine dahil edilir. "narrative" boş veya "null" olabilir. "data_label": "real" | "demo".
+"adherence_pct", bitiş zamanı geçmiş ve sonucu bildirilmiş planlarda "done / (done + postponed + skipped)" oranıdır. Sonucu olmayan geçmiş planlar "unreported" sayılır ve paydadan çıkarılır. Planın son sonuç olayı uyum hesabında kullanılır; tüm "postponed" olayları örüntü analizine dahil edilir. Uygun ve sonuç bildirilmiş plan yoksa "adherence_pct" değeri "null" olur. "narrative" boş veya "null" olabilir. "data_label": "real" | "demo".
 
 "GET /me/upcoming"
 
