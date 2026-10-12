@@ -25,7 +25,7 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 
 | Karar | Sorumlu | Son tarih |
 |---|---|---|
-| Web arayüz çatısı (React, Svelte, Vue) | Web UI | 8 Eki (toplantıda) |
+| Web arayüz çatısı: React (D-009) | Web UI | 10 Eki (karar kaydı) |
 | Ses biçimi ve en uzun kayıt süresi (WAV 16 kHz, kısa kayıt) | Donanım + Backend | 8 Eki (toplantıda) |
 | Buton eşlemesi (kısa, çift, uzun basış) | Donanım + Backend | 8 Eki (toplantıda) |
 | Kullanıcı girişi (Supabase Auth, demo hesabı, cihaz tokenı) | Backend + Web UI | 8 Eki (toplantıda) |
@@ -38,8 +38,8 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 |---|---|---|
 | 8-10 Eki | Temel kurulum | Repo, API sözleşmesi, Supabase şeması hazır; ESP32 Wi-Fi bağlı; ortak kararlar verildi |
 | 14 Eki | İlk uçtan uca akış | ESP32 veya web sesi → FastAPI → Whisper → metin döner |
-| 20 Eki | Çekirdek özellikler | Akış A ve B tamam: plan kaydı, buton → sonuç → analiz → öneri web'de görünür; Nebius'ta yayında |
-| 26 Eki | Kod dondurma | Yeni özellik yok, yalnızca hata düzeltme; testler yeşil; v1.0 etiketi |
+| 19 Eki öncesi | Çekirdek özellikler | Akış A ve B tamam: plan kaydı, buton → sonuç → analiz → öneri web'de görünür; Nebius'ta yayında (PLAN.md feature-freeze hedefi) |
+| 19 Eki | Özellik dondurma | Yeni özellik yok; yalnızca hata düzeltme, güvenlik, test ve dokümantasyon (CONTRIBUTING.md ve PLAN.md) |
 | 27-28 Eki | Video ve belgeler | Demo videosu YouTube'da; README ve Devpost metni hazır |
 | 29 Eki | Gönderim | Devpost'a gönderildi (yedek gün 30 Eki; son saat 20:00 Türkiye saati) |
 | 30 Eki - 15 Ara | Demo canlı kalır | Sunucu ve kredi takibi; jüri erişimi kesintisiz |
@@ -57,7 +57,7 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 **Sorumluluk:** ESP32 cihazı, ses kaydı, butonlar, ekran ve donanım çekimleri
 
 - [ ] ESP32 geliştirme ortamını kur (Arduino IDE veya ESP-IDF); Wi-Fi ve HTTPS bağlantısını test et. **Son tarih: 10 Eki**
-- [ ] I2S mikrofonu bağla; 16 kHz WAV kaydı al, kayıt süresini sınırla (ör. en fazla 15 sn). **Son tarih: 11 Eki**
+- [ ] I2S mikrofonu bağla; mono PCM/WAV, 16 kHz, 16-bit kayıt al ve süreyi en fazla 10 saniyeyle sınırla. **Son tarih: 11 Eki**
 - [ ] Kaydı HTTPS ile FastAPI aracılığı ile ses serverine yolla; yanıtı (başarılı/hata) cihazda göster. **Son tarih: 17 Eki**
 - [ ] Üç buton: kısa basış yapıldı, çift basış ertelendi, uzun basış atlandı; POST /plans/{id}/outcome. **Son tarih: 18 Eki**
 - [ ] Ekran: sıradaki plan, kayıt durumu, bağlantı durumu. **Son tarih: 22 Eki**
@@ -90,7 +90,7 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 **Üyeler:** Sevde Betül ve Taylan  
 **Sorumluluk:** Web uygulaması, tasarım, Capacitor ile mobil uygulama, yayına alma
 
-- [ ] Arayüz çatısını seç (React, Svelte, Vue). **Son tarih: 8 Eki (toplantıda)**
+- [ ] D-009 kararına göre React arayüz temelini kur. **Son tarih: belirlenmedi**
 - [ ] Tasarım dili: renkler, tipografi, bileşenler; ana ekranların taslağı ve ilk versiyon. **Son tarih: 11 Eki**
 - [ ] Yazılı giriş + sesli kayıt ile uygulama üzerinden plan ekleme → (ses biçimini Backend ile netleştir). **Son tarih: 15 Eki**
 - [ ] Plan listesi ve bugün görünümü; yapıldı, ertelendi, atlandı butonları. **Son tarih: 17 Eki**
@@ -135,6 +135,6 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 - [ ] Ortak gizli anahtar yönetimi (Groq, Token Factory, Supabase); .env.example güncel. **Son tarih: 10 Eki**
 - [ ] Docker image'ının tamamen çalışır hale gelmesi. **Son tarih: 11 Eki**
 - [ ] README (İngilizce): kurulum, NVIDIA modelinin kullanımı, Token Factory hız kazancı, kullanılan Nebius servisleri kontrolü. **Son tarih: 26 Eki**
-- [ ] Kod dondurma ve v1.0 etiketi. **Son tarih: 26 Eki**
+- [ ] 19 Ekim özellik dondurmasına göre sürümü hazırlama. **Son tarih: 19 Eki**
 - [ ] Devpost'a gönderim (yedek gün 30 Eki). **Son tarih: 29 Eki**
 - [ ] Demo'nun 15 Aralık'a kadar ayakta kalması: izleme ve kredi kontrolü. **Son tarih: 30 Eki sonrası**
