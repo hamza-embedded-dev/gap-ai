@@ -1,5 +1,7 @@
 # GAP: Görev Listesi (TASKS)
 
+> **Güncel görev listesi (14–29 Ekim 2026):** [GOREVLER_14-29_EKIM.md](GOREVLER_14-29_EKIM.md). Aşağıdaki liste ilk planlamadır; tarih ve sorumlular için yeni dosya geçerlidir.
+
 Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 30 Ekim 2026, 20:00 (Türkiye saati).** Hedef gönderim günü: **29 Ekim**. Demo, jüri dönemi bitene kadar (15 Aralık) ayakta kalmalıdır.
 
 
@@ -65,7 +67,7 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 - [ ] Devreyi perf board gibi bir karta düzenli bir şekilde kurmak. **Son tarih: 25 Eki**
 - [ ] Kutu/kasa ve kablolama; demo masası düzeni. **Son tarih: 25 Eki**
 - [ ] Firmware kaynak kodu ve bağlantı şeması repoda; İngilizce kurulum notu. **Son tarih: 26 Eki**
-- [ ] Donanım çekimleri: en az 1 dakikalık net ESP32 görüntüsü (çekim planı Burak ile). **Son tarih: 27 Eki**
+- [ ] Donanım çekimleri: en az 1 dakikalık net ESP32 görüntüsü (çekim planı Hamza ve Ahmet ile). **Son tarih: 27 Eki**
 
 ## 2. Backend ve AI Pilotları
 
@@ -100,7 +102,7 @@ Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 3
 - [ ] Capacitor ile Android uygulaması (mikrofon izni dahil); iOS opsiyonel. **Son tarih: 25 Eki**
 - [ ] Yükleme, hata ve boş durumlar; mobil uyumluluk; tüm arayüz metinleri İngilizce. **Son tarih: 25 Eki**
 - [ ] Netlify ve Supabase'in birlikte çalıştığının doğrulanması ve testler. **Son tarih: 26 Eki**
-- [ ] Demo için ekran kayıtları ve görüntüleri (Burak'a teslim). **Son tarih: 27 Eki**
+- [ ] Demo için ekran kayıtları ve görüntüleri (Hamza ve Ahmet'e teslim). **Son tarih: 27 Eki**
 
 ## 4. Veri ve Test
 
