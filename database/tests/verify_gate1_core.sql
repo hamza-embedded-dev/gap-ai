@@ -148,7 +148,7 @@ BEGIN
   INSERT INTO public.plans (
     user_id, title, category, planned_start, planned_end, recurrence_rule, source
   ) VALUES (
-    v_user_id, 'Evening Walk', 'sport', now(), now() + interval '45 minutes', NULL, 'web'
+    v_user_id, 'Evening Walk', 'sport', now(), now() + interval '45 minutes', NULL, 'text'
   ) RETURNING id INTO v_plan_id;
 
   INSERT INTO public.outcomes (
