@@ -63,6 +63,18 @@ class TokenStore:
         self.requests[key] = (request_hash, snapshot)
         return snapshot, False
 
+    def create_demo_session(
+        self, *, token_hash: str, created_at: datetime, expires_at: datetime
+    ) -> AuthenticatedUser:
+        user = AuthenticatedUser(
+            id=str(uuid4()),
+            timezone="Europe/Istanbul",
+            is_demo=True,
+            demo_expires_at=expires_at.isoformat(),
+        )
+        self.tokens[token_hash] = (user, expires_at.isoformat())
+        return user
+
     def _snapshot(self, plan: dict[str, object]) -> dict[str, object]:
         self.created.append(plan)
         return {

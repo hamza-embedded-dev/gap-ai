@@ -1,8 +1,9 @@
 from functools import lru_cache
+import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,30 @@ class Settings(BaseSettings):
     supabase_service_key: SecretStr | None = Field(
         default=None, validation_alias="SUPABASE_SERVICE_KEY"
     )
+    allowed_origins: list[str] = Field(
+        default_factory=list, validation_alias="ALLOWED_ORIGINS"
+    )
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, value: Any) -> list[str]:
+        if not value:
+            return []
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            if value.startswith("[") and value.endswith("]"):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        if isinstance(value, (list, tuple, set)):
+            return [str(origin).strip() for origin in value if str(origin).strip()]
+        return []
 
     @model_validator(mode="after")
     def require_production_pepper(self) -> "Settings":

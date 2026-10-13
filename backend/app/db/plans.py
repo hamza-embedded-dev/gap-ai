@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from typing import Any, Protocol
 from urllib.parse import urljoin
@@ -33,6 +34,14 @@ class PlanStore(Protocol):
         request_hash: str,
         plan: dict[str, Any],
     ) -> tuple[dict[str, Any], bool]: ...
+
+    def create_demo_session(
+        self,
+        *,
+        token_hash: str,
+        created_at: datetime,
+        expires_at: datetime,
+    ) -> AuthenticatedUser: ...
 
 
 class SupabasePlanStore:
@@ -135,6 +144,53 @@ class SupabasePlanStore:
             return result["response_snapshot"], True
         return result["response_snapshot"], False
 
+    def create_demo_session(
+        self,
+        *,
+        token_hash: str,
+        created_at: datetime,
+        expires_at: datetime,
+    ) -> AuthenticatedUser:
+        created_iso = created_at.isoformat()
+        expires_iso = expires_at.isoformat()
+        user_response = self._client.post(
+            urljoin(self._rest_url, "users"),
+            params={"select": "id,timezone,is_demo,demo_expires_at"},
+            headers={"Prefer": "return=representation"},
+            json={
+                "display_name": "Demo User",
+                "timezone": "Europe/Istanbul",
+                "is_demo": True,
+                "created_at": created_iso,
+                "demo_expires_at": expires_iso,
+            },
+        )
+        user_response.raise_for_status()
+        users = user_response.json()
+        if not users:
+            raise RuntimeError("Failed to create demo user")
+        user = users[0]
+
+        token_response = self._client.post(
+            urljoin(self._rest_url, "access_tokens"),
+            params={"select": "id"},
+            headers={"Prefer": "return=representation"},
+            json={
+                "user_id": user["id"],
+                "token_hash": token_hash,
+                "created_at": created_iso,
+                "expires_at": user["demo_expires_at"],
+            },
+        )
+        token_response.raise_for_status()
+
+        return AuthenticatedUser(
+            id=user["id"],
+            timezone=user["timezone"],
+            is_demo=user["is_demo"],
+            demo_expires_at=user["demo_expires_at"],
+        )
+
 
 def _plan_response(row: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -188,6 +244,19 @@ class LazyPlanStore:
             idempotency_key=idempotency_key,
             request_hash=request_hash,
             plan=plan,
+        )
+
+    def create_demo_session(
+        self,
+        *,
+        token_hash: str,
+        created_at: datetime,
+        expires_at: datetime,
+    ) -> AuthenticatedUser:
+        return _build_plan_store().create_demo_session(
+            token_hash=token_hash,
+            created_at=created_at,
+            expires_at=expires_at,
         )
 
 
