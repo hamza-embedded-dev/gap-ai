@@ -18,3 +18,70 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
       - run: uv run --extra dev pytest
+
+  database-migration-test:
+    name: Core Database Migration (PostgreSQL 15)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: gap_ai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify database connectivity and error halting on failure
+        env:
+          PGPASSWORD: test_password
+        run: |
+          # 1. Prove database connection and authentication succeed:
+          psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -c \
+            "SELECT 1 AS connection_test;"
+
+          # 2. Prove deliberate SQL exception (not a connection/auth drop) causes failure:
+          set +e
+          OUTPUT=$(psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -c \
+            "DO \$\$ BEGIN RAISE EXCEPTION 'deliberate_test_failure'; END \$\$;" 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "Negative test failed: psql unexpectedly succeeded."
+            exit 1
+          fi
+
+          if ! echo "$OUTPUT" | grep -q "deliberate_test_failure"; then
+            echo "Negative test failed: expected 'deliberate_test_failure' in output, but got:"
+            echo "$OUTPUT"
+            exit 1
+          fi
+          echo "Verified: database is healthy and psql halted specifically due to 'deliberate_test_failure'."
+
+      - name: Bootstrap Supabase roles
+        env:
+          PGPASSWORD: test_password
+        run: |
+          psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -f database/tests/bootstrap_roles.sql
+
+      - name: Apply Gate 1 Core Migration
+        env:
+          PGPASSWORD: test_password
+        run: |
+          psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -f database/migrations/20261013_001_gate1_core.sql
+
+      - name: Run Schema and Behavioral Verification Tests
+        env:
+          PGPASSWORD: test_password
+        run: |
+          psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -f database/tests/verify_gate1_core.sql
+
