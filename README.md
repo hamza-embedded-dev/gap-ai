@@ -1,4 +1,4 @@
-# GAP #
+# GAP projesi #
 
 > It doesn't just remember your life. It understands it and acts on it.
 
