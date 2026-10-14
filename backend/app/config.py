@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +32,21 @@ class Settings(BaseSettings):
     )
     allowed_origins: list[str] = Field(
         default_factory=list, validation_alias="ALLOWED_ORIGINS"
+    )
+    nebius_api_key: SecretStr | None = Field(
+        default=None, validation_alias="NEBIUS_API_KEY"
+    )
+    nebius_base_url: str = Field(
+        default="https://api.tokenfactory.nebius.com/v1",
+        validation_alias="NEBIUS_BASE_URL",
+    )
+    nebius_model: str = Field(
+        default="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+        validation_alias=AliasChoices("NEBIUS_MODEL", "MODEL_SUPER"),
+    )
+    nebius_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="NEBIUS_TIMEOUT_SECONDS",
     )
 
     @field_validator("allowed_origins", mode="before")
