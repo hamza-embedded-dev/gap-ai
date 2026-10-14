@@ -1,0 +1,214 @@
+/**
+ * GAP-AI UI Components: Button
+ *
+ * Scoped styles for the shared Button component.
+ * Adheres strictly to design tokens defined in web/src/styles/tokens.css.
+ */
+
+/* ==========================================================================
+   Base Button Style
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  position: relative;
+  box-sizing: border-box;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  text-decoration: none;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+  transition: 
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+/* ==========================================================================
+   Focus & Active States (Accessibility)
+   ========================================================================== */
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* ==========================================================================
+   Disabled State
+   ========================================================================== */
+.btn:disabled,
+.btn[aria-disabled="true"],
+.btn-disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Variants
+   ========================================================================== */
+
+/* Primary Variant (Purple Brand) */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  background-color: var(--color-primary-active);
+  border-color: var(--color-primary-active);
+}
+
+/* Secondary Variant */
+.btn-secondary {
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-xs);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-bg-surface-hover);
+  border-color: var(--color-text-muted);
+}
+
+/* Outline Variant */
+.btn-outline {
+  background-color: transparent;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background-color: var(--color-primary-subtle);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-hover);
+}
+
+/* Ghost / Plain Variant */
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border-color: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--color-bg-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Danger / Delete Variant */
+.btn-danger {
+  background-color: var(--color-danger);
+  color: var(--color-text-inverse);
+  border-color: var(--color-danger);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--color-danger-hover);
+  border-color: var(--color-danger-hover);
+}
+
+.btn-danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.25);
+}
+
+/* ==========================================================================
+   Plan Outcome Action Variants (W1-3 / API Contract: done, postponed, skipped)
+   ========================================================================== */
+
+/* Done Action Button */
+.btn-done {
+  background-color: var(--color-status-done-bg);
+  color: var(--color-status-done-text);
+  border-color: var(--color-status-done-border);
+}
+
+.btn-done:hover:not(:disabled) {
+  background-color: var(--color-status-done);
+  color: var(--color-text-inverse);
+  border-color: var(--color-status-done);
+}
+
+/* Postponed Action Button */
+.btn-postponed {
+  background-color: var(--color-status-postponed-bg);
+  color: var(--color-status-postponed-text);
+  border-color: var(--color-status-postponed-border);
+}
+
+.btn-postponed:hover:not(:disabled) {
+  background-color: var(--color-status-postponed);
+  color: var(--color-text-inverse);
+  border-color: var(--color-status-postponed);
+}
+
+/* Skipped Action Button */
+.btn-skipped {
+  background-color: var(--color-status-skipped-bg);
+  color: var(--color-status-skipped-text);
+  border-color: var(--color-status-skipped-border);
+}
+
+.btn-skipped:hover:not(:disabled) {
+  background-color: var(--color-status-skipped);
+  color: var(--color-text-inverse);
+  border-color: var(--color-status-skipped);
+}
+
+/* ==========================================================================
+   Sizes
+   ========================================================================== */
+
+/* Small */
+.btn-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  gap: var(--space-1);
+}
+
+/* Medium (Default) */
+.btn-md {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
+}
+
+/* Large */
+.btn-lg {
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--font-size-base);
+  border-radius: var(--radius-lg);
+  gap: var(--space-3);
+}
+
+/* Full Width Block Button */
+.btn-block {
+  display: flex;
+  width: 100%;
+}

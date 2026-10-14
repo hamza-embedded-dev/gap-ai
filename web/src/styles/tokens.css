@@ -1,0 +1,231 @@
+/**
+ * GAP-AI Design Tokens
+ * 
+ * Central CSS Custom Properties (Design System Tokens)
+ * Theme: Light Theme (Primary: Purple / Violet)
+ * Scope: Web Application (W2-1)
+ *
+ * This file serves as the Single Source of Truth for colors, typography,
+ * spacing, radii, shadows, and status indicators across all UI components.
+ */
+
+:root {
+  /* ==========================================================================
+     1. Brand & Accent Colors (Purple / Violet Palette)
+     ========================================================================== */
+  --color-primary: #7c3aed;             /* Violet 600 - Main Brand Color (Contrast >= 4.5:1 on white) */
+  --color-primary-hover: #6d28d9;       /* Violet 700 - Hover state */
+  --color-primary-active: #5b21b6;      /* Violet 800 - Active / Pressed state */
+  --color-primary-subtle: #f5f3ff;      /* Violet 50  - Tinted backgrounds & highlights */
+  --color-primary-border: #ddd6fe;      /* Violet 200 - Accent borders & subtle dividers */
+  --color-primary-contrast: #ffffff;    /* Text / icon color on primary buttons */
+
+  /* ==========================================================================
+     2. Surface & Background Colors (Light Theme)
+     ========================================================================== */
+  --color-bg-app: #f8fafc;              /* Slate 50  - Application page background */
+  --color-bg-surface: #ffffff;          /* Pure White - Cards, modals, containers */
+  --color-bg-surface-hover: #f1f5f9;    /* Slate 100 - Table row / card hover */
+  --color-bg-subtle: #f1f5f9;           /* Slate 100 - Inputs, secondary elements */
+  --color-bg-muted: #e2e8f0;            /* Slate 200 - Disabled surfaces */
+
+  /* ==========================================================================
+     3. Border Colors
+     ========================================================================== */
+  --color-border-subtle: #e2e8f0;       /* Slate 200 - Card borders, list dividers */
+  --color-border-strong: #cbd5e1;       /* Slate 300 - Input borders, active outlines */
+  --color-border-focus: #7c3aed;        /* Violet 600 - Focus state outline */
+
+  /* ==========================================================================
+     4. Text & Content Colors
+     ========================================================================== */
+  --color-text-primary: #0f172a;        /* Slate 900 - Headings & high-emphasis text */
+  --color-text-secondary: #475569;      /* Slate 600 - Body & medium-emphasis text */
+  --color-text-muted: #64748b;          /* Slate 500 - Captions, placeholders, metadata */
+  --color-text-disabled: #94a3b8;       /* Slate 400 - Disabled text */
+  --color-text-inverse: #ffffff;        /* White text for dark surfaces */
+
+  /* ==========================================================================
+     5. System Feedback & Utility Colors
+     ========================================================================== */
+  /* Success */
+  --color-success: #16a34a;             /* Green 600 */
+  --color-success-hover: #15803d;       /* Green 700 */
+  --color-success-bg: #f0fdf4;          /* Green 50 */
+  --color-success-border: #bbf7d0;      /* Green 200 */
+  --color-success-text: #166534;        /* Green 800 */
+
+  /* Warning */
+  --color-warning: #d97706;             /* Amber 600 */
+  --color-warning-hover: #b45309;       /* Amber 700 */
+  --color-warning-bg: #fffbeb;          /* Amber 50 */
+  --color-warning-border: #fde68a;      /* Amber 200 */
+  --color-warning-text: #92400e;        /* Amber 800 */
+
+  /* Danger / Error */
+  --color-danger: #dc2626;              /* Red 600 */
+  --color-danger-hover: #b91c1c;        /* Red 700 */
+  --color-danger-bg: #fef2f2;           /* Red 50 */
+  --color-danger-border: #fecaca;       /* Red 200 */
+  --color-danger-text: #991b1b;         /* Red 800 */
+
+  /* Info */
+  --color-info: #0284c7;                /* Sky 600 */
+  --color-info-hover: #0369a1;          /* Sky 700 */
+  --color-info-bg: #f0f9ff;             /* Sky 50 */
+  --color-info-border: #bae6fd;         /* Sky 200 */
+  --color-info-text: #075985;           /* Sky 800 */
+
+  /* ==========================================================================
+     6. API Contract Plan Status Colors (done, postponed, skipped)
+     ========================================================================== */
+  /* Done */
+  --color-status-done: #16a34a;
+  --color-status-done-bg: #dcfce7;
+  --color-status-done-border: #86efac;
+  --color-status-done-text: #14532d;
+
+  /* Postponed */
+  --color-status-postponed: #d97706;
+  --color-status-postponed-bg: #fef3c7;
+  --color-status-postponed-border: #fcd34d;
+  --color-status-postponed-text: #78350f;
+
+  /* Skipped */
+  --color-status-skipped: #64748b;
+  --color-status-skipped-bg: #f1f5f9;
+  --color-status-skipped-border: #cbd5e1;
+  --color-status-skipped-text: #334155;
+
+  /* ==========================================================================
+     7. Category Colors (ai/schema.json Categories)
+     ========================================================================== */
+  /* Sport */
+  --color-category-sport: #059669;
+  --color-category-sport-bg: #ecfdf5;
+  --color-category-sport-border: #a7f3d0;
+  --color-category-sport-text: #065f46;
+
+  /* Study */
+  --color-category-study: #2563eb;
+  --color-category-study-bg: #eff6ff;
+  --color-category-study-border: #bfdbfe;
+  --color-category-study-text: #1e40af;
+
+  /* Work */
+  --color-category-work: #7c3aed;
+  --color-category-work-bg: #f5f3ff;
+  --color-category-work-border: #ddd6fe;
+  --color-category-work-text: #5b21b6;
+
+  /* Meeting */
+  --color-category-meeting: #0d9488;
+  --color-category-meeting-bg: #f0fdfa;
+  --color-category-meeting-border: #99f6e4;
+  --color-category-meeting-text: #115e59;
+
+  /* Health */
+  --color-category-health: #e11d48;
+  --color-category-health-bg: #fff1f2;
+  --color-category-health-border: #fecdd3;
+  --color-category-health-text: #9f1239;
+
+  /* Social */
+  --color-category-social: #ea580c;
+  --color-category-social-bg: #fff7ed;
+  --color-category-social-border: #fed7aa;
+  --color-category-social-text: #9a3412;
+
+  /* Personal */
+  --color-category-personal: #c026d3;
+  --color-category-personal-bg: #fdf4ff;
+  --color-category-personal-border: #f5d0fe;
+  --color-category-personal-text: #86198f;
+
+  /* Other */
+  --color-category-other: #475569;
+  --color-category-other-bg: #f8fafc;
+  --color-category-other-border: #e2e8f0;
+  --color-category-other-text: #334155;
+
+  /* ==========================================================================
+     8. Typography Scale & Font Hierarchy
+     ========================================================================== */
+  --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Font Sizes */
+  --font-size-xs: 0.75rem;              /* 12px */
+  --font-size-sm: 0.875rem;             /* 14px */
+  --font-size-base: 1rem;               /* 16px */
+  --font-size-md: 1.125rem;             /* 18px */
+  --font-size-lg: 1.25rem;              /* 20px */
+  --font-size-xl: 1.5rem;               /* 24px */
+  --font-size-2xl: 1.875rem;            /* 30px */
+  --font-size-3xl: 2.25rem;             /* 36px */
+
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Line Heights */
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+
+  /* ==========================================================================
+     9. Spacing Scale (4px / 8px Grid Base)
+     ========================================================================== */
+  --space-1: 0.25rem;                   /* 4px */
+  --space-2: 0.5rem;                    /* 8px */
+  --space-3: 0.75rem;                   /* 12px */
+  --space-4: 1rem;                      /* 16px */
+  --space-5: 1.25rem;                   /* 20px */
+  --space-6: 1.5rem;                    /* 24px */
+  --space-8: 2rem;                      /* 32px */
+  --space-10: 2.5rem;                   /* 40px */
+  --space-12: 3rem;                     /* 48px */
+  --space-16: 4rem;                     /* 64px */
+
+  /* ==========================================================================
+     10. Border Radii
+     ========================================================================== */
+  --radius-none: 0;
+  --radius-xs: 0.125rem;                /* 2px */
+  --radius-sm: 0.25rem;                 /* 4px */
+  --radius-md: 0.375rem;                /* 6px */
+  --radius-lg: 0.5rem;                  /* 8px */
+  --radius-xl: 0.75rem;                 /* 12px */
+  --radius-2xl: 1rem;                   /* 16px */
+  --radius-full: 9999px;                /* Badges, pills & circular avatars */
+
+  /* ==========================================================================
+     11. Box Shadows
+     ========================================================================== */
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --shadow-focus: 0 0 0 3px rgba(124, 58, 237, 0.25); /* Accessible purple focus ring */
+
+  /* ==========================================================================
+     12. Transitions & Timing
+     ========================================================================== */
+  --transition-fast: 150ms ease-in-out;
+  --transition-normal: 200ms ease-in-out;
+  --transition-slow: 300ms ease-in-out;
+
+  /* ==========================================================================
+     13. Layering / Z-Index Scale
+     ========================================================================== */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-toast: 1080;
+  --z-tooltip: 1100;
+}
