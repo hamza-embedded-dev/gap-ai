@@ -1,0 +1,16 @@
+# Shared defaults for every ESP32 target. Do not commit the generated `sdkconfig`;
+# it is target- and machine-specific. Put team-wide settings here instead.
+
+# 4 MB flash with a 1.5 MB app partition: Wi-Fi + TLS leaves little room in the
+# default 1 MB app slot. Every supported dev board has at least 4 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# HTTPS: verify servers with the built-in root CA bundle (common CAs only, smaller).
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
+
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y

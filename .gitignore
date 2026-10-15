@@ -43,6 +43,11 @@ Thumbs.db
 .pio/
 esp32/**/secrets.h
 esp32/**/config_local.h
+# ESP-IDF generated files (target- and machine-specific)
+esp32/sdkconfig
+esp32/sdkconfig.old
+esp32/managed_components/
+esp32/dependencies.lock
 
 # Study / participant data (never commit)
 tokens*.csv
