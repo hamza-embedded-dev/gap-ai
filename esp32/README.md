@@ -105,7 +105,7 @@ I (...) api: GET /health -> HTTP 200 {"status":"ok","version":"0.1.0"}
   uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
   ```
 
-  Windows'ta Güvenlik Duvarı izin isterse **Özel ağlar** için izin ver. IP'ni Windows'ta `ipconfig`, Linux'ta `ip -4 addr` ile bulabilirsin. Bilgisayar ve kart aynı ağda olmalı.
+  Windows'ta Güvenlik Duvarı izin isterse **Özel ağlar** için izin ver. Linux'ta firewalld açıksa portu geçici olarak aç (yeniden başlatınca kapanır): `sudo firewall-cmd --add-port=8000/tcp`; ufw kullanıyorsan `sudo ufw allow 8000/tcp`. Cihaz logunda `ESP_ERR_HTTP_CONNECT` görürsen ilk bakılacak yer güvenlik duvarıdır. IP'ni Windows'ta `ipconfig`, Linux'ta `ip -4 addr` ile bulabilirsin. Bilgisayar ve kart aynı ağda olmalı.
 
 - **Staging (HTTPS):** `https://...` adresi yazman yeterli. Sunucu sertifikası ESP-IDF'in dahili kök CA paketiyle doğrulanır; ayrıca sertifika dosyası gerekmez.
 
