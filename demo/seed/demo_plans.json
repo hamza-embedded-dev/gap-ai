@@ -1,0 +1,987 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-10-15T12:00:00+03:00",
+  "anchor_date": "2026-10-15",
+  "timezone": "Europe/Istanbul",
+  "description": "GAP-AI 4-week synthetic demo seed dataset with regular and procrastinator behavioral profiles.",
+  "profiles": {
+    "regular": {
+      "profile_id": "regular",
+      "display_name": "Düzenli Kullanıcı",
+      "description": "Planlarını çoğunlukla zamanında ve disiplinli tamamlayan, yüksek uyum oranına (%85+) sahip kullanıcı profili.",
+      "plans": [
+        {
+          "id": "89f0b04e-e699-569b-9af3-f3cd17736c1c",
+          "title": "Sabah Koşusu",
+          "category": "sport",
+          "planned_start": "2026-09-17T07:30:00+03:00",
+          "planned_end": "2026-09-17T08:15:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-16T20:00:00+03:00"
+        },
+        {
+          "id": "dd896529-3736-5f41-b7cf-c3344614bd87",
+          "title": "GAP-AI Mimari İnceleme",
+          "category": "work",
+          "planned_start": "2026-09-18T10:00:00+03:00",
+          "planned_end": "2026-09-18T11:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-17T20:00:00+03:00"
+        },
+        {
+          "id": "a1d74019-1fab-5ff3-aa98-db3e46568b61",
+          "title": "FastAPI & Python Dokümantasyonu",
+          "category": "study",
+          "planned_start": "2026-09-19T19:00:00+03:00",
+          "planned_end": "2026-09-19T20:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-18T20:00:00+03:00"
+        },
+        {
+          "id": "0ea60a6b-70c8-5f1b-87be-9cbd78747d34",
+          "title": "Haftalık Ekip Değerlendirmesi",
+          "category": "meeting",
+          "planned_start": "2026-09-20T14:00:00+03:00",
+          "planned_end": "2026-09-20T14:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-19T20:00:00+03:00"
+        },
+        {
+          "id": "26d87754-4c28-5e16-855c-9e4fcf9efb7c",
+          "title": "Fitness & Ağırlık Egzersizi",
+          "category": "sport",
+          "planned_start": "2026-09-22T18:00:00+03:00",
+          "planned_end": "2026-09-22T19:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-21T20:00:00+03:00"
+        },
+        {
+          "id": "c1277cdd-d91c-5ac0-88c0-f295fa80ae00",
+          "title": "Sabah Koşusu",
+          "category": "sport",
+          "planned_start": "2026-09-24T07:30:00+03:00",
+          "planned_end": "2026-09-24T08:15:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-23T20:00:00+03:00"
+        },
+        {
+          "id": "515a8262-c4c0-5a40-adb4-54b09acfd467",
+          "title": "API Sözleşmesi ve Şema Denetimi",
+          "category": "work",
+          "planned_start": "2026-09-25T11:00:00+03:00",
+          "planned_end": "2026-09-25T12:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-24T20:00:00+03:00"
+        },
+        {
+          "id": "c40cb8db-e3d2-5851-a9cb-e8eac5f02efe",
+          "title": "İngilizce Makale Okuma",
+          "category": "study",
+          "planned_start": "2026-09-26T20:00:00+03:00",
+          "planned_end": "2026-09-26T20:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-25T20:00:00+03:00"
+        },
+        {
+          "id": "10893eaf-e673-5afc-83b6-65c50140219e",
+          "title": "Sağlık Kontrolü & Yürüyüş",
+          "category": "health",
+          "planned_start": "2026-09-27T17:30:00+03:00",
+          "planned_end": "2026-09-27T18:15:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-26T20:00:00+03:00"
+        },
+        {
+          "id": "1d14ba80-1c00-545e-981e-8aadd4723d1f",
+          "title": "Aile & Arkadaş Yemeği",
+          "category": "social",
+          "planned_start": "2026-09-29T19:30:00+03:00",
+          "planned_end": "2026-09-29T21:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-28T20:00:00+03:00"
+        },
+        {
+          "id": "6ce0285e-3630-5765-9e77-fbb19636508f",
+          "title": "Sabah Koşusu",
+          "category": "sport",
+          "planned_start": "2026-10-01T07:30:00+03:00",
+          "planned_end": "2026-10-01T08:15:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-30T20:00:00+03:00"
+        },
+        {
+          "id": "4ff7d90d-a74a-5450-8fc6-4e764b9d8972",
+          "title": "Veritabanı İndeksleme ve Sorgu İncelemesi",
+          "category": "work",
+          "planned_start": "2026-10-02T10:30:00+03:00",
+          "planned_end": "2026-10-02T11:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-01T20:00:00+03:00"
+        },
+        {
+          "id": "38433ea6-a08f-5a6b-887d-69fc532f21e0",
+          "title": "Mikrodenetleyici Ses İşleme Eğitimi",
+          "category": "study",
+          "planned_start": "2026-10-03T19:00:00+03:00",
+          "planned_end": "2026-10-03T20:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-02T20:00:00+03:00"
+        },
+        {
+          "id": "a9f34cc1-f978-5019-b75d-a746c7ca5851",
+          "title": "Akşam Yogası",
+          "category": "health",
+          "planned_start": "2026-10-04T21:30:00+03:00",
+          "planned_end": "2026-10-04T22:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-03T20:00:00+03:00"
+        },
+        {
+          "id": "2d935f87-6a4b-5d30-b3c4-b7815f2dfe4c",
+          "title": "Haftalık Sprint Planlama",
+          "category": "meeting",
+          "planned_start": "2026-10-06T15:00:00+03:00",
+          "planned_end": "2026-10-06T16:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-05T20:00:00+03:00"
+        },
+        {
+          "id": "180d7c04-8ee5-58fc-97e9-136fc66ab0bb",
+          "title": "Sabah Koşusu",
+          "category": "sport",
+          "planned_start": "2026-10-08T07:30:00+03:00",
+          "planned_end": "2026-10-08T08:15:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-07T20:00:00+03:00"
+        },
+        {
+          "id": "e0b87df4-5310-5823-93c8-c481c4515e33",
+          "title": "ESP32 I2S Kayıt Hata Ayıklama",
+          "category": "work",
+          "planned_start": "2026-10-09T13:30:00+03:00",
+          "planned_end": "2026-10-09T15:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-08T20:00:00+03:00"
+        },
+        {
+          "id": "9c651f39-f30e-5833-9200-38667bfdd5fb",
+          "title": "Kitap Okuma (Clean Code)",
+          "category": "personal",
+          "planned_start": "2026-10-10T21:00:00+03:00",
+          "planned_end": "2026-10-10T21:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-09T20:00:00+03:00"
+        },
+        {
+          "id": "14011c83-bec9-5315-b704-282a756afdb1",
+          "title": "Bisiklet Turu",
+          "category": "sport",
+          "planned_start": "2026-10-11T16:00:00+03:00",
+          "planned_end": "2026-10-11T17:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-10T20:00:00+03:00"
+        },
+        {
+          "id": "fb4cd768-3404-5bb3-b333-595587d131fa",
+          "title": "Mobil & Web Arayüzü Testleri",
+          "category": "work",
+          "planned_start": "2026-10-13T14:00:00+03:00",
+          "planned_end": "2026-10-13T15:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-12T20:00:00+03:00"
+        },
+        {
+          "id": "641655d6-9867-5c2d-83a8-3831c2bb2f6f",
+          "title": "GAP-AI Demo Veri Seti Kontrolü",
+          "category": "work",
+          "planned_start": "2026-10-15T16:00:00+03:00",
+          "planned_end": "2026-10-15T17:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-14T20:00:00+03:00"
+        },
+        {
+          "id": "45a3f82b-4028-5fd3-9884-ed6e7226d9c0",
+          "title": "Haftalık Koşu Antrenmanı",
+          "category": "sport",
+          "planned_start": "2026-10-16T08:00:00+03:00",
+          "planned_end": "2026-10-16T08:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-15T20:00:00+03:00"
+        }
+      ],
+      "outcomes": [
+        {
+          "id": "7281a367-5536-54d3-aa48-7af93ac403af",
+          "plan_id": "89f0b04e-e699-569b-9af3-f3cd17736c1c",
+          "status": "done",
+          "actual_start": "2026-09-17T07:35:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-09-17T08:20:00+03:00"
+        },
+        {
+          "id": "b077a935-a5f1-543a-a8b4-be4ef892cde9",
+          "plan_id": "dd896529-3736-5f41-b7cf-c3344614bd87",
+          "status": "done",
+          "actual_start": "2026-09-18T10:02:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-18T11:35:00+03:00"
+        },
+        {
+          "id": "27d1305b-073e-5eb8-ab9d-d25499119e2f",
+          "plan_id": "a1d74019-1fab-5ff3-aa98-db3e46568b61",
+          "status": "done",
+          "actual_start": "2026-09-19T19:00:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-19T20:05:00+03:00"
+        },
+        {
+          "id": "755416ac-0ef7-51d5-9910-5c4dd97ee606",
+          "plan_id": "0ea60a6b-70c8-5f1b-87be-9cbd78747d34",
+          "status": "done",
+          "actual_start": "2026-09-20T14:05:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-20T14:50:00+03:00"
+        },
+        {
+          "id": "21b73dbe-6162-5b94-b26d-9e7b3087a8fa",
+          "plan_id": "26d87754-4c28-5e16-855c-9e4fcf9efb7c",
+          "status": "done",
+          "actual_start": "2026-09-22T18:10:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-09-22T19:05:00+03:00"
+        },
+        {
+          "id": "bf4028b6-87c2-514f-b52b-e856b98c058e",
+          "plan_id": "c1277cdd-d91c-5ac0-88c0-f295fa80ae00",
+          "status": "done",
+          "actual_start": "2026-09-24T07:32:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-09-24T08:18:00+03:00"
+        },
+        {
+          "id": "84d2c5fa-bb1e-5349-8a7d-8ed2462d6925",
+          "plan_id": "515a8262-c4c0-5a40-adb4-54b09acfd467",
+          "status": "done",
+          "actual_start": "2026-09-25T11:00:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-25T12:05:00+03:00"
+        },
+        {
+          "id": "c2f231c5-a518-5866-8104-3958dd2593f9",
+          "plan_id": "c40cb8db-e3d2-5851-a9cb-e8eac5f02efe",
+          "status": "done",
+          "actual_start": "2026-09-26T20:08:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-26T20:50:00+03:00"
+        },
+        {
+          "id": "ccd800d4-e515-5b23-8f46-2a31ad9ce674",
+          "plan_id": "10893eaf-e673-5afc-83b6-65c50140219e",
+          "status": "done",
+          "actual_start": "2026-09-27T17:35:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-09-27T18:20:00+03:00"
+        },
+        {
+          "id": "2ac7be6d-036b-51da-8f77-02de6ba71ce6",
+          "plan_id": "1d14ba80-1c00-545e-981e-8aadd4723d1f",
+          "status": "done",
+          "actual_start": "2026-09-29T19:45:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-29T21:45:00+03:00"
+        },
+        {
+          "id": "b40eeeac-0b05-5f8b-9e79-9b8bc7e4e025",
+          "plan_id": "6ce0285e-3630-5765-9e77-fbb19636508f",
+          "status": "done",
+          "actual_start": "2026-10-01T07:30:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-10-01T08:15:00+03:00"
+        },
+        {
+          "id": "21b34fe7-1945-57b5-b682-6083761acde1",
+          "plan_id": "4ff7d90d-a74a-5450-8fc6-4e764b9d8972",
+          "status": "done",
+          "actual_start": "2026-10-02T10:35:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-02T11:50:00+03:00"
+        },
+        {
+          "id": "5529d11d-fbf4-5225-a7f4-730c4dc0cf81",
+          "plan_id": "38433ea6-a08f-5a6b-887d-69fc532f21e0",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-04T20:00:00+03:00",
+          "note": "Mesai uzadığı için ertelendi",
+          "reported_via": "web",
+          "reported_at": "2026-10-03T18:30:00+03:00"
+        },
+        {
+          "id": "1596160f-ec53-596a-a387-bb620bb0e8e9",
+          "plan_id": "38433ea6-a08f-5a6b-887d-69fc532f21e0",
+          "status": "done",
+          "actual_start": "2026-10-03T20:05:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-04T21:10:00+03:00"
+        },
+        {
+          "id": "2f497b0c-f3a1-57e8-951d-cd122db72cf0",
+          "plan_id": "a9f34cc1-f978-5019-b75d-a746c7ca5851",
+          "status": "done",
+          "actual_start": "2026-10-04T21:32:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-10-04T22:05:00+03:00"
+        },
+        {
+          "id": "64773b4a-5da8-5ab8-ab3b-d2de4448754b",
+          "plan_id": "2d935f87-6a4b-5d30-b3c4-b7815f2dfe4c",
+          "status": "done",
+          "actual_start": "2026-10-06T15:00:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-06T16:05:00+03:00"
+        },
+        {
+          "id": "4b021111-f63b-561e-a9b7-c4362945bff6",
+          "plan_id": "180d7c04-8ee5-58fc-97e9-136fc66ab0bb",
+          "status": "done",
+          "actual_start": "2026-10-08T07:40:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "device",
+          "reported_at": "2026-10-08T08:25:00+03:00"
+        },
+        {
+          "id": "245ed1ec-6c5c-5c5f-9d0c-b26beb4ec575",
+          "plan_id": "e0b87df4-5310-5823-93c8-c481c4515e33",
+          "status": "done",
+          "actual_start": "2026-10-09T13:30:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-09T15:05:00+03:00"
+        },
+        {
+          "id": "334589f2-3051-55a5-845a-fc542640af46",
+          "plan_id": "9c651f39-f30e-5833-9200-38667bfdd5fb",
+          "status": "done",
+          "actual_start": "2026-10-10T21:12:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-10T21:58:00+03:00"
+        },
+        {
+          "id": "7cba061f-8f89-57aa-8ffa-1b87eabdfc4e",
+          "plan_id": "14011c83-bec9-5315-b704-282a756afdb1",
+          "status": "skipped",
+          "actual_start": null,
+          "postponed_to": null,
+          "note": "Şiddetli yağmur nedeniyle atlandı",
+          "reported_via": "device",
+          "reported_at": "2026-10-11T15:45:00+03:00"
+        },
+        {
+          "id": "87cbeb68-d516-5a75-8f55-d8b1242f91f0",
+          "plan_id": "fb4cd768-3404-5bb3-b333-595587d131fa",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-15T16:00:00+03:00",
+          "note": "Sunucu bakımına denk geldiği için ertelendi",
+          "reported_via": "web",
+          "reported_at": "2026-10-13T13:50:00+03:00"
+        }
+      ]
+    },
+    "procrastinator": {
+      "profile_id": "procrastinator",
+      "display_name": "Erteleyen Kullanıcı",
+      "description": "Planları sık sık erteleyen veya atlayan, belirgin erteleme örüntülerine (Salı -> Perşembe) ve orta/düşük uyum oranına (%40-50) sahip kullanıcı profili.",
+      "plans": [
+        {
+          "id": "add03b0a-d985-57a6-b153-c35844c02e4a",
+          "title": "Algoritma & Veri Yapıları Çalışması",
+          "category": "study",
+          "planned_start": "2026-09-17T19:00:00+03:00",
+          "planned_end": "2026-09-17T20:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-16T21:15:00+03:00"
+        },
+        {
+          "id": "8fd1a545-f56d-5323-8682-8b37363922dc",
+          "title": "Akşam Koşusu",
+          "category": "sport",
+          "planned_start": "2026-09-18T18:00:00+03:00",
+          "planned_end": "2026-09-18T18:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-17T21:15:00+03:00"
+        },
+        {
+          "id": "060cf43c-002a-5333-8a31-a9fa3752eefe",
+          "title": "Haftalık İlerleme Raporu Hazırlama",
+          "category": "work",
+          "planned_start": "2026-09-19T10:00:00+03:00",
+          "planned_end": "2026-09-19T11:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-18T21:15:00+03:00"
+        },
+        {
+          "id": "d137a2a5-a6ca-5713-93e8-f20e21355004",
+          "title": "İngilizce Kelime Ezberi",
+          "category": "study",
+          "planned_start": "2026-09-21T21:00:00+03:00",
+          "planned_end": "2026-09-21T21:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-20T21:15:00+03:00"
+        },
+        {
+          "id": "5f424baa-4fa3-54ec-ba5c-b496d9b7a421",
+          "title": "Ev Temizliği ve Düzenleme",
+          "category": "personal",
+          "planned_start": "2026-09-22T15:00:00+03:00",
+          "planned_end": "2026-09-22T16:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-21T21:15:00+03:00"
+        },
+        {
+          "id": "52cd3c45-913d-5f96-baf6-9f1348748e7c",
+          "title": "Python ile Asenkron Programlama",
+          "category": "study",
+          "planned_start": "2026-09-24T19:00:00+03:00",
+          "planned_end": "2026-09-24T20:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-23T21:15:00+03:00"
+        },
+        {
+          "id": "1a8437b1-ced8-534d-9fa8-b822da0d6aca",
+          "title": "Parkta Tempolu Koşu",
+          "category": "sport",
+          "planned_start": "2026-09-25T18:00:00+03:00",
+          "planned_end": "2026-09-25T18:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-24T21:15:00+03:00"
+        },
+        {
+          "id": "abcd3484-30a2-5a59-8b48-c17050dceb45",
+          "title": "Backend API Hata Ayıklama",
+          "category": "work",
+          "planned_start": "2026-09-26T14:00:00+03:00",
+          "planned_end": "2026-09-26T15:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-25T21:15:00+03:00"
+        },
+        {
+          "id": "cd7c4f37-1cf2-5d66-9331-65ff75dca62e",
+          "title": "Kitap Okuma (Atomik Alışkanlıklar)",
+          "category": "personal",
+          "planned_start": "2026-09-28T22:00:00+03:00",
+          "planned_end": "2026-09-28T22:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-27T21:15:00+03:00"
+        },
+        {
+          "id": "6a312ed5-c4a6-5605-9ef6-2246c7706bb7",
+          "title": "Ağırlık Antrenmanı",
+          "category": "sport",
+          "planned_start": "2026-09-29T17:00:00+03:00",
+          "planned_end": "2026-09-29T18:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-09-28T21:15:00+03:00"
+        },
+        {
+          "id": "0489dbca-5be9-567f-b740-c354ca12350c",
+          "title": "Docker ve Container Mimarisi",
+          "category": "study",
+          "planned_start": "2026-10-01T20:00:00+03:00",
+          "planned_end": "2026-10-01T21:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-09-30T21:15:00+03:00"
+        },
+        {
+          "id": "3db86ebb-e63b-5db3-b506-88ef8d0dddf2",
+          "title": "Akşam Koşusu",
+          "category": "sport",
+          "planned_start": "2026-10-02T18:00:00+03:00",
+          "planned_end": "2026-10-02T18:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-01T21:15:00+03:00"
+        },
+        {
+          "id": "aecceaa9-c035-5b33-89ff-df8447dd377e",
+          "title": "Supabase RLS ve Rol İncelemesi",
+          "category": "work",
+          "planned_start": "2026-10-03T11:00:00+03:00",
+          "planned_end": "2026-10-03T12:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-02T21:15:00+03:00"
+        },
+        {
+          "id": "376e2933-c283-5902-97c4-004d07f6a8e8",
+          "title": "Diş Randevusu",
+          "category": "health",
+          "planned_start": "2026-10-05T15:30:00+03:00",
+          "planned_end": "2026-10-05T16:15:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-04T21:15:00+03:00"
+        },
+        {
+          "id": "7c65ff50-f410-5d99-a323-45dfecb64b03",
+          "title": "Proje Dokümantasyonu Güncelleme",
+          "category": "work",
+          "planned_start": "2026-10-06T16:00:00+03:00",
+          "planned_end": "2026-10-06T17:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-05T21:15:00+03:00"
+        },
+        {
+          "id": "775a9e5c-67e6-5b24-bc5c-0cb71f493ad7",
+          "title": "Hafta Sonu Yürüyüşü",
+          "category": "sport",
+          "planned_start": "2026-10-07T10:00:00+03:00",
+          "planned_end": "2026-10-07T11:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-06T21:15:00+03:00"
+        },
+        {
+          "id": "83adcd50-2203-5f55-b8e6-e0d30e9ed23e",
+          "title": "TypeScript Tip Tanımları İncelemesi",
+          "category": "study",
+          "planned_start": "2026-10-08T19:30:00+03:00",
+          "planned_end": "2026-10-08T20:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-07T21:15:00+03:00"
+        },
+        {
+          "id": "2068b872-7011-580b-a78c-7a41a0a9f136",
+          "title": "Akşam Koşusu",
+          "category": "sport",
+          "planned_start": "2026-10-09T18:00:00+03:00",
+          "planned_end": "2026-10-09T18:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-08T21:15:00+03:00"
+        },
+        {
+          "id": "22af6924-cb9e-577f-bc43-272c5bebb6b0",
+          "title": "FastAPI Router Refactoring",
+          "category": "work",
+          "planned_start": "2026-10-10T14:00:00+03:00",
+          "planned_end": "2026-10-10T15:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-09T21:15:00+03:00"
+        },
+        {
+          "id": "09075e11-d52a-5410-955a-f0fe8f883de5",
+          "title": "Finansal Harcama Bütçesi Planı",
+          "category": "personal",
+          "planned_start": "2026-10-11T21:00:00+03:00",
+          "planned_end": "2026-10-11T21:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-10T21:15:00+03:00"
+        },
+        {
+          "id": "b6ef5ce1-42f6-591a-a6d0-8c86b48be47d",
+          "title": "Online Seminer Katılımı",
+          "category": "study",
+          "planned_start": "2026-10-12T18:30:00+03:00",
+          "planned_end": "2026-10-12T19:30:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-11T21:15:00+03:00"
+        },
+        {
+          "id": "be35af88-483d-50d3-a0bb-840535477132",
+          "title": "Mobil Uygulama Tasarım İncelemesi",
+          "category": "work",
+          "planned_start": "2026-10-13T15:00:00+03:00",
+          "planned_end": "2026-10-13T16:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-12T21:15:00+03:00"
+        },
+        {
+          "id": "e0851980-d844-5584-91d7-70d20fcbcc0f",
+          "title": "Demo Günü Sunum Hazırlığı",
+          "category": "work",
+          "planned_start": "2026-10-15T17:00:00+03:00",
+          "planned_end": "2026-10-15T18:00:00+03:00",
+          "recurrence_rule": null,
+          "source": "text",
+          "created_at": "2026-10-14T21:15:00+03:00"
+        },
+        {
+          "id": "4d48592b-ecc9-52ac-8a45-72f7c2f63484",
+          "title": "Akşam Koşusu (Ertelenen)",
+          "category": "sport",
+          "planned_start": "2026-10-16T19:00:00+03:00",
+          "planned_end": "2026-10-16T19:45:00+03:00",
+          "recurrence_rule": null,
+          "source": "device",
+          "created_at": "2026-10-15T21:15:00+03:00"
+        }
+      ],
+      "outcomes": [
+        {
+          "id": "005182a3-483d-5d6c-8462-997b367bd3a5",
+          "plan_id": "add03b0a-d985-57a6-b153-c35844c02e4a",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-19T20:00:00+03:00",
+          "note": "Yorgun hissettiğim için erteledim",
+          "reported_via": "web",
+          "reported_at": "2026-09-17T18:55:00+03:00"
+        },
+        {
+          "id": "efcd6ad4-1380-5f0e-8ae5-4ef1e2f5951c",
+          "plan_id": "add03b0a-d985-57a6-b153-c35844c02e4a",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-20T21:00:00+03:00",
+          "note": "Dizi izlemeye daldım",
+          "reported_via": "web",
+          "reported_at": "2026-09-19T19:45:00+03:00"
+        },
+        {
+          "id": "de13b679-8b8a-53e7-839d-d407726a2ab6",
+          "plan_id": "add03b0a-d985-57a6-b153-c35844c02e4a",
+          "status": "done",
+          "actual_start": "2026-09-20T21:40:00+03:00",
+          "postponed_to": null,
+          "note": "Nihayet tamamlandı",
+          "reported_via": "web",
+          "reported_at": "2026-09-20T22:50:00+03:00"
+        },
+        {
+          "id": "cecb559d-908d-512a-8d49-a262965fb4fd",
+          "plan_id": "8fd1a545-f56d-5323-8682-8b37363922dc",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-20T19:00:00+03:00",
+          "note": "Hava rüzgarlı",
+          "reported_via": "device",
+          "reported_at": "2026-09-18T17:50:00+03:00"
+        },
+        {
+          "id": "6cba6777-ab4b-5af5-a762-c2087a80f5ca",
+          "plan_id": "8fd1a545-f56d-5323-8682-8b37363922dc",
+          "status": "skipped",
+          "actual_start": null,
+          "postponed_to": null,
+          "note": "Motivasyon kalmadı, atlandı",
+          "reported_via": "web",
+          "reported_at": "2026-09-20T19:30:00+03:00"
+        },
+        {
+          "id": "4c078581-b45f-51d3-919c-fccfb7ee9a6e",
+          "plan_id": "060cf43c-002a-5333-8a31-a9fa3752eefe",
+          "status": "done",
+          "actual_start": "2026-09-19T10:48:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-19T11:55:00+03:00"
+        },
+        {
+          "id": "52683be7-1573-5fb2-bf92-07763d394dc9",
+          "plan_id": "d137a2a5-a6ca-5713-93e8-f20e21355004",
+          "status": "skipped",
+          "actual_start": null,
+          "postponed_to": null,
+          "note": "Vakit kalmadı",
+          "reported_via": "web",
+          "reported_at": "2026-09-21T21:15:00+03:00"
+        },
+        {
+          "id": "a52d6c25-95a0-5956-a413-0a885b77c347",
+          "plan_id": "52cd3c45-913d-5f96-baf6-9f1348748e7c",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-26T19:00:00+03:00",
+          "note": "Bugün odaklanamadım",
+          "reported_via": "web",
+          "reported_at": "2026-09-24T19:10:00+03:00"
+        },
+        {
+          "id": "313a4920-5a65-506f-9750-593a2fb3efd9",
+          "plan_id": "52cd3c45-913d-5f96-baf6-9f1348748e7c",
+          "status": "done",
+          "actual_start": "2026-09-26T19:35:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-26T20:40:00+03:00"
+        },
+        {
+          "id": "9e2235f1-6483-5285-aa7f-015ddc92cc74",
+          "plan_id": "1a8437b1-ced8-534d-9fa8-b822da0d6aca",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-27T19:00:00+03:00",
+          "note": "Hava biraz kapalı",
+          "reported_via": "device",
+          "reported_at": "2026-09-25T18:05:00+03:00"
+        },
+        {
+          "id": "275b7bb1-fa8f-5a41-b08a-afb72cf4be74",
+          "plan_id": "1a8437b1-ced8-534d-9fa8-b822da0d6aca",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-29T10:00:00+03:00",
+          "note": "İş toplantısı uzadı",
+          "reported_via": "device",
+          "reported_at": "2026-09-27T18:55:00+03:00"
+        },
+        {
+          "id": "a2b515fd-5b1d-5bf5-bd26-65bf3c4c1bcb",
+          "plan_id": "1a8437b1-ced8-534d-9fa8-b822da0d6aca",
+          "status": "done",
+          "actual_start": "2026-09-29T10:45:00+03:00",
+          "postponed_to": null,
+          "note": "Gecikmeli de olsa yapıldı",
+          "reported_via": "device",
+          "reported_at": "2026-09-29T11:35:00+03:00"
+        },
+        {
+          "id": "5b7d15fd-8681-5d51-8ae0-28615cfc9a67",
+          "plan_id": "abcd3484-30a2-5a59-8b48-c17050dceb45",
+          "status": "done",
+          "actual_start": "2026-09-26T14:50:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-09-26T16:25:00+03:00"
+        },
+        {
+          "id": "3d572644-9fc7-5c5e-98ad-37481cd79241",
+          "plan_id": "cd7c4f37-1cf2-5d66-9331-65ff75dca62e",
+          "status": "skipped",
+          "actual_start": null,
+          "postponed_to": null,
+          "note": "Uykum geldi",
+          "reported_via": "web",
+          "reported_at": "2026-09-28T22:40:00+03:00"
+        },
+        {
+          "id": "21ade8bc-0b97-52d7-b9d1-aa9339806383",
+          "plan_id": "6a312ed5-c4a6-5605-9ef6-2246c7706bb7",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-09-30T17:00:00+03:00",
+          "note": "Kaslarım ağrıyor",
+          "reported_via": "device",
+          "reported_at": "2026-09-29T17:10:00+03:00"
+        },
+        {
+          "id": "39dbd651-e952-5505-9013-cffdc54c4616",
+          "plan_id": "0489dbca-5be9-567f-b740-c354ca12350c",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-03T20:00:00+03:00",
+          "note": "Yarın çalışırım",
+          "reported_via": "web",
+          "reported_at": "2026-10-01T20:05:00+03:00"
+        },
+        {
+          "id": "fdf2724e-7058-57ff-a48f-a0736c59cc4f",
+          "plan_id": "0489dbca-5be9-567f-b740-c354ca12350c",
+          "status": "skipped",
+          "actual_start": null,
+          "postponed_to": null,
+          "note": "Atlandı",
+          "reported_via": "web",
+          "reported_at": "2026-10-03T20:30:00+03:00"
+        },
+        {
+          "id": "a51d7bd1-b906-5c82-9869-759544de51e2",
+          "plan_id": "3db86ebb-e63b-5db3-b506-88ef8d0dddf2",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-04T19:00:00+03:00",
+          "note": "Yarın yaparım",
+          "reported_via": "device",
+          "reported_at": "2026-10-02T17:55:00+03:00"
+        },
+        {
+          "id": "53bcc1e5-7023-546d-9f35-9986c8168bf4",
+          "plan_id": "3db86ebb-e63b-5db3-b506-88ef8d0dddf2",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-05T18:00:00+03:00",
+          "note": "Yine yetişmedi",
+          "reported_via": "web",
+          "reported_at": "2026-10-04T18:50:00+03:00"
+        },
+        {
+          "id": "8f606308-f952-5e33-b072-2d24e454f093",
+          "plan_id": "aecceaa9-c035-5b33-89ff-df8447dd377e",
+          "status": "done",
+          "actual_start": "2026-10-03T11:40:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-03T12:45:00+03:00"
+        },
+        {
+          "id": "f015036c-3c21-5563-b994-09a7e7f8d50d",
+          "plan_id": "376e2933-c283-5902-97c4-004d07f6a8e8",
+          "status": "done",
+          "actual_start": "2026-10-05T15:35:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-05T16:20:00+03:00"
+        },
+        {
+          "id": "c23eb50c-56b7-5435-a690-b7323f8ff78e",
+          "plan_id": "7c65ff50-f410-5d99-a323-45dfecb64b03",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-08T16:00:00+03:00",
+          "note": "Başka acil iş çıktı",
+          "reported_via": "web",
+          "reported_at": "2026-10-06T16:10:00+03:00"
+        },
+        {
+          "id": "70671905-db07-5ce4-badd-05d464b6daca",
+          "plan_id": "83adcd50-2203-5f55-b8e6-e0d30e9ed23e",
+          "status": "done",
+          "actual_start": "2026-10-08T20:15:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-08T21:20:00+03:00"
+        },
+        {
+          "id": "ada91909-5f7c-5926-88a0-640c1695d49d",
+          "plan_id": "2068b872-7011-580b-a78c-7a41a0a9f136",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-11T19:00:00+03:00",
+          "note": "Perşembeye ertelendi",
+          "reported_via": "device",
+          "reported_at": "2026-10-09T17:58:00+03:00"
+        },
+        {
+          "id": "60587740-9835-5b4f-af16-7e410d5f8773",
+          "plan_id": "2068b872-7011-580b-a78c-7a41a0a9f136",
+          "status": "done",
+          "actual_start": "2026-10-11T19:50:00+03:00",
+          "postponed_to": null,
+          "note": "Perşembe gecikmeli yapıldı",
+          "reported_via": "device",
+          "reported_at": "2026-10-11T20:40:00+03:00"
+        },
+        {
+          "id": "d9a4613e-8888-58e6-af5b-89a0f9c09d7d",
+          "plan_id": "22af6924-cb9e-577f-bc43-272c5bebb6b0",
+          "status": "done",
+          "actual_start": "2026-10-10T14:30:00+03:00",
+          "postponed_to": null,
+          "note": null,
+          "reported_via": "web",
+          "reported_at": "2026-10-10T16:10:00+03:00"
+        },
+        {
+          "id": "4daa8196-f2f4-50fb-a343-8aaa0ecc4baf",
+          "plan_id": "09075e11-d52a-5410-955a-f0fe8f883de5",
+          "status": "skipped",
+          "actual_start": null,
+          "postponed_to": null,
+          "note": "Ertelemekten yoruldum, atladım",
+          "reported_via": "web",
+          "reported_at": "2026-10-11T21:20:00+03:00"
+        },
+        {
+          "id": "b8c6294a-8d23-5989-840f-bf25cc16a321",
+          "plan_id": "b6ef5ce1-42f6-591a-a6d0-8c86b48be47d",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-14T20:00:00+03:00",
+          "note": "Kayıttan izleyeceğim",
+          "reported_via": "web",
+          "reported_at": "2026-10-12T18:20:00+03:00"
+        },
+        {
+          "id": "005f1c67-af2b-5c32-86ce-04ac41ed7f18",
+          "plan_id": "be35af88-483d-50d3-a0bb-840535477132",
+          "status": "postponed",
+          "actual_start": null,
+          "postponed_to": "2026-10-15T17:00:00+03:00",
+          "note": "Müşteri toplantısı girdi",
+          "reported_via": "web",
+          "reported_at": "2026-10-13T14:55:00+03:00"
+        }
+      ]
+    }
+  }
+}
