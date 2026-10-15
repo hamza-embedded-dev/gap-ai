@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 
@@ -39,6 +40,12 @@ class PlanResponse(BaseModel):
     source: Literal["text", "voice", "device"]
     created_at: datetime
     latest_outcome: dict[str, Any] | None
+
+
+class PlanListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[PlanResponse]
 
 
 def current_user(
@@ -137,3 +144,24 @@ def create_plan(
             "Idempotency-Key was already used with a different request.",
         )
     return snapshot
+
+
+@router.get("/plans", response_model=PlanListResponse)
+def list_plans(
+    user: AuthenticatedUser = Depends(current_user),
+    store: PlanStore = Depends(get_plan_store),
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = Query(default=None, alias="to"),
+) -> dict[str, Any]:
+    list_fn = getattr(store, "list_plans", None)
+    if list_fn is None:
+        raise NotImplementedError("PlanStore implementation does not support list_plans yet.")
+
+    param_names = set(inspect.signature(list_fn).parameters.keys())
+    if "from_time" in param_names:
+        items = list_fn(user_id=user.id, from_time=from_, to_time=to)
+    elif "from_" in param_names:
+        items = list_fn(user_id=user.id, from_=from_, to=to)
+    else:
+        items = list_fn(user.id, from_, to)
+    return {"items": items}

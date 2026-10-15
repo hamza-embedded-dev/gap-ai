@@ -228,6 +228,19 @@ def _post(headers: dict[str, str] | None, body: dict[str, object]) -> httpx.Resp
     return trio.run(request)
 
 
+def _get(
+    headers: dict[str, str] | None = None,
+    params: dict[str, str] | None = None,
+) -> httpx.Response:
+    async def request() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api_app), base_url="http://test"
+        ) as client:
+            return await client.get("/plans", headers=headers or {}, params=params)
+
+    return trio.run(request)
+
+
 @pytest.fixture
 def store():
     token_store = TokenStore({TOKEN_HASH: (_user(), None)})
@@ -257,6 +270,36 @@ def test_post_plans_without_authorization_returns_401_without_supabase_config(
     finally:
         db_plans._build_plan_store.cache_clear()
         get_plan_store.cache_clear()
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthorized"
+
+
+@_skip_windows
+def test_get_plans_without_authorization_returns_401_without_supabase_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No dependency override: the real (lazy) store must not 500 before auth.
+    monkeypatch.setattr(
+        db_plans,
+        "get_settings",
+        lambda: SimpleNamespace(supabase_url=None, supabase_service_key=None),
+    )
+    db_plans._build_plan_store.cache_clear()
+    get_plan_store.cache_clear()
+    try:
+        response = _get(None)
+    finally:
+        db_plans._build_plan_store.cache_clear()
+        get_plan_store.cache_clear()
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthorized"
+
+
+@_skip_windows
+def test_get_plans_with_unknown_token_returns_401(store: TokenStore) -> None:
+    response = _get({"Authorization": "Bearer unknown"})
 
     assert response.status_code == 401
     assert response.json()["error"] == "unauthorized"
