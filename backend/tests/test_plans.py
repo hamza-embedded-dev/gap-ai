@@ -12,7 +12,13 @@ import httpx
 from pydantic import ValidationError
 
 from app.api.errors import APIError
-from app.api.plans import PlanCreateRequest, canonical_request_hash, create_plan
+from app.api.plans import (
+    PlanCreateRequest,
+    PlanListResponse,
+    canonical_request_hash,
+    create_plan,
+    list_plans,
+)
 from app.db.plans import AuthenticatedUser, SupabasePlanStore
 
 
@@ -37,6 +43,7 @@ def _valid_plan(**changes: object) -> dict[str, object]:
 class FakePlanStore:
     def __init__(self) -> None:
         self.plans: dict[str, dict[str, object]] = {}
+        self.plan_owners: dict[str, str] = {}
         self.requests: dict[tuple[str, str], dict[str, object]] = {}
         self._lock = threading.Lock()
         self.create_count = 0
@@ -49,6 +56,7 @@ class FakePlanStore:
             self.create_count += 1
             snapshot = self._snapshot(plan)
             self.plans[snapshot["id"]] = snapshot
+            self.plan_owners[snapshot["id"]] = str(plan.get("user_id") or "")
             return snapshot
 
     def create_plan_idempotently(
@@ -67,6 +75,7 @@ class FakePlanStore:
             self.create_count += 1
             snapshot = self._snapshot(plan)
             self.plans[snapshot["id"]] = snapshot
+            self.plan_owners[snapshot["id"]] = user_id
             self.requests[key] = {
                 "request_hash": request_hash,
                 "response_snapshot": snapshot,
@@ -74,9 +83,43 @@ class FakePlanStore:
             }
             return snapshot, False
 
+    def list_plans(
+        self,
+        *,
+        user_id: str,
+        from_: datetime | None = None,
+        to: datetime | None = None,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        effective_from = from_ if from_ is not None else from_time
+        effective_to = to if to is not None else to_time
+        with self._lock:
+            matching: list[dict[str, object]] = []
+            for plan_id, snapshot in self.plans.items():
+                if self.plan_owners.get(plan_id) != user_id:
+                    continue
+                start_dt = datetime.fromisoformat(
+                    str(snapshot["planned_start"]).replace("Z", "+00:00")
+                )
+                if effective_from is not None:
+                    norm_from = effective_from if effective_from.tzinfo else effective_from.replace(tzinfo=start_dt.tzinfo)
+                    if start_dt < norm_from:
+                        continue
+                if effective_to is not None:
+                    norm_to = effective_to if effective_to.tzinfo else effective_to.replace(tzinfo=start_dt.tzinfo)
+                    if start_dt > norm_to:
+                        continue
+                matching.append(snapshot)
+            matching.sort(
+                key=lambda p: datetime.fromisoformat(str(p["planned_start"]).replace("Z", "+00:00"))
+            )
+            return matching
+
     def delete_plan(self, user_id: str, idempotency_key: str) -> None:
         record = self.requests[(user_id, idempotency_key)]
         self.plans.pop(record["plan_id"], None)
+        self.plan_owners.pop(record["plan_id"], None)
         record["plan_id"] = None
 
     def _snapshot(self, plan: dict[str, object]) -> dict[str, object]:
@@ -113,6 +156,20 @@ def _call(
         user,
         store,
         key,
+    )
+
+
+def _call_list(
+    store: FakePlanStore,
+    user: AuthenticatedUser,
+    from_: datetime | None = None,
+    to: datetime | None = None,
+) -> dict[str, object]:
+    return list_plans(
+        user=user,
+        store=store,
+        from_=from_,
+        to=to,
     )
 
 
@@ -297,3 +354,95 @@ def test_non_create_intents_are_rejected(store_and_users, intent: str) -> None:
     assert error.value.status_code == 422
     assert error.value.error == "validation_error"
     assert store.create_count == 0
+
+
+def test_list_plans_returns_empty_when_no_plans(store_and_users) -> None:
+    store, user, _ = store_and_users
+    result = _call_list(store, user)
+
+    assert result == {"items": []}
+
+
+def test_list_plans_strictly_isolates_users(store_and_users) -> None:
+    store, user_one, user_two = store_and_users
+    plan_one = _call(store, user_one, {"parsed_plan": _valid_plan(title="User One Plan"), "source": "text"})
+    plan_two = _call(store, user_two, {"parsed_plan": _valid_plan(title="User Two Plan"), "source": "text"})
+
+    items_one = _call_list(store, user_one)["items"]
+    items_two = _call_list(store, user_two)["items"]
+
+    assert len(items_one) == 1
+    assert items_one[0]["id"] == plan_one["id"]
+    assert items_one[0]["title"] == "User One Plan"
+
+    assert len(items_two) == 1
+    assert items_two[0]["id"] == plan_two["id"]
+    assert items_two[0]["title"] == "User Two Plan"
+
+
+def test_list_plans_sorted_by_planned_start_ascending(store_and_users) -> None:
+    store, user, _ = store_and_users
+    evening = _call(store, user, {"parsed_plan": _valid_plan(title="Evening Run", time="19:00"), "source": "text"})
+    morning = _call(store, user, {"parsed_plan": _valid_plan(title="Morning Walk", time="07:30"), "source": "text"})
+    afternoon = _call(store, user, {"parsed_plan": _valid_plan(title="Lunch Gym", time="12:00"), "source": "text"})
+
+    items = _call_list(store, user)["items"]
+
+    assert [p["id"] for p in items] == [morning["id"], afternoon["id"], evening["id"]]
+
+
+def test_list_plans_includes_latest_outcome_field(store_and_users) -> None:
+    store, user, _ = store_and_users
+    _call(store, user, {"parsed_plan": _valid_plan(), "source": "text"})
+
+    items = _call_list(store, user)["items"]
+
+    assert len(items) == 1
+    assert "latest_outcome" in items[0]
+    assert items[0]["latest_outcome"] is None
+
+
+def test_list_plans_filters_by_from_inclusive(store_and_users) -> None:
+    store, user, _ = store_and_users
+    day1 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 1", date="2026-10-14", time="10:00"), "source": "text"})
+    day2 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 2", date="2026-10-15", time="10:00"), "source": "text"})
+    day3 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 3", date="2026-10-16", time="10:00"), "source": "text"})
+
+    filter_from = datetime.fromisoformat("2026-10-15T10:00:00+03:00")
+    items = _call_list(store, user, from_=filter_from)["items"]
+
+    assert [p["id"] for p in items] == [day2["id"], day3["id"]]
+
+
+def test_list_plans_filters_by_to_inclusive(store_and_users) -> None:
+    store, user, _ = store_and_users
+    day1 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 1", date="2026-10-14", time="10:00"), "source": "text"})
+    day2 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 2", date="2026-10-15", time="10:00"), "source": "text"})
+    day3 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 3", date="2026-10-16", time="10:00"), "source": "text"})
+
+    filter_to = datetime.fromisoformat("2026-10-15T10:00:00+03:00")
+    items = _call_list(store, user, to=filter_to)["items"]
+
+    assert [p["id"] for p in items] == [day1["id"], day2["id"]]
+
+
+def test_list_plans_filters_by_from_and_to_range_inclusive(store_and_users) -> None:
+    store, user, _ = store_and_users
+    day1 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 1", date="2026-10-14", time="10:00"), "source": "text"})
+    day2 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 2", date="2026-10-15", time="10:00"), "source": "text"})
+    day3 = _call(store, user, {"parsed_plan": _valid_plan(title="Day 3", date="2026-10-16", time="10:00"), "source": "text"})
+
+    f_from = datetime.fromisoformat("2026-10-15T00:00:00+03:00")
+    f_to = datetime.fromisoformat("2026-10-15T23:59:59+03:00")
+    items = _call_list(store, user, from_=f_from, to=f_to)["items"]
+
+    assert [p["id"] for p in items] == [day2["id"]]
+
+
+def test_list_plans_raises_not_implemented_if_store_lacks_method() -> None:
+    class IncompleteStore:
+        pass
+
+    user = AuthenticatedUser("user-one", "Europe/Istanbul", False, None)
+    with pytest.raises(NotImplementedError, match="does not support list_plans"):
+        list_plans(user, IncompleteStore())  # type: ignore[arg-type]
