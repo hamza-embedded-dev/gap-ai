@@ -1,0 +1,4 @@
+# Same line endings on Windows and Linux so diffs stay clean.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
