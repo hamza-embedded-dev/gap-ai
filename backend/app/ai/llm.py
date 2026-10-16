@@ -209,14 +209,14 @@ class NebiusLLMClient:
             ) from exc
 
         if response.status_code >= 500:
-            sanitized = self._sanitize_error_message(response.text[:300])
+            sanitized = self._sanitize_error_message(response.text)[:300]
             logger.error("Nebius LLM returned server error %d: %s", response.status_code, sanitized)
             raise LLMUnavailableError(
                 f"Nebius LLM provider returned server error HTTP {response.status_code}"
             )
 
         if response.status_code >= 400:
-            sanitized = self._sanitize_error_message(response.text[:300])
+            sanitized = self._sanitize_error_message(response.text)[:300]
             logger.error("Nebius LLM returned client error %d: %s", response.status_code, sanitized)
             raise LLMResponseError(
                 status_code=response.status_code,
