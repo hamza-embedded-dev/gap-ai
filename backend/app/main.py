@@ -5,6 +5,7 @@ from app.api.demo import router as demo_router
 from app.api.errors import install_error_handlers
 from app.api.health import router as health_router
 from app.api.plans import router as plans_router
+from app.api.parse import router as parse_router
 from app.config import get_settings
 
 
@@ -33,3 +34,4 @@ setup_cors(app, settings.allowed_origins)
 app.include_router(health_router)
 app.include_router(demo_router)
 app.include_router(plans_router)
+app.include_router(parse_router)
