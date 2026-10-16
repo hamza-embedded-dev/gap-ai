@@ -308,6 +308,38 @@ def test_api_key_not_leaked_in_error_message() -> None:
         assert sensitive_key not in str(exc_info.value)
         assert "[REDACTED_API_KEY]" in str(exc_info.value)
 
+@pytest.mark.parametrize("status_code", [400, 500])
+def test_api_key_not_partially_leaked_at_truncation_boundary(
+    status_code: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure a key crossing the 300-character limit is fully redacted."""
+    sensitive_key = "test-secret-boundary-key-123456789"
+    error_text = "X" * 290 + sensitive_key
+
+    def mock_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, text=error_text)
+
+    transport = httpx.MockTransport(mock_handler)
+
+    with httpx.Client(transport=transport) as http_client:
+        client = NebiusLLMClient(
+            api_key=sensitive_key,
+            http_client=http_client,
+        )
+
+        expected_error = (
+            LLMUnavailableError if status_code == 500 else LLMResponseError
+        )
+
+        with caplog.at_level("ERROR"):
+            with pytest.raises(expected_error):
+                client.complete([{"role": "user", "content": "Hi"}])
+
+    assert sensitive_key not in caplog.text
+    assert sensitive_key[:10] not in caplog.text
+    assert "[REDACTED_" in caplog.text
+
 
 # -----------------------------------------------------------------------------
 # Separation of Concerns: Syntactic JSON vs Contract Schema Validation
