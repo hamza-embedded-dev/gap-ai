@@ -48,6 +48,25 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias="NEBIUS_TIMEOUT_SECONDS",
     )
+    groq_api_key: SecretStr | None = Field(
+        default=None, validation_alias="GROQ_API_KEY"
+    )
+    groq_base_url: str = Field(
+        default="https://api.groq.com/openai/v1",
+        validation_alias="GROQ_BASE_URL",
+    )
+    stt_provider: str = Field(
+        default="groq",
+        validation_alias="STT_PROVIDER",
+    )
+    stt_model: str = Field(
+        default="whisper-large-v3",
+        validation_alias=AliasChoices("STT_MODEL", "GROQ_MODEL"),
+    )
+    groq_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices("GROQ_TIMEOUT_SECONDS", "STT_TIMEOUT_SECONDS"),
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
