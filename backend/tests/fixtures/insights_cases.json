@@ -1,0 +1,889 @@
+{
+  "version": "1.0",
+  "description": "GAP-AI verified deterministic test fixtures for Insights adherence engine (B1-3 / V1-3)",
+  "reference_timezone": "Europe/Istanbul",
+  "cases": [
+    {
+      "id": "case_01_no_outcomes_null",
+      "name": "Hiç sonuç yokken null dönmesi (Cold Start)",
+      "description": "Tüm planlar geçmişte kalmış ancak hiçbir sonuç (outcome) bildirilmemiştir. adherence_pct ve avg_start_delay_min null olmalıdır.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "11111111-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Sabah Koşusu",
+            "category": "sport",
+            "planned_start": "2026-10-13T07:30:00+03:00",
+            "planned_end": "2026-10-13T08:30:00+03:00",
+            "recurrence_rule": null,
+            "source": "device",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          },
+          {
+            "id": "11111111-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Haftalık Senkron",
+            "category": "work",
+            "planned_start": "2026-10-14T10:00:00+03:00",
+            "planned_end": "2026-10-14T11:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-13T20:00:00+03:00"
+          }
+        ],
+        "outcomes": []
+      },
+      "expected": {
+        "period": "week",
+        "planned": 2,
+        "done": 0,
+        "postponed": 0,
+        "skipped": 0,
+        "unreported": 2,
+        "adherence_pct": null,
+        "avg_start_delay_min": null,
+        "by_weekday": {
+          "Tuesday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          },
+          "Wednesday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "07": {
+            "planned": 1,
+            "done": 0
+          },
+          "10": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "by_category": {
+          "sport": {
+            "planned": 1,
+            "done": 0
+          },
+          "work": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "postponed_targets": [],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    },
+    {
+      "id": "case_02_single_done",
+      "name": "Tek plan ve tek tamamlama (15 dk gecikme)",
+      "description": "Tek bir plan ve tek bir done outcome mevcuttur. 15 dakika gecikmeli başlama. Adherence %100.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "22222222-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Fitness Egzersizi",
+            "category": "sport",
+            "planned_start": "2026-10-12T18:00:00+03:00",
+            "planned_end": "2026-10-12T19:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "device",
+            "created_at": "2026-10-11T20:00:00+03:00"
+          }
+        ],
+        "outcomes": [
+          {
+            "id": "22222222-0000-4000-9000-000000000001",
+            "plan_id": "22222222-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-12T18:15:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "web",
+            "reported_at": "2026-10-12T19:05:00+03:00"
+          }
+        ]
+      },
+      "expected": {
+        "period": "week",
+        "planned": 1,
+        "done": 1,
+        "postponed": 0,
+        "skipped": 0,
+        "unreported": 0,
+        "adherence_pct": 100.0,
+        "avg_start_delay_min": 15,
+        "by_weekday": {
+          "Monday": {
+            "planned": 1,
+            "done": 1,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "18": {
+            "planned": 1,
+            "done": 1
+          }
+        },
+        "by_category": {
+          "sport": {
+            "planned": 1,
+            "done": 1
+          }
+        },
+        "postponed_targets": [],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    },
+    {
+      "id": "case_03_multiple_outcomes_latest",
+      "name": "Aynı planda çoklu outcome ve son olayın seçilmesi",
+      "description": "Aynı plan için önce postponed, ardından done bildirilmiştir. reported_at damgasına göre son outcome ('done') seçilmeli, ara postponement örüntü havuzunda saklanmalıdır.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "33333333-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Algoritma Çalışması",
+            "category": "study",
+            "planned_start": "2026-10-13T14:00:00+03:00",
+            "planned_end": "2026-10-13T15:30:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          }
+        ],
+        "outcomes": [
+          {
+            "id": "33333333-0000-4000-9000-000000000001",
+            "plan_id": "33333333-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "postponed",
+            "actual_start": null,
+            "postponed_to": "2026-10-15T19:00:00+03:00",
+            "note": "Toplantı uzadı",
+            "reported_via": "web",
+            "reported_at": "2026-10-13T14:05:00+03:00"
+          },
+          {
+            "id": "33333333-0000-4000-9000-000000000002",
+            "plan_id": "33333333-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-13T14:00:00+03:00",
+            "postponed_to": null,
+            "note": "Vazgeçip vaktinde tamamladı",
+            "reported_via": "web",
+            "reported_at": "2026-10-13T15:35:00+03:00"
+          }
+        ]
+      },
+      "expected": {
+        "period": "week",
+        "planned": 1,
+        "done": 1,
+        "postponed": 0,
+        "skipped": 0,
+        "unreported": 0,
+        "adherence_pct": 100.0,
+        "avg_start_delay_min": 0,
+        "by_weekday": {
+          "Tuesday": {
+            "planned": 1,
+            "done": 1,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "14": {
+            "planned": 1,
+            "done": 1
+          }
+        },
+        "by_category": {
+          "study": {
+            "planned": 1,
+            "done": 1
+          }
+        },
+        "postponed_targets": [
+          {
+            "weekday": "Thursday",
+            "hour": 19,
+            "count": 1
+          }
+        ],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    },
+    {
+      "id": "case_04_unreported_excluded",
+      "name": "Unreported planların paydadan çıkarılması (2/3 uyum)",
+      "description": "4 plan: 2 done, 1 skipped, 1 unreported. Unreported plan paydadan çıkarılır; payda 2 + 0 + 1 = 3, adherence_pct = 2/3 = %66.7 olur.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Sabah Yürüyüşü",
+            "category": "sport",
+            "planned_start": "2026-10-13T08:00:00+03:00",
+            "planned_end": "2026-10-13T09:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "device",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Kod İncelemesi",
+            "category": "work",
+            "planned_start": "2026-10-13T11:00:00+03:00",
+            "planned_end": "2026-10-13T12:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Kitap Okuma",
+            "category": "personal",
+            "planned_start": "2026-10-14T21:00:00+03:00",
+            "planned_end": "2026-10-14T22:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-13T20:00:00+03:00"
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000004",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Masa Tenisi",
+            "category": "social",
+            "planned_start": "2026-10-15T17:00:00+03:00",
+            "planned_end": "2026-10-15T18:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-14T20:00:00+03:00"
+          }
+        ],
+        "outcomes": [
+          {
+            "id": "44444444-0000-4000-9000-000000000001",
+            "plan_id": "44444444-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-13T08:10:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "device",
+            "reported_at": "2026-10-13T09:05:00+03:00"
+          },
+          {
+            "id": "44444444-0000-4000-9000-000000000002",
+            "plan_id": "44444444-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-13T11:10:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "web",
+            "reported_at": "2026-10-13T12:05:00+03:00"
+          },
+          {
+            "id": "44444444-0000-4000-9000-000000000003",
+            "plan_id": "44444444-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "skipped",
+            "actual_start": null,
+            "postponed_to": null,
+            "note": "Yorgunluk",
+            "reported_via": "web",
+            "reported_at": "2026-10-14T21:05:00+03:00"
+          }
+        ]
+      },
+      "expected": {
+        "period": "week",
+        "planned": 4,
+        "done": 2,
+        "postponed": 0,
+        "skipped": 1,
+        "unreported": 1,
+        "adherence_pct": 66.7,
+        "avg_start_delay_min": 10,
+        "by_weekday": {
+          "Tuesday": {
+            "planned": 2,
+            "done": 2,
+            "postponed": 0
+          },
+          "Wednesday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          },
+          "Thursday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "08": {
+            "planned": 1,
+            "done": 1
+          },
+          "11": {
+            "planned": 1,
+            "done": 1
+          },
+          "17": {
+            "planned": 1,
+            "done": 0
+          },
+          "21": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "by_category": {
+          "sport": {
+            "planned": 1,
+            "done": 1
+          },
+          "work": {
+            "planned": 1,
+            "done": 1
+          },
+          "personal": {
+            "planned": 1,
+            "done": 0
+          },
+          "social": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "postponed_targets": [],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    },
+    {
+      "id": "case_05_mixed_full_distribution",
+      "name": "Karışık başarı/hata dağılımı (2 done, 1 postponed, 1 skipped, 1 unreported)",
+      "description": "5 plan, farklı kategoriler, gecikmeler (10 ve 20 dk, ortalama 15 dk). Payda 4, adherence_pct = 2/4 = %50.0. Erteleme hedefi: Perşembe 19:00.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "55555555-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Sabah Koşusu",
+            "category": "sport",
+            "planned_start": "2026-10-13T07:00:00+03:00",
+            "planned_end": "2026-10-13T08:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "device",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Proje Toplantısı",
+            "category": "meeting",
+            "planned_start": "2026-10-13T10:00:00+03:00",
+            "planned_end": "2026-10-13T11:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Derin Çalışma",
+            "category": "work",
+            "planned_start": "2026-10-14T14:00:00+03:00",
+            "planned_end": "2026-10-14T16:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-13T20:00:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-8000-000000000004",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Doktor Randevusu",
+            "category": "health",
+            "planned_start": "2026-10-15T09:30:00+03:00",
+            "planned_end": "2026-10-15T10:30:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-14T20:00:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-8000-000000000005",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Gitar Pratiği",
+            "category": "personal",
+            "planned_start": "2026-10-16T19:00:00+03:00",
+            "planned_end": "2026-10-16T20:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-15T20:00:00+03:00"
+          }
+        ],
+        "outcomes": [
+          {
+            "id": "55555555-0000-4000-9000-000000000001",
+            "plan_id": "55555555-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-13T07:10:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "device",
+            "reported_at": "2026-10-13T08:05:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-9000-000000000002",
+            "plan_id": "55555555-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "postponed",
+            "actual_start": null,
+            "postponed_to": "2026-10-15T19:00:00+03:00",
+            "note": "Perşembeye ertelendi",
+            "reported_via": "web",
+            "reported_at": "2026-10-13T10:05:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-9000-000000000003",
+            "plan_id": "55555555-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-14T14:20:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "web",
+            "reported_at": "2026-10-14T16:05:00+03:00"
+          },
+          {
+            "id": "55555555-0000-4000-9000-000000000004",
+            "plan_id": "55555555-0000-4000-8000-000000000004",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "skipped",
+            "actual_start": null,
+            "postponed_to": null,
+            "note": "İptal edildi",
+            "reported_via": "web",
+            "reported_at": "2026-10-15T09:35:00+03:00"
+          }
+        ]
+      },
+      "expected": {
+        "period": "week",
+        "planned": 5,
+        "done": 2,
+        "postponed": 1,
+        "skipped": 1,
+        "unreported": 1,
+        "adherence_pct": 50.0,
+        "avg_start_delay_min": 15,
+        "by_weekday": {
+          "Tuesday": {
+            "planned": 2,
+            "done": 1,
+            "postponed": 1
+          },
+          "Wednesday": {
+            "planned": 1,
+            "done": 1,
+            "postponed": 0
+          },
+          "Thursday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          },
+          "Friday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "07": {
+            "planned": 1,
+            "done": 1
+          },
+          "09": {
+            "planned": 1,
+            "done": 0
+          },
+          "10": {
+            "planned": 1,
+            "done": 0
+          },
+          "14": {
+            "planned": 1,
+            "done": 1
+          },
+          "19": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "by_category": {
+          "sport": {
+            "planned": 1,
+            "done": 1
+          },
+          "meeting": {
+            "planned": 1,
+            "done": 0
+          },
+          "work": {
+            "planned": 1,
+            "done": 1
+          },
+          "health": {
+            "planned": 1,
+            "done": 0
+          },
+          "personal": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "postponed_targets": [
+          {
+            "weekday": "Thursday",
+            "hour": 19,
+            "count": 1
+          }
+        ],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    },
+    {
+      "id": "case_06_zero_adherence_not_null",
+      "name": "Raporlanmış ancak sıfır başarı (Adherence %0.0, null değil)",
+      "description": "3 plan: 0 done, 2 postponed, 1 skipped. Sonuç bildirilmiş olduğundan payda 3'tür; adherence_pct null DEĞİL, 0.0 olmalıdır.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "66666666-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "İngilizce Pratiği",
+            "category": "study",
+            "planned_start": "2026-10-12T19:00:00+03:00",
+            "planned_end": "2026-10-12T20:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-11T20:00:00+03:00"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Sprint Retrospektifi",
+            "category": "meeting",
+            "planned_start": "2026-10-14T11:00:00+03:00",
+            "planned_end": "2026-10-14T12:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-13T20:00:00+03:00"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Diş Randevusu",
+            "category": "health",
+            "planned_start": "2026-10-16T15:00:00+03:00",
+            "planned_end": "2026-10-16T16:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-15T20:00:00+03:00"
+          }
+        ],
+        "outcomes": [
+          {
+            "id": "66666666-0000-4000-9000-000000000001",
+            "plan_id": "66666666-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "postponed",
+            "actual_start": null,
+            "postponed_to": "2026-10-13T20:00:00+03:00",
+            "note": "Salıya ertelendi",
+            "reported_via": "web",
+            "reported_at": "2026-10-12T19:05:00+03:00"
+          },
+          {
+            "id": "66666666-0000-4000-9000-000000000002",
+            "plan_id": "66666666-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "postponed",
+            "actual_start": null,
+            "postponed_to": "2026-10-15T11:00:00+03:00",
+            "note": "Perşembeye ertelendi",
+            "reported_via": "web",
+            "reported_at": "2026-10-14T11:05:00+03:00"
+          },
+          {
+            "id": "66666666-0000-4000-9000-000000000003",
+            "plan_id": "66666666-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "skipped",
+            "actual_start": null,
+            "postponed_to": null,
+            "note": "İptal",
+            "reported_via": "web",
+            "reported_at": "2026-10-16T15:10:00+03:00"
+          }
+        ]
+      },
+      "expected": {
+        "period": "week",
+        "planned": 3,
+        "done": 0,
+        "postponed": 2,
+        "skipped": 1,
+        "unreported": 0,
+        "adherence_pct": 0.0,
+        "avg_start_delay_min": null,
+        "by_weekday": {
+          "Monday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 1
+          },
+          "Wednesday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 1
+          },
+          "Friday": {
+            "planned": 1,
+            "done": 0,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "11": {
+            "planned": 1,
+            "done": 0
+          },
+          "15": {
+            "planned": 1,
+            "done": 0
+          },
+          "19": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "by_category": {
+          "study": {
+            "planned": 1,
+            "done": 0
+          },
+          "meeting": {
+            "planned": 1,
+            "done": 0
+          },
+          "health": {
+            "planned": 1,
+            "done": 0
+          }
+        },
+        "postponed_targets": [
+          {
+            "weekday": "Tuesday",
+            "hour": 20,
+            "count": 1
+          },
+          {
+            "weekday": "Thursday",
+            "hour": 11,
+            "count": 1
+          }
+        ],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    },
+    {
+      "id": "case_07_perfect_week_multi_category",
+      "name": "Mükemmel hafta (Çoklu kategori, %100 uyum)",
+      "description": "3 plan, 3 farklı kategori (sport, work, study), tamamı yapıldı. Gecikmeler: 0, 5, 10 dk (ortalama 5 dk). Adherence %100.0.",
+      "reference_time": "2026-10-18T23:59:59+03:00",
+      "period": "week",
+      "inputs": {
+        "plans": [
+          {
+            "id": "77777777-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Sabah Koşusu",
+            "category": "sport",
+            "planned_start": "2026-10-13T07:30:00+03:00",
+            "planned_end": "2026-10-13T08:15:00+03:00",
+            "recurrence_rule": null,
+            "source": "device",
+            "created_at": "2026-10-12T20:00:00+03:00"
+          },
+          {
+            "id": "77777777-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Mimari Tasarım",
+            "category": "work",
+            "planned_start": "2026-10-14T10:00:00+03:00",
+            "planned_end": "2026-10-14T11:30:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-13T20:00:00+03:00"
+          },
+          {
+            "id": "77777777-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "title": "Python Dokümantasyonu",
+            "category": "study",
+            "planned_start": "2026-10-15T19:00:00+03:00",
+            "planned_end": "2026-10-15T20:00:00+03:00",
+            "recurrence_rule": null,
+            "source": "text",
+            "created_at": "2026-10-14T20:00:00+03:00"
+          }
+        ],
+        "outcomes": [
+          {
+            "id": "77777777-0000-4000-9000-000000000001",
+            "plan_id": "77777777-0000-4000-8000-000000000001",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-13T07:30:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "device",
+            "reported_at": "2026-10-13T08:20:00+03:00"
+          },
+          {
+            "id": "77777777-0000-4000-9000-000000000002",
+            "plan_id": "77777777-0000-4000-8000-000000000002",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-14T10:05:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "web",
+            "reported_at": "2026-10-14T11:35:00+03:00"
+          },
+          {
+            "id": "77777777-0000-4000-9000-000000000003",
+            "plan_id": "77777777-0000-4000-8000-000000000003",
+            "user_id": "a0000000-0000-4000-8000-000000000001",
+            "status": "done",
+            "actual_start": "2026-10-15T19:10:00+03:00",
+            "postponed_to": null,
+            "note": null,
+            "reported_via": "web",
+            "reported_at": "2026-10-15T20:05:00+03:00"
+          }
+        ]
+      },
+      "expected": {
+        "period": "week",
+        "planned": 3,
+        "done": 3,
+        "postponed": 0,
+        "skipped": 0,
+        "unreported": 0,
+        "adherence_pct": 100.0,
+        "avg_start_delay_min": 5,
+        "by_weekday": {
+          "Tuesday": {
+            "planned": 1,
+            "done": 1,
+            "postponed": 0
+          },
+          "Wednesday": {
+            "planned": 1,
+            "done": 1,
+            "postponed": 0
+          },
+          "Thursday": {
+            "planned": 1,
+            "done": 1,
+            "postponed": 0
+          }
+        },
+        "by_hour": {
+          "07": {
+            "planned": 1,
+            "done": 1
+          },
+          "10": {
+            "planned": 1,
+            "done": 1
+          },
+          "19": {
+            "planned": 1,
+            "done": 1
+          }
+        },
+        "by_category": {
+          "sport": {
+            "planned": 1,
+            "done": 1
+          },
+          "work": {
+            "planned": 1,
+            "done": 1
+          },
+          "study": {
+            "planned": 1,
+            "done": 1
+          }
+        },
+        "postponed_targets": [],
+        "trend_vs_prev": null,
+        "narrative": null,
+        "is_demo": false,
+        "data_label": "real"
+      }
+    }
+  ]
+}
