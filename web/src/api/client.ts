@@ -1,9 +1,12 @@
-import { getStoredToken } from '../utils/auth';
+import { getStoredToken } from '../utils/auth.ts';
 
 /**
  * Ortam değişkeninden API temel URL'i; varsayılan olarak Vite dev proxy'si için '/api' kullanılır.
  */
-const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
+const API_BASE = (
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
+  '/api'
+).replace(/\/+$/, '');
 
 export interface ApiErrorPayload {
   error?: string;
