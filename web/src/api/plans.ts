@@ -1,11 +1,16 @@
 import { apiFetch, ApiError } from './client.ts';
 import type {
+  OutcomeReportRequest,
+  OutcomeStatus,
   ParsedPlan,
   ParseRequest,
   Plan,
   PlanCreateRequest,
+  PlanListResponse,
+  PlanOutcome,
 } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
+
 
 /**
  * Returns today's calendar date in local timezone formatted as YYYY-MM-DD.
@@ -381,6 +386,169 @@ export async function createPlan(
     headers: {
       'Idempotency-Key': idempotencyKey,
     },
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface ListPlansOptions {
+  from?: string;
+  to?: string;
+  mockMode?: boolean;
+}
+
+export interface ReportOutcomeOptions {
+  actual_start?: string | null;
+  postponed_to?: string | null;
+  note?: string | null;
+  mockMode?: boolean;
+}
+
+/**
+ * Deterministic mock plan list for offline testing and demo flows.
+ * Never used silently in live API requests.
+ */
+export function mockListPlans(): Plan[] {
+  const today = getLocalCurrentDate();
+  return [
+    {
+      id: '550e8400-e29b-41d4-a716-446655440001',
+      title: 'Sabah Koşusu',
+      category: 'sport',
+      planned_start: `${today}T08:00:00+03:00`,
+      planned_end: `${today}T09:00:00+03:00`,
+      recurrence_rule: null,
+      source: 'text',
+      created_at: `${today}T07:00:00+03:00`,
+      latest_outcome: null,
+    },
+    {
+      id: '550e8400-e29b-41d4-a716-446655440002',
+      title: 'Haftalık Ekip Senkronizasyonu',
+      category: 'meeting',
+      planned_start: `${today}T11:00:00+03:00`,
+      planned_end: `${today}T12:00:00+03:00`,
+      recurrence_rule: 'FREQ=WEEKLY',
+      source: 'text',
+      created_at: `${today}T07:15:00+03:00`,
+      latest_outcome: {
+        id: '6ba7b810-9dad-11d1-80b4-00c04fd43001',
+        plan_id: '550e8400-e29b-41d4-a716-446655440002',
+        status: 'done',
+        actual_start: `${today}T11:05:00+03:00`,
+        postponed_to: null,
+        note: null,
+        reported_via: 'web',
+        reported_at: `${today}T12:05:00+03:00`,
+      },
+    },
+    {
+      id: '550e8400-e29b-41d4-a716-446655440003',
+      title: 'GAP-AI Frontend Geliştirme',
+      category: 'study',
+      planned_start: `${today}T14:30:00+03:00`,
+      planned_end: `${today}T16:30:00+03:00`,
+      recurrence_rule: null,
+      source: 'text',
+      created_at: `${today}T07:30:00+03:00`,
+      latest_outcome: null,
+    },
+    {
+      id: '550e8400-e29b-41d4-a716-446655440004',
+      title: 'Akşam Yürüyüşü',
+      category: 'sport',
+      planned_start: `${today}T19:00:00+03:00`,
+      planned_end: `${today}T20:00:00+03:00`,
+      recurrence_rule: null,
+      source: 'text',
+      created_at: `${today}T07:45:00+03:00`,
+      latest_outcome: null,
+    },
+  ];
+}
+
+/**
+ * Deterministic mock outcome creation.
+ */
+export function mockReportPlanOutcome(
+  planId: string,
+  status: OutcomeStatus,
+  options?: ReportOutcomeOptions
+): PlanOutcome {
+  return {
+    id: generateIdempotencyKey(),
+    plan_id: planId,
+    status,
+    actual_start: options?.actual_start ?? null,
+    postponed_to: options?.postponed_to ?? null,
+    note: options?.note ?? null,
+    reported_via: 'web',
+    reported_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetches the authenticated user's plans via GET /plans.
+ *
+ * @throws {ApiError} when the backend rejects the request or network fails.
+ */
+export async function listPlans(options?: ListPlansOptions): Promise<Plan[]> {
+  if (options?.mockMode) {
+    await new Promise((r) => setTimeout(r, 200));
+    return mockListPlans();
+  }
+
+  const queryParams = new URLSearchParams();
+  if (options?.from) queryParams.set('from', options.from);
+  if (options?.to) queryParams.set('to', options.to);
+  const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+  const response = await apiFetch<PlanListResponse>(`/plans${queryStr}`, {
+    method: 'GET',
+  });
+
+  return Array.isArray(response?.items) ? response.items : [];
+}
+
+/**
+ * Reports an outcome for a plan via POST /plans/{id}/outcome.
+ * Strictly uses `reported_via: "web"` according to docs/api-contract.md:243-258.
+ *
+ * @throws {ApiError} when validation fails or backend rejects the request.
+ */
+export async function reportPlanOutcome(
+  planId: string,
+  status: OutcomeStatus,
+  options?: ReportOutcomeOptions
+): Promise<PlanOutcome> {
+  const trimmedId = planId?.trim();
+  if (!trimmedId) {
+    throw new ApiError('Plan kimliği boş bırakılamaz.', 422, 'validation_error');
+  }
+
+  const validStatuses: OutcomeStatus[] = ['done', 'postponed', 'skipped'];
+  if (!validStatuses.includes(status)) {
+    throw new ApiError(
+      `Geçersiz sonuç durumu: ${status}. Beklenen: done, postponed, skipped.`,
+      422,
+      'validation_error'
+    );
+  }
+
+  if (options?.mockMode) {
+    await new Promise((r) => setTimeout(r, 300));
+    return mockReportPlanOutcome(trimmedId, status, options);
+  }
+
+  const payload: OutcomeReportRequest = {
+    status,
+    reported_via: 'web',
+    ...(options?.actual_start !== undefined ? { actual_start: options.actual_start } : { actual_start: null }),
+    ...(options?.postponed_to !== undefined ? { postponed_to: options.postponed_to } : { postponed_to: null }),
+    ...(options?.note !== undefined ? { note: options.note } : { note: null }),
+  };
+
+  return apiFetch<PlanOutcome>(`/plans/${encodeURIComponent(trimmedId)}/outcome`, {
+    method: 'POST',
     body: JSON.stringify(payload),
   });
 }
