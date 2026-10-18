@@ -43,6 +43,12 @@ class PlanStore(Protocol):
         expires_at: datetime,
     ) -> AuthenticatedUser: ...
 
+    def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
+
+    def save_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
 
 class SupabasePlanStore:
     """Small PostgREST adapter; idempotent writes use one transactional RPC."""
@@ -191,6 +197,71 @@ class SupabasePlanStore:
             demo_expires_at=user["demo_expires_at"],
         )
 
+    def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None:
+        response = self._client.get(
+            urljoin(self._rest_url, "suggestions"),
+            params={
+                "select": SUGGESTION_FIELDS,
+                "user_id": f"eq.{user_id}",
+                "plan_id": f"eq.{plan_id}",
+                "limit": "1",
+            },
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if rows else None
+
+    def save_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store the plan's first suggestion and return it.
+
+        Suggestions are never refreshed (MVP), so if one already exists, for
+        example from a concurrent first request, that stored one is returned.
+        """
+        response = self._client.post(
+            urljoin(self._rest_url, "suggestions"),
+            params={"select": SUGGESTION_FIELDS, "on_conflict": "plan_id"},
+            headers={"Prefer": "return=representation,resolution=ignore-duplicates"},
+            json=_suggestion_row(user_id, plan_id, suggestion_data),
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if rows:
+            return rows[0]
+        existing = self.get_suggestion(user_id, plan_id)
+        if existing is None:
+            raise RuntimeError("Suggestion insert was ignored but no stored suggestion was found")
+        return existing
+
+
+SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence"
+
+
+def _suggestion_row(
+    user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+) -> dict[str, Any]:
+    # Ownership comes only from the arguments; any user_id in the data is ignored.
+    if str(suggestion_data.get("plan_id", plan_id)) != plan_id:
+        raise ValueError("suggestion_data.plan_id does not match plan_id")
+    return {
+        "user_id": user_id,
+        "plan_id": plan_id,
+        "reason": suggestion_data["reason"],
+        "message": suggestion_data["message"],
+        "proposed_start": _timestamp(suggestion_data["proposed_start"]),
+        "proposed_end": _timestamp(suggestion_data["proposed_end"]),
+        "evidence": suggestion_data.get("evidence") or {},
+    }
+
+
+def _timestamp(value: datetime | str) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            raise ValueError("Suggestion timestamps must include a timezone")
+        return value.isoformat()
+    return value
+
 
 def _plan_response(row: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -258,6 +329,14 @@ class LazyPlanStore:
             created_at=created_at,
             expires_at=expires_at,
         )
+
+    def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None:
+        return _build_plan_store().get_suggestion(user_id, plan_id)
+
+    def save_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _build_plan_store().save_suggestion(user_id, plan_id, suggestion_data)
 
 
 @lru_cache(maxsize=1)
