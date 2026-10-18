@@ -3,12 +3,17 @@ import { describe, it } from 'node:test';
 import {
   createPlan,
   getLocalCurrentDate,
+  listPlans,
+  mockListPlans,
   mockParsePlan,
+  mockReportPlanOutcome,
   mockSavePlan,
   parseNaturalLanguagePlan,
+  reportPlanOutcome,
 } from './plans.ts';
-import type { ParsedPlan } from '../types/plan.ts';
+import type { ParsedPlan, Plan, PlanOutcome } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
+
 
 describe('GAP-AI W1-2: Plan Flow & API Tests', () => {
   describe('Idempotency & Date Utilities', () => {
@@ -404,6 +409,467 @@ describe('GAP-AI W1-2: Plan Flow & API Tests', () => {
       } finally {
         globalThis.fetch = originalFetch;
       }
+    });
+  });
+});
+
+describe('GAP-AI W1-3: Plan Listing and Outcome Reporting Tests', () => {
+  const originalFetch = globalThis.fetch;
+
+  describe('1. Plan Listing (listPlans & GET /plans)', () => {
+    it('1.1 successfully loads and lists plans from GET /plans', async () => {
+      globalThis.fetch = (async (url: string) => {
+        assert.ok(url.includes('/plans'));
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: 'plan-1',
+                title: 'Sabah Koşusu',
+                category: 'sport',
+                planned_start: '2026-10-18T08:00:00+03:00',
+                planned_end: '2026-10-18T09:00:00+03:00',
+                recurrence_rule: null,
+                source: 'text',
+                created_at: '2026-10-17T12:00:00+03:00',
+                latest_outcome: null,
+              },
+              {
+                id: 'plan-2',
+                title: 'Ekip Toplantısı',
+                category: 'meeting',
+                planned_start: '2026-10-18T10:00:00+03:00',
+                planned_end: '2026-10-18T11:00:00+03:00',
+                recurrence_rule: null,
+                source: 'text',
+                created_at: '2026-10-17T12:30:00+03:00',
+                latest_outcome: {
+                  id: 'outcome-1',
+                  plan_id: 'plan-2',
+                  status: 'done',
+                  actual_start: '2026-10-18T10:05:00+03:00',
+                  postponed_to: null,
+                  note: null,
+                  reported_via: 'web',
+                  reported_at: '2026-10-18T11:00:00+03:00',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        const plans = await listPlans({ mockMode: false });
+        assert.strictEqual(plans.length, 2);
+        assert.strictEqual(plans[0].id, 'plan-1');
+        assert.strictEqual(plans[0].title, 'Sabah Koşusu');
+        assert.strictEqual(plans[0].latest_outcome, null);
+
+        assert.strictEqual(plans[1].id, 'plan-2');
+        assert.ok(plans[1].latest_outcome);
+        assert.strictEqual(plans[1].latest_outcome?.status, 'done');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('1.2 returns empty list when backend returns empty items array', async () => {
+      globalThis.fetch = (async () => {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      try {
+        const plans = await listPlans({ mockMode: false });
+        assert.strictEqual(Array.isArray(plans), true);
+        assert.strictEqual(plans.length, 0);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('1.3 passes query parameters (from, to) to GET /plans', async () => {
+      let requestedUrl = '';
+      globalThis.fetch = (async (url: string) => {
+        requestedUrl = url;
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      try {
+        await listPlans({
+          from: '2026-10-18T00:00:00+03:00',
+          to: '2026-10-18T23:59:59+03:00',
+          mockMode: false,
+        });
+
+        assert.ok(requestedUrl.includes('from=2026-10-18T00%3A00%3A00%2B03%3A00'));
+        assert.ok(requestedUrl.includes('to=2026-10-18T23%3A59%3A59%2B03%3A00'));
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('1.4 throws ApiError when listing request fails (no silent mock fallback)', async () => {
+      globalThis.fetch = (async () => {
+        return new Response(
+          JSON.stringify({
+            error: 'unauthorized',
+            message: 'Token is missing or invalid.',
+          }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await assert.rejects(
+          async () => {
+            await listPlans({ mockMode: false });
+          },
+          {
+            name: 'ApiError',
+            status: 401,
+            errorType: 'unauthorized',
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('1.5 returns deterministic mock plans when mockMode is true', async () => {
+      const plans = await listPlans({ mockMode: true });
+      assert.ok(Array.isArray(plans));
+      assert.ok(plans.length >= 3);
+      assert.strictEqual(plans[0].title, 'Sabah Koşusu');
+    });
+  });
+
+  describe('2. Outcome Reporting (reportPlanOutcome & POST /plans/{id}/outcome)', () => {
+    it('2.1 reports "done" outcome with reported_via: "web" to correct URL', async () => {
+      let capturedUrl = '';
+      let capturedBody: Record<string, unknown> = {};
+
+      globalThis.fetch = (async (url: string, init?: RequestInit) => {
+        capturedUrl = url;
+        capturedBody = JSON.parse((init?.body as string) || '{}');
+
+        return new Response(
+          JSON.stringify({
+            id: 'outcome-101',
+            plan_id: 'plan-123',
+            status: 'done',
+            actual_start: null,
+            postponed_to: null,
+            note: null,
+            reported_via: 'web',
+            reported_at: '2026-10-18T09:30:00+03:00',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        const outcome = await reportPlanOutcome('plan-123', 'done', {
+          mockMode: false,
+        });
+
+        assert.ok(capturedUrl.endsWith('/plans/plan-123/outcome'));
+        assert.strictEqual(capturedBody.status, 'done');
+        assert.strictEqual(capturedBody.reported_via, 'web');
+        assert.strictEqual(outcome.id, 'outcome-101');
+        assert.strictEqual(outcome.status, 'done');
+        assert.strictEqual(outcome.reported_via, 'web');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('2.2 reports "postponed" outcome with reported_via: "web"', async () => {
+      let capturedBody: Record<string, unknown> = {};
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse((init?.body as string) || '{}');
+
+        return new Response(
+          JSON.stringify({
+            id: 'outcome-102',
+            plan_id: 'plan-123',
+            status: 'postponed',
+            actual_start: null,
+            postponed_to: '2026-10-19T10:00:00+03:00',
+            note: 'Hava muhalefeti',
+            reported_via: 'web',
+            reported_at: '2026-10-18T09:30:00+03:00',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        const outcome = await reportPlanOutcome('plan-123', 'postponed', {
+          postponed_to: '2026-10-19T10:00:00+03:00',
+          note: 'Hava muhalefeti',
+          mockMode: false,
+        });
+
+        assert.strictEqual(capturedBody.status, 'postponed');
+        assert.strictEqual(capturedBody.reported_via, 'web');
+        assert.strictEqual(capturedBody.postponed_to, '2026-10-19T10:00:00+03:00');
+        assert.strictEqual(capturedBody.note, 'Hava muhalefeti');
+        assert.strictEqual(outcome.status, 'postponed');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('2.3 reports "skipped" outcome with reported_via: "web"', async () => {
+      let capturedBody: Record<string, unknown> = {};
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse((init?.body as string) || '{}');
+
+        return new Response(
+          JSON.stringify({
+            id: 'outcome-103',
+            plan_id: 'plan-456',
+            status: 'skipped',
+            actual_start: null,
+            postponed_to: null,
+            note: null,
+            reported_via: 'web',
+            reported_at: '2026-10-18T09:30:00+03:00',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        const outcome = await reportPlanOutcome('plan-456', 'skipped', {
+          mockMode: false,
+        });
+
+        assert.strictEqual(capturedBody.status, 'skipped');
+        assert.strictEqual(capturedBody.reported_via, 'web');
+        assert.strictEqual(outcome.status, 'skipped');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('2.4 rejects empty planId with validation error', async () => {
+      await assert.rejects(
+        async () => {
+          await reportPlanOutcome('   ', 'done', { mockMode: false });
+        },
+        {
+          name: 'ApiError',
+          status: 422,
+          errorType: 'validation_error',
+        }
+      );
+    });
+
+    it('2.5 rejects invalid status enum with validation error', async () => {
+      await assert.rejects(
+        async () => {
+          // @ts-expect-error Testing invalid runtime enum value
+          await reportPlanOutcome('plan-1', 'cancelled', { mockMode: false });
+        },
+        {
+          name: 'ApiError',
+          status: 422,
+          errorType: 'validation_error',
+        }
+      );
+    });
+
+    it('2.6 propagates 404 not_found error on foreign or missing plan (K-1)', async () => {
+      globalThis.fetch = (async () => {
+        return new Response(
+          JSON.stringify({
+            error: 'not_found',
+            message: 'Kaynak bu kullanıcı için bulunamadı.',
+          }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await assert.rejects(
+          async () => {
+            await reportPlanOutcome('foreign-plan-id', 'done', {
+              mockMode: false,
+            });
+          },
+          {
+            name: 'ApiError',
+            status: 404,
+            errorType: 'not_found',
+            message: 'Kaynak bu kullanıcı için bulunamadı.',
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('2.7 propagates 401 unauthorized error on missing or invalid token', async () => {
+      globalThis.fetch = (async () => {
+        return new Response(
+          JSON.stringify({
+            error: 'unauthorized',
+            message: 'Token is missing or invalid.',
+          }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await assert.rejects(
+          async () => {
+            await reportPlanOutcome('plan-1', 'done', { mockMode: false });
+          },
+          {
+            name: 'ApiError',
+            status: 401,
+            errorType: 'unauthorized',
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('2.8 handles malformed or non-JSON backend error safely', async () => {
+      globalThis.fetch = (async () => {
+        return new Response('502 Bad Gateway Server Error', {
+          status: 502,
+          statusText: 'Bad Gateway',
+        });
+      }) as typeof fetch;
+
+      try {
+        await assert.rejects(
+          async () => {
+            await reportPlanOutcome('plan-1', 'done', { mockMode: false });
+          },
+          {
+            name: 'ApiError',
+            status: 502,
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('2.9 returns valid PlanOutcome in mockMode', async () => {
+      const outcome = await reportPlanOutcome('plan-test-mock', 'done', {
+        mockMode: true,
+      });
+
+      assert.strictEqual(outcome.plan_id, 'plan-test-mock');
+      assert.strictEqual(outcome.status, 'done');
+      assert.strictEqual(outcome.reported_via, 'web');
+      assert.ok(isValidUUID(outcome.id));
+    });
+  });
+
+  describe('3. Plan State Update and User Isolation Logic', () => {
+    it('3.1 updating outcome for Plan A does not mutate or affect Plan B', () => {
+      const initialPlans: Plan[] = [
+        {
+          id: 'plan-A',
+          title: 'Plan A',
+          category: 'sport',
+          planned_start: '2026-10-18T10:00:00+03:00',
+          planned_end: '2026-10-18T11:00:00+03:00',
+          recurrence_rule: null,
+          source: 'text',
+          created_at: '2026-10-17T10:00:00+03:00',
+          latest_outcome: null,
+        },
+        {
+          id: 'plan-B',
+          title: 'Plan B',
+          category: 'study',
+          planned_start: '2026-10-18T14:00:00+03:00',
+          planned_end: '2026-10-18T16:00:00+03:00',
+          recurrence_rule: null,
+          source: 'text',
+          created_at: '2026-10-17T11:00:00+03:00',
+          latest_outcome: null,
+        },
+      ];
+
+      const newOutcome: PlanOutcome = {
+        id: 'outcome-A',
+        plan_id: 'plan-A',
+        status: 'done',
+        actual_start: null,
+        postponed_to: null,
+        note: null,
+        reported_via: 'web',
+        reported_at: '2026-10-18T11:00:00+03:00',
+      };
+
+      // State updater logic as implemented in PlanList:
+      const updatedPlans = initialPlans.map((p) =>
+        p.id === 'plan-A' ? { ...p, latest_outcome: newOutcome } : p
+      );
+
+      assert.strictEqual(updatedPlans[0].id, 'plan-A');
+      assert.strictEqual(updatedPlans[0].latest_outcome?.status, 'done');
+
+      assert.strictEqual(updatedPlans[1].id, 'plan-B');
+      assert.strictEqual(updatedPlans[1].latest_outcome, null);
+    });
+
+    it('3.2 mockListPlans produces plans matching Plan interface with latest_outcome structure', () => {
+      const mockItems = mockListPlans();
+      for (const plan of mockItems) {
+        assert.ok(plan.id);
+        assert.ok(plan.title);
+        assert.ok(plan.planned_start);
+        assert.ok(plan.planned_end);
+        assert.ok(['text', 'voice', 'device'].includes(plan.source));
+        if (plan.latest_outcome) {
+          assert.strictEqual(plan.latest_outcome.plan_id, plan.id);
+          assert.ok(
+            ['done', 'postponed', 'skipped'].includes(
+              plan.latest_outcome.status
+            )
+          );
+          assert.strictEqual(plan.latest_outcome.reported_via, 'web');
+        }
+      }
+    });
+
+    it('3.3 mockReportPlanOutcome produces strictly conforming outcome event', () => {
+      const outcome = mockReportPlanOutcome('test-uuid', 'postponed', {
+        postponed_to: '2026-10-20T10:00:00+03:00',
+        note: 'Postponed due to meeting conflict',
+      });
+
+      assert.strictEqual(outcome.plan_id, 'test-uuid');
+      assert.strictEqual(outcome.status, 'postponed');
+      assert.strictEqual(outcome.reported_via, 'web');
+      assert.strictEqual(
+        outcome.postponed_to,
+        '2026-10-20T10:00:00+03:00'
+      );
+      assert.strictEqual(
+        outcome.note,
+        'Postponed due to meeting conflict'
+      );
+      assert.ok(isValidUUID(outcome.id));
     });
   });
 });

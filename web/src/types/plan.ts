@@ -63,6 +63,18 @@ export interface PlanCreateRequest {
 }
 
 /**
+ * Payload sent to POST /plans/{id}/outcome
+ *docs/api-contract.md:243-258
+ */
+export interface OutcomeReportRequest {
+  status: OutcomeStatus;
+  actual_start?: string | null;
+  postponed_to?: string | null;
+  note?: string | null;
+  reported_via: 'web';
+}
+
+/**
  * Outcome event structure from docs/api-contract.md
  */
 export interface PlanOutcome {
@@ -89,4 +101,11 @@ export interface Plan {
   source: PlanSource;
   created_at: string;
   latest_outcome: PlanOutcome | null;
+}
+
+/**
+ * Response structure returned by GET /plans
+ */
+export interface PlanListResponse {
+  items: Plan[];
 }
