@@ -378,11 +378,15 @@ def test_supabase_create_demo_session_handles_user_creation_error() -> None:
 def test_supabase_create_demo_session_handles_token_creation_error() -> None:
     calls = 0
     expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    deleted_user_id: str | None = None
 
     def handle(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
+        nonlocal calls, deleted_user_id
         calls += 1
         if request.url.path == "/rest/v1/users":
+            if request.method == "DELETE":
+                deleted_user_id = request.url.params.get("id")
+                return httpx.Response(204, request=request)
             return httpx.Response(
                 201,
                 json=[
@@ -408,7 +412,8 @@ def test_supabase_create_demo_session_handles_token_creation_error() -> None:
                 expires_at=expires,
             )
         assert exc_info.value.response.status_code == 409
-        assert calls == 2
+        assert calls == 3
+        assert deleted_user_id == "eq.user-123"
     finally:
         store._client.close()
 
