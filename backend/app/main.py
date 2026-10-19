@@ -8,6 +8,7 @@ from app.api.outcomes import router as outcomes_router
 from app.api.plans import router as plans_router
 from app.api.parse import router as parse_router
 from app.api.upcoming import router as upcoming_router
+from app.api.voice import router as voice_router
 from app.config import get_settings
 
 
@@ -39,3 +40,4 @@ app.include_router(plans_router)
 app.include_router(outcomes_router)
 app.include_router(parse_router)
 app.include_router(upcoming_router)
+app.include_router(voice_router)
