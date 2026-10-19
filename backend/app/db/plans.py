@@ -26,6 +26,20 @@ class PlanStore(Protocol):
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]: ...
 
+    def list_plans(
+        self,
+        *,
+        user_id: str,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
+
+    def create_outcome(
+        self, *, user_id: str, plan_id: str, outcome: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
     def create_plan_idempotently(
         self,
         *,
@@ -110,6 +124,73 @@ class SupabasePlanStore:
         )
         response.raise_for_status()
         return _plan_response(response.json()[0])
+
+    def list_plans(
+        self,
+        *,
+        user_id: str,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, str] = {
+            "select": PLAN_LIST_FIELDS,
+            "user_id": f"eq.{user_id}",
+            "order": "planned_start.asc,id.asc",
+            "outcomes.order": "reported_at.desc,id.desc",
+            "outcomes.limit": "1",
+        }
+        if from_time is not None and to_time is not None:
+            params["and"] = (
+                f"(planned_start.gte.{_timestamp(from_time)},"
+                f"planned_start.lte.{_timestamp(to_time)})"
+            )
+        elif from_time is not None:
+            params["planned_start"] = f"gte.{_timestamp(from_time)}"
+        elif to_time is not None:
+            params["planned_start"] = f"lte.{_timestamp(to_time)}"
+        response = self._client.get(urljoin(self._rest_url, "plans"), params=params)
+        response.raise_for_status()
+        return [_plan_list_response(row) for row in response.json()]
+
+    def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None:
+        response = self._client.get(
+            urljoin(self._rest_url, "plans"),
+            params={
+                "select": "id,user_id,title,category,planned_start,planned_end,recurrence_rule,source,created_at",
+                "id": f"eq.{plan_id}",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if rows else None
+
+    def create_outcome(
+        self, *, user_id: str, plan_id: str, outcome: dict[str, Any]
+    ) -> dict[str, Any]:
+        # Ownership and parent identity are controlled by the authenticated
+        # request arguments, never by fields supplied in the event payload.
+        body = {
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "status": outcome["status"],
+            "actual_start": outcome.get("actual_start"),
+            "postponed_to": outcome.get("postponed_to"),
+            "note": outcome.get("note"),
+            "reported_via": outcome["reported_via"],
+        }
+        response = self._client.post(
+            urljoin(self._rest_url, "outcomes"),
+            params={"select": OUTCOME_FIELDS},
+            headers={"Prefer": "return=representation"},
+            json=body,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if not rows:
+            raise RuntimeError("Outcome insert returned no representation")
+        return rows[0]
 
     def create_plan_idempotently(
         self,
@@ -236,6 +317,17 @@ class SupabasePlanStore:
 
 
 SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence"
+OUTCOME_FIELDS = "id,plan_id,user_id,status,actual_start,postponed_to,note,reported_via,reported_at"
+LATEST_OUTCOME_FIELDS = "id,status,actual_start,postponed_to,note,reported_via,reported_at"
+PLAN_LIST_FIELDS = (
+    "id,title,category,planned_start,planned_end,recurrence_rule,source,created_at,"
+    f"outcomes({LATEST_OUTCOME_FIELDS})"
+)
+
+
+def _plan_list_response(row: dict[str, Any]) -> dict[str, Any]:
+    outcomes = row.pop("outcomes", [])
+    return {**row, "latest_outcome": outcomes[0] if outcomes else None}
 
 
 def _suggestion_row(
@@ -301,6 +393,27 @@ class LazyPlanStore:
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         return _build_plan_store().create_plan(plan)
+
+    def list_plans(
+        self,
+        *,
+        user_id: str,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        return _build_plan_store().list_plans(
+            user_id=user_id, from_time=from_time, to_time=to_time
+        )
+
+    def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None:
+        return _build_plan_store().get_plan(user_id=user_id, plan_id=plan_id)
+
+    def create_outcome(
+        self, *, user_id: str, plan_id: str, outcome: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _build_plan_store().create_outcome(
+            user_id=user_id, plan_id=plan_id, outcome=outcome
+        )
 
     def create_plan_idempotently(
         self,
