@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { createDemoSession } from './api/demo';
+import { CreatePlan } from './pages/CreatePlan';
+import { PlanList } from './pages/PlanList';
 import {
   clearStoredToken,
   extractTokenFromUrlAndClean,
@@ -9,10 +11,10 @@ import {
 import { Insights } from './pages/Insights';
 import './App.css';
 
-type ActiveTab = 'insights' | 'demo';
+type ActiveTab = 'insights' | 'plans' | 'create' | 'demo';
 
 function App() {
-  // Sayfa ilk yüklendiğinde URL'deki ?t= parametresini yakala veya kayıtlı token'ı oku:
+// Sayfa ilk yüklendiğinde URL'deki ?t= parametresini yakala veya kayıtlı token'ı oku:
   const [token, setToken] = useState<string | null>(() => {
     return extractTokenFromUrlAndClean() || getStoredToken();
   });
@@ -63,30 +65,51 @@ function App() {
         <div className="badge">GAP-AI • Web Client</div>
         <h1>Hedef &amp; Eylem Planlama</h1>
         <p className="app-subtitle">Kişisel Davranış ve Analiz Asistanı</p>
-
-        {/* Ana Navigasyon Sekmeleri */}
-        <nav className="main-nav-tabs" aria-label="Ana Sayfa Sekmeleri">
-          <button
-            id="tab-insights-btn"
-            type="button"
-            className={`nav-tab-btn ${activeTab === 'insights' ? 'active' : ''}`}
-            onClick={() => setActiveTab('insights')}
-          >
-            <span className="tab-icon" aria-hidden="true">📊</span>
-            <span>Analiz (Insights)</span>
-          </button>
-          <button
-            id="tab-demo-btn"
-            type="button"
-            className={`nav-tab-btn ${activeTab === 'demo' ? 'active' : ''}`}
-            onClick={() => setActiveTab('demo')}
-          >
-            <span className="tab-icon" aria-hidden="true">🔑</span>
-            <span>Demo &amp; Yetki</span>
-            {token && <span className="tab-pill">Aktif</span>}
-          </button>
-        </nav>
       </header>
+
+      {/* Navigasyon Sekmeleri */}
+      <nav className="nav-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          id="tab-insights"
+          aria-selected={activeTab === 'insights'}
+          className={`nav-tab-btn ${activeTab === 'insights' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('insights')}
+        >
+          📊 Analiz (Insights)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-plan-list"
+          aria-selected={activeTab === 'plans'}
+          className={`nav-tab-btn ${activeTab === 'plans' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('plans')}
+        >
+          📋 Planlarım (W1-3)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-create-plan"
+          aria-selected={activeTab === 'create'}
+          className={`nav-tab-btn ${activeTab === 'create' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('create')}
+        >
+          ✍️ Plan Oluştur (W1-2)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-demo-session"
+          aria-selected={activeTab === 'demo'}
+          className={`nav-tab-btn ${activeTab === 'demo' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('demo')}
+        >
+          🔑 Demo &amp; Oturum (W1-1)
+        </button>
+      </nav>
 
       <main className="app-main">
         {/* Bildirim Alanları */}
@@ -104,10 +127,27 @@ function App() {
           </div>
         )}
 
-        {/* Analiz (Insights) Sekmesi */}
+        {/* Analiz ekranı */}
         {activeTab === 'insights' && <Insights />}
 
-        {/* Demo ve Kimlik Doğrulama Kartı */}
+        {/* Plan listesi ve sonuç bildirme */}
+        {activeTab === 'plans' && (
+          <PlanList
+            token={token}
+            onRequireToken={() => setActiveTab('demo')}
+            onNavigateCreate={() => setActiveTab('create')}
+          />
+        )}
+
+        {/* Plan oluşturma */}
+        {activeTab === 'create' && (
+          <CreatePlan
+            token={token}
+            onRequireToken={() => setActiveTab('demo')}
+          />
+        )}
+
+        {/* Demo ve kimlik doğrulama */}
         {activeTab === 'demo' && (
           <>
             <section className="card demo-card">
