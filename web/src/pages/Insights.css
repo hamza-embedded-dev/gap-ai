@@ -1,0 +1,737 @@
+/**
+ * GAP-AI Insights Screen Styles
+ *
+ * Adheres strictly to design tokens in web/src/styles/tokens.css:
+ * - Brand Theme: Light Theme (Purple / Violet #7c3aed primary)
+ * - Semantic Accents: Mint / Emerald Green (#16a34a) for Done/Success
+ * - Typography: Nunito / Clean sans-serif hierarchy
+ * - Layout: Responsive card grid with micro-interactions
+ */
+
+.insights-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 24px);
+  width: 100%;
+}
+
+/* ==========================================================================
+   Header & Action Bar
+   ========================================================================== */
+.insights-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4, 16px);
+  padding-bottom: var(--space-2, 8px);
+}
+
+.insights-heading-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.insights-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  flex-wrap: wrap;
+}
+
+.insights-main-title {
+  font-family: var(--font-family-base, 'Nunito', sans-serif);
+  font-size: var(--font-size-2xl, 1.875rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.insights-subtitle {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-muted, #64748b);
+  margin: 0;
+}
+
+/* Sample Data Rozeti */
+.sample-data-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 9999px);
+  background-color: var(--color-primary-subtle, #f5f3ff);
+  color: var(--color-primary, #7c3aed);
+  border: 1px solid var(--color-primary-border, #ddd6fe);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-bold, 700);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-primary, #7c3aed);
+}
+
+/* Periyot Seçici Buton Grubu */
+.period-selector-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  background-color: var(--color-bg-subtle, #f1f5f9);
+  padding: 4px;
+  border-radius: var(--radius-lg, 8px);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+}
+
+.period-btn {
+  padding: 6px 14px;
+  font-family: var(--font-family-base, 'Nunito', sans-serif);
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-secondary, #475569);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.period-btn:hover:not(:disabled) {
+  color: var(--color-text-primary, #0f172a);
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+.period-btn.active {
+  background-color: var(--color-bg-surface, #ffffff);
+  color: var(--color-primary, #7c3aed);
+  font-weight: var(--font-weight-bold, 700);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
+}
+
+.period-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* ==========================================================================
+   Yükleme ve Hata Durumları
+   ========================================================================== */
+.insights-loading-box,
+.insights-error-box {
+  background-color: var(--color-bg-surface, #ffffff);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: var(--radius-2xl, 16px);
+  padding: var(--space-10, 40px) var(--space-6, 24px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4, 16px);
+  box-shadow: var(--shadow-sm);
+}
+
+.insights-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--color-primary-subtle, #f5f3ff);
+  border-top-color: var(--color-primary, #7c3aed);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-text {
+  color: var(--color-text-muted, #64748b);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.insights-error-box {
+  border-color: var(--color-danger-border, #fecaca);
+  background-color: var(--color-danger-bg, #fef2f2);
+}
+
+.error-title {
+  color: var(--color-danger-text, #991b1b);
+  font-size: var(--font-size-md, 1.125rem);
+  font-weight: var(--font-weight-bold, 700);
+  margin: 0;
+}
+
+.error-message {
+  color: var(--color-danger-text, #991b1b);
+  font-size: var(--font-size-sm, 0.875rem);
+  margin: 0;
+}
+
+/* ==========================================================================
+   Uyum Metriği Kartı (AdherenceMetricCard)
+   ========================================================================== */
+.insights-metric-card {
+  background-color: var(--color-bg-surface, #ffffff);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: var(--radius-2xl, 16px);
+  padding: var(--space-6, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 24px);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal);
+}
+
+.insights-metric-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-3, 12px);
+}
+
+.metric-eyebrow {
+  display: block;
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-bold, 700);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-primary, #7c3aed);
+  margin-bottom: var(--space-1, 4px);
+}
+
+.metric-title {
+  font-size: var(--font-size-xl, 1.5rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+  margin: 0;
+}
+
+.trend-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.trend-up {
+  background-color: var(--color-status-done-bg, #dcfce7);
+  color: var(--color-status-done-text, #14532d);
+  border: 1px solid var(--color-status-done-border, #86efac);
+}
+
+.trend-down {
+  background-color: var(--color-danger-bg, #fef2f2);
+  color: var(--color-danger-text, #991b1b);
+  border: 1px solid var(--color-danger-border, #fecaca);
+}
+
+.trend-arrow {
+  font-weight: bold;
+}
+
+.trend-sub {
+  color: inherit;
+  opacity: 0.8;
+  font-weight: normal;
+}
+
+.metric-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8, 32px);
+  flex-wrap: wrap;
+}
+
+/* Gösterge (Gauge) */
+.gauge-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 108px;
+  height: 108px;
+  flex-shrink: 0;
+}
+
+.gauge-svg {
+  transform: rotate(-90deg);
+}
+
+.gauge-progress {
+  transition: stroke-dashoffset 0.6s ease-in-out;
+}
+
+.gauge-center {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.gauge-value {
+  font-family: var(--font-family-base, 'Nunito', sans-serif);
+  font-size: 1.45rem;
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-primary, #7c3aed);
+  line-height: 1;
+}
+
+.gauge-label {
+  font-size: 0.65rem;
+  color: var(--color-text-muted, #64748b);
+  text-transform: uppercase;
+  font-weight: var(--font-weight-semibold, 600);
+  margin-top: 3px;
+}
+
+/* İstatistik Kutuları */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3, 12px);
+  flex-grow: 1;
+}
+
+.stat-box {
+  background-color: var(--color-bg-app, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: var(--radius-lg, 8px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  transition: transform var(--transition-fast);
+}
+
+.stat-box:hover {
+  transform: translateY(-1px);
+}
+
+.stat-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.indicator-done {
+  background-color: var(--color-status-done, #16a34a);
+}
+
+.indicator-postponed {
+  background-color: var(--color-status-postponed, #d97706);
+}
+
+.indicator-skipped {
+  background-color: var(--color-status-skipped, #64748b);
+}
+
+.stat-label {
+  display: block;
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted, #64748b);
+  font-weight: var(--font-weight-medium, 500);
+  margin-bottom: 2px;
+}
+
+.stat-number {
+  font-size: var(--font-size-lg, 1.25rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+}
+
+.stat-number small {
+  font-size: 0.75rem;
+  font-weight: normal;
+  color: var(--color-text-muted, #64748b);
+}
+
+/* Narrative / Yorum Kutusu */
+.metric-narrative {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3, 12px);
+  background-color: var(--color-primary-subtle, #f5f3ff);
+  border: 1px solid var(--color-primary-border, #ddd6fe);
+  border-radius: var(--radius-lg, 8px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+}
+
+.narrative-icon {
+  font-size: 1.15rem;
+  line-height: 1.3;
+}
+
+.narrative-text {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-primary-active, #5b21b6);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Grafik Kartları ve Görselleştirmeler (DistributionCharts)
+   ========================================================================== */
+.distribution-charts-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6, 24px);
+}
+
+@media (max-width: 768px) {
+  .distribution-charts-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-card {
+  background-color: var(--color-bg-surface, #ffffff);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: var(--radius-2xl, 16px);
+  padding: var(--space-6, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal);
+}
+
+.chart-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+}
+
+.chart-eyebrow {
+  display: block;
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-bold, 700);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-primary, #7c3aed);
+  margin-bottom: 2px;
+}
+
+.chart-title {
+  font-size: var(--font-size-md, 1.125rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+  margin: 0;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-secondary, #475569);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.dot-planned {
+  background-color: var(--color-primary-border, #c4b5fd);
+}
+
+.dot-done {
+  background-color: var(--color-status-done, #16a34a);
+}
+
+/* Yatay Çubuklar (Gün Dağılımı) */
+.chart-bars-horizontal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.weekday-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--font-size-xs, 0.75rem);
+}
+
+.row-label {
+  width: 32px;
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-secondary, #475569);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.row-track {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-grow: 1;
+  background-color: var(--color-bg-app, #f8fafc);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.bar {
+  height: 14px;
+  border-radius: var(--radius-xs, 2px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  transition: width 0.4s ease-in-out;
+}
+
+.bar-planned {
+  background-color: var(--color-primary-border, #ddd6fe);
+  color: var(--color-primary-active, #5b21b6);
+}
+
+.bar-done {
+  background-color: var(--color-status-done, #16a34a);
+  color: #ffffff;
+}
+
+.bar-num {
+  font-size: 0.65rem;
+  font-weight: var(--font-weight-bold, 700);
+  line-height: 1;
+}
+
+/* Dikey Çubuklar (Saat Dağılımı) */
+.chart-bars-vertical {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 160px;
+  padding-top: 16px;
+  overflow-x: auto;
+}
+
+.hour-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 28px;
+  height: 100%;
+}
+
+.col-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 100%;
+  width: 100%;
+  background-color: var(--color-bg-app, #f8fafc);
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 2px;
+  justify-content: center;
+}
+
+.col-bar {
+  width: 10px;
+  border-radius: var(--radius-xs, 2px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  transition: height 0.4s ease-in-out;
+}
+
+.col-num {
+  font-size: 0.6rem;
+  font-weight: var(--font-weight-bold, 700);
+  color: inherit;
+  margin-top: 2px;
+}
+
+.col-label {
+  font-size: 0.65rem;
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-muted, #64748b);
+}
+
+.no-chart-data {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--color-text-muted, #64748b);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+/* ==========================================================================
+   Ertelenen Hedefler Kartı (PostponedTargetsList)
+   ========================================================================== */
+.postponed-targets-card {
+  width: 100%;
+}
+
+.section-desc {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #475569);
+  margin: 0;
+}
+
+.targets-count-badge {
+  background-color: var(--color-status-postponed-bg, #fef3c7);
+  color: var(--color-status-postponed-text, #78350f);
+  border: 1px solid var(--color-status-postponed-border, #fcd34d);
+  padding: 2px 10px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.targets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3, 12px);
+}
+
+.target-item {
+  background-color: var(--color-bg-app, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: var(--radius-lg, 8px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all var(--transition-fast);
+}
+
+.target-item:hover {
+  border-color: var(--color-status-postponed-border, #fcd34d);
+  background-color: var(--color-status-postponed-bg, #fef3c7);
+}
+
+.target-time {
+  display: flex;
+  flex-direction: column;
+}
+
+.target-weekday {
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.target-hour {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted, #64748b);
+}
+
+.target-count-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.target-count-val {
+  font-size: var(--font-size-md, 1.125rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-status-postponed, #d97706);
+  line-height: 1;
+}
+
+.target-count-label {
+  font-size: 0.65rem;
+  color: var(--color-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.no-postponed-data {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  padding: var(--space-4, 16px);
+  background-color: var(--color-bg-app, #f8fafc);
+  border: 1px dashed var(--color-border-subtle, #cbd5e1);
+  border-radius: var(--radius-lg, 8px);
+  color: var(--color-text-muted, #64748b);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.no-data-icon {
+  font-size: 1.25rem;
+}
+
+/* ==========================================================================
+   Boş Durum Ekranı (EmptyInsights: "Not enough data")
+   ========================================================================== */
+.empty-insights-card {
+  background-color: var(--color-bg-surface, #ffffff);
+  border: 1px dashed var(--color-border-strong, #cbd5e1);
+  border-radius: var(--radius-2xl, 16px);
+  padding: var(--space-12, 48px) var(--space-6, 24px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  box-shadow: var(--shadow-sm);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.empty-insights-icon {
+  font-size: 2.8rem;
+  line-height: 1;
+  margin-bottom: var(--space-2, 8px);
+}
+
+.empty-insights-title {
+  font-family: var(--font-family-base, 'Nunito', sans-serif);
+  font-size: var(--font-size-xl, 1.5rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+  margin: 0;
+}
+
+.empty-insights-desc {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #475569);
+  max-width: 480px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.empty-insights-hint {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted, #64748b);
+  background-color: var(--color-bg-app, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  padding: 8px 16px;
+  border-radius: var(--radius-full, 9999px);
+  margin-top: var(--space-2, 8px);
+}
+
+.empty-refresh-btn {
+  margin-top: var(--space-2, 8px);
+}

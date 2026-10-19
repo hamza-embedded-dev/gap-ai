@@ -8,9 +8,13 @@ import {
   getStoredToken,
   setStoredToken,
 } from './utils/auth';
+import { Insights } from './pages/Insights';
 import './App.css';
 
+type ActiveTab = 'insights' | 'plans' | 'create' | 'demo';
+
 function App() {
+// Sayfa ilk yüklendiğinde URL'deki ?t= parametresini yakala veya kayıtlı token'ı oku:
   const [token, setToken] = useState<string | null>(() => {
     return extractTokenFromUrlAndClean() || getStoredToken();
   });
@@ -18,7 +22,7 @@ function App() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'plans' | 'create' | 'demo'>('plans');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('insights');
 
   const handleTryDemo = async () => {
     setIsLoading(true);
@@ -60,13 +64,21 @@ function App() {
       <header className="app-header">
         <div className="badge">GAP-AI • Web Client</div>
         <h1>Hedef &amp; Eylem Planlama</h1>
-        <p className="app-subtitle">
-          W1-3: Plan Listesi &amp; Sonuç Bildirimi • W1-2: Plan Oluşturma • W1-1: API İstemcisi
-        </p>
+        <p className="app-subtitle">Kişisel Davranış ve Analiz Asistanı</p>
       </header>
 
       {/* Navigasyon Sekmeleri */}
       <nav className="nav-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          id="tab-insights"
+          aria-selected={activeTab === 'insights'}
+          className={`nav-tab-btn ${activeTab === 'insights' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('insights')}
+        >
+          📊 Analiz (Insights)
+        </button>
         <button
           type="button"
           role="tab"
@@ -115,7 +127,10 @@ function App() {
           </div>
         )}
 
-        {/* W1-3: Plan Listesi ve Sonuç Bildirme Ekranı */}
+        {/* Analiz ekranı */}
+        {activeTab === 'insights' && <Insights />}
+
+        {/* Plan listesi ve sonuç bildirme */}
         {activeTab === 'plans' && (
           <PlanList
             token={token}
@@ -124,7 +139,7 @@ function App() {
           />
         )}
 
-        {/* W1-2: Metinle Plan Oluşturma Ekranı */}
+        {/* Plan oluşturma */}
         {activeTab === 'create' && (
           <CreatePlan
             token={token}
@@ -132,8 +147,7 @@ function App() {
           />
         )}
 
-
-        {/* W1-1: Demo ve Kimlik Doğrulama Kartı */}
+        {/* Demo ve kimlik doğrulama */}
         {activeTab === 'demo' && (
           <>
             <section className="card demo-card">
