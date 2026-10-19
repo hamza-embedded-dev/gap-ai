@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from app.api.errors import APIError
 from app.api.plans import current_user
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
+from app.system_time import get_system_time
 
 router = APIRouter()
 
@@ -30,8 +31,6 @@ class UpcomingResponse(BaseModel):
     items: list[UpcomingItem]
 
 
-def get_system_time() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _parse_timestamp(value: str | datetime) -> datetime:
