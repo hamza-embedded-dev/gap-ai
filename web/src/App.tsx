@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createDemoSession } from './api/demo';
 import { CreatePlan } from './pages/CreatePlan';
+import { PlanList } from './pages/PlanList';
 import {
   clearStoredToken,
   extractTokenFromUrlAndClean,
@@ -17,7 +18,7 @@ function App() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'create' | 'demo'>('create');
+  const [activeTab, setActiveTab] = useState<'plans' | 'create' | 'demo'>('plans');
 
   const handleTryDemo = async () => {
     setIsLoading(true);
@@ -60,12 +61,22 @@ function App() {
         <div className="badge">GAP-AI • Web Client</div>
         <h1>Hedef &amp; Eylem Planlama</h1>
         <p className="app-subtitle">
-          W1-2: Metinle Plan Oluşturma Akışı &amp; W1-1 API İstemcisi
+          W1-3: Plan Listesi &amp; Sonuç Bildirimi • W1-2: Plan Oluşturma • W1-1: API İstemcisi
         </p>
       </header>
 
       {/* Navigasyon Sekmeleri */}
       <nav className="nav-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          id="tab-plan-list"
+          aria-selected={activeTab === 'plans'}
+          className={`nav-tab-btn ${activeTab === 'plans' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('plans')}
+        >
+          📋 Planlarım (W1-3)
+        </button>
         <button
           type="button"
           role="tab"
@@ -104,6 +115,15 @@ function App() {
           </div>
         )}
 
+        {/* W1-3: Plan Listesi ve Sonuç Bildirme Ekranı */}
+        {activeTab === 'plans' && (
+          <PlanList
+            token={token}
+            onRequireToken={() => setActiveTab('demo')}
+            onNavigateCreate={() => setActiveTab('create')}
+          />
+        )}
+
         {/* W1-2: Metinle Plan Oluşturma Ekranı */}
         {activeTab === 'create' && (
           <CreatePlan
@@ -111,6 +131,7 @@ function App() {
             onRequireToken={() => setActiveTab('demo')}
           />
         )}
+
 
         {/* W1-1: Demo ve Kimlik Doğrulama Kartı */}
         {activeTab === 'demo' && (

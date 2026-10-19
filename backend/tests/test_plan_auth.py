@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import app.db.plans as db_plans
 from app.api.errors import APIError
 from app.db.plans import AuthenticatedUser, get_plan_store
 from app.main import app as api_app
+from scripts import create_access_token as token_script
 
 PEPPER = "p" * 32
 TOKEN = "raw-token-value"
@@ -371,3 +373,239 @@ def test_post_plans_idempotency_replay_and_conflict(store: TokenStore) -> None:
     assert len(store.created) == 1
     assert conflict.status_code == 422
     assert conflict.json()["error"] == "validation_error"
+
+
+# --- scripts/create_access_token.py ------------------------------------------
+
+
+SCRIPT_USER_ID = "5f0c6a8e-6b8f-4b0a-9a51-3f1b8f6e2d11"
+
+
+class FakeSupabase:
+    """Records PostgREST calls made by the token script and answers them."""
+
+    def __init__(
+        self,
+        users: dict[str, dict[str, object]] | None = None,
+        token_status: int = 201,
+    ) -> None:
+        self.users = users or {}
+        self.token_status = token_status
+        self.requests: list[httpx.Request] = []
+        self.tokens: list[dict[str, object]] = []
+        self.deleted_users: list[str] = []
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        table = request.url.path.removeprefix("/rest/v1/")
+        user_filter = request.url.params.get("id", "").removeprefix("eq.")
+        if table == "users" and request.method == "GET":
+            user = self.users.get(user_filter)
+            return httpx.Response(200, json=[user] if user else [])
+        if table == "users" and request.method == "POST":
+            body = json.loads(request.content)
+            user = {"id": SCRIPT_USER_ID, "display_name": body["display_name"], "is_demo": False}
+            self.users[SCRIPT_USER_ID] = user
+            return httpx.Response(201, json=[user])
+        if table == "users" and request.method == "DELETE":
+            self.deleted_users.append(user_filter)
+            self.users.pop(user_filter, None)
+            return httpx.Response(204)
+        if table == "access_tokens" and request.method == "POST":
+            if self.token_status >= 400:
+                return httpx.Response(self.token_status, json={"message": "insert failed"})
+            self.tokens.append(json.loads(request.content))
+            return httpx.Response(201)
+        return httpx.Response(404)
+
+    def admin(self) -> token_script.TokenAdmin:
+        return token_script.TokenAdmin(
+            "https://db.example", "service-key", transport=httpx.MockTransport(self.handler)
+        )
+
+    def methods(self) -> list[tuple[str, str]]:
+        return [(r.method, r.url.path) for r in self.requests]
+
+
+def _script_settings(**changes: object) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "token_hash_pepper": SecretStr(PEPPER),
+        "supabase_url": "https://db.example",
+        "supabase_service_key": SecretStr("service-key"),
+    }
+    values.update(changes)
+    return SimpleNamespace(**values)
+
+
+def test_script_token_hash_matches_current_user() -> None:
+    fake = FakeSupabase()
+    issued = token_script.issue_token(fake.admin(), pepper=PEPPER, display_name="ESP32")
+
+    stored_hash = fake.tokens[0]["token_hash"]
+    store = TokenStore({stored_hash: (_user(id=issued.user_id), None)})
+    user = plans_api.current_user(_credentials(issued.token), store)
+
+    assert user.id == issued.user_id
+
+
+def test_script_creates_user_and_stores_only_the_hash() -> None:
+    fake = FakeSupabase()
+    issued = token_script.issue_token(
+        fake.admin(),
+        pepper=PEPPER,
+        display_name="ESP32 Ahmet",
+        timezone_name="Europe/Berlin",
+        generate_token=lambda: "raw-secret-token",
+    )
+
+    assert fake.methods() == [("POST", "/rest/v1/users"), ("POST", "/rest/v1/access_tokens")]
+    assert json.loads(fake.requests[0].content) == {
+        "display_name": "ESP32 Ahmet",
+        "timezone": "Europe/Berlin",
+    }
+    assert fake.tokens == [
+        {
+            "user_id": SCRIPT_USER_ID,
+            "token_hash": token_script.hash_token("raw-secret-token", PEPPER),
+            "expires_at": None,
+        }
+    ]
+    for request in fake.requests:
+        assert "raw-secret-token" not in str(request.url)
+        assert b"raw-secret-token" not in request.content
+    assert issued.token == "raw-secret-token"
+    assert issued.user_id == SCRIPT_USER_ID
+
+
+def test_script_issues_token_for_existing_user_with_expiry() -> None:
+    fake = FakeSupabase({SCRIPT_USER_ID: {"id": SCRIPT_USER_ID, "display_name": "Ada", "is_demo": False}})
+    expires_at = datetime(2026, 11, 1, tzinfo=timezone.utc)
+
+    issued = token_script.issue_token(
+        fake.admin(), pepper=PEPPER, user_id=SCRIPT_USER_ID, expires_at=expires_at
+    )
+
+    assert fake.methods() == [("GET", "/rest/v1/users"), ("POST", "/rest/v1/access_tokens")]
+    assert fake.requests[0].url.params["id"] == f"eq.{SCRIPT_USER_ID}"
+    assert fake.tokens[0]["user_id"] == SCRIPT_USER_ID
+    assert fake.tokens[0]["expires_at"] == expires_at.isoformat()
+    assert issued.display_name == "Ada"
+
+
+def test_script_rejects_unknown_user_without_writing() -> None:
+    fake = FakeSupabase()
+
+    with pytest.raises(token_script.TokenIssueError, match="does not exist"):
+        token_script.issue_token(fake.admin(), pepper=PEPPER, user_id=SCRIPT_USER_ID)
+
+    assert fake.methods() == [("GET", "/rest/v1/users")]
+
+
+def test_script_refuses_demo_users() -> None:
+    fake = FakeSupabase({SCRIPT_USER_ID: {"id": SCRIPT_USER_ID, "display_name": "Demo", "is_demo": True}})
+
+    with pytest.raises(token_script.TokenIssueError, match="Demo users"):
+        token_script.issue_token(fake.admin(), pepper=PEPPER, user_id=SCRIPT_USER_ID)
+
+    assert fake.tokens == []
+
+
+def test_script_removes_new_user_when_token_insert_fails() -> None:
+    fake = FakeSupabase(token_status=409)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        token_script.issue_token(fake.admin(), pepper=PEPPER, display_name="ESP32")
+
+    assert fake.deleted_users == [SCRIPT_USER_ID]
+    assert fake.users == {}
+
+
+def test_script_main_prints_only_the_token_on_stdout(capsys: pytest.CaptureFixture[str]) -> None:
+    fake = FakeSupabase()
+
+    code = token_script.main(
+        ["--display-name", "ESP32", "--expires-days", "30"],
+        settings=_script_settings(),
+        transport=httpx.MockTransport(fake.handler),
+    )
+
+    out, err = capsys.readouterr()
+    token = out.strip()
+    assert code == 0
+    assert token and "\n" not in token
+    assert fake.tokens[0]["token_hash"] == token_script.hash_token(token, PEPPER)
+    assert SCRIPT_USER_ID in err
+    assert "service-key" not in out + err
+    expires_at = datetime.fromisoformat(fake.tokens[0]["expires_at"])
+    assert timedelta(days=29) < expires_at - datetime.now(timezone.utc) <= timedelta(days=30)
+
+
+def test_script_main_requires_pepper_and_supabase(capsys: pytest.CaptureFixture[str]) -> None:
+    fake = FakeSupabase()
+    transport = httpx.MockTransport(fake.handler)
+
+    no_pepper = token_script.main(
+        ["--display-name", "x"], settings=_script_settings(token_hash_pepper=None), transport=transport
+    )
+    no_db = token_script.main(
+        ["--display-name", "x"], settings=_script_settings(supabase_url=None), transport=transport
+    )
+
+    err = capsys.readouterr().err
+    assert (no_pepper, no_db) == (1, 1)
+    assert "TOKEN_HASH_PEPPER" in err and "SUPABASE_URL" in err
+    assert fake.requests == []
+
+
+def test_script_main_reports_supabase_errors(capsys: pytest.CaptureFixture[str]) -> None:
+    fake = FakeSupabase(token_status=500)
+
+    code = token_script.main(
+        ["--display-name", "ESP32"],
+        settings=_script_settings(),
+        transport=httpx.MockTransport(fake.handler),
+    )
+
+    out, err = capsys.readouterr()
+    assert code == 1
+    assert out == ""
+    assert "HTTP 500: insert failed" in err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--user-id", "not-a-uuid"],
+        ["--display-name", "x", "--timezone", "Mars/Olympus"],
+        ["--user-id", SCRIPT_USER_ID, "--timezone", "Europe/Berlin"],
+        ["--display-name", "x", "--expires-days", "0"],
+        ["--user-id", SCRIPT_USER_ID, "--display-name", "x"],
+        [],
+    ],
+)
+def test_script_main_rejects_invalid_arguments(argv: list[str]) -> None:
+    fake = FakeSupabase()
+
+    with pytest.raises(SystemExit) as exit_info:
+        token_script.main(argv, settings=_script_settings(), transport=httpx.MockTransport(fake.handler))
+
+    assert exit_info.value.code == 2
+    assert fake.requests == []
+
+
+@_skip_windows
+def test_script_token_can_create_a_plan() -> None:
+    fake = FakeSupabase()
+    issued = token_script.issue_token(fake.admin(), pepper=PEPPER, display_name="ESP32")
+    token_store = TokenStore({fake.tokens[0]["token_hash"]: (_user(id=issued.user_id), None)})
+    api_app.dependency_overrides[get_plan_store] = lambda: token_store
+    try:
+        response = _post(
+            {"Authorization": f"Bearer {issued.token}"},
+            {"parsed_plan": _PARSED, "source": "device"},
+        )
+    finally:
+        api_app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert token_store.created[0]["user_id"] == issued.user_id

@@ -674,7 +674,7 @@ def test_api_insights_demo_mode_flags(monkeypatch) -> None:
     fake_store.tokens[HASH_USER_A] = (demo_user, None)
 
     app.dependency_overrides[get_plan_store] = lambda: fake_store
-    app.dependency_overrides[get_system_time] = lambda: FIXED_NOW
+    monkeypatch.setattr("app.api.plans.get_system_time", lambda: FIXED_NOW)
     try:
         client = TestClient(app)
         response = client.get("/insights", headers={"Authorization": f"Bearer {TOKEN_USER_A}"})

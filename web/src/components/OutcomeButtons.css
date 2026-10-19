@@ -1,0 +1,201 @@
+/* ==========================================================================
+   GAP-AI: OutcomeButtons Component Styles
+   Supports theme tokens and responsive layouts
+   ========================================================================== */
+
+.outcome-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.outcome-current-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border, #2d3142);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.outcome-badge-label {
+  color: var(--color-text-secondary, #9aa0b0);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.outcome-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+}
+
+.outcome-badge-done {
+  background-color: var(--color-status-done-bg, rgba(22, 163, 74, 0.15));
+  color: var(--color-status-done, #16a34a);
+  border: 1px solid var(--color-status-done-border, rgba(22, 163, 74, 0.35));
+}
+
+.outcome-badge-postponed {
+  background-color: var(--color-status-postponed-bg, rgba(217, 119, 6, 0.15));
+  color: var(--color-status-postponed, #d97706);
+  border: 1px solid var(--color-status-postponed-border, rgba(217, 119, 6, 0.35));
+}
+
+.outcome-badge-skipped {
+  background-color: var(--color-status-skipped-bg, rgba(100, 116, 139, 0.15));
+  color: var(--color-status-skipped, #94a3b8);
+  border: 1px solid var(--color-status-skipped-border, rgba(100, 116, 139, 0.35));
+}
+
+.outcome-badge-none {
+  background-color: rgba(154, 160, 176, 0.1);
+  color: var(--color-text-secondary, #9aa0b0);
+  border: 1px solid rgba(154, 160, 176, 0.2);
+}
+
+.outcome-badge-time {
+  color: var(--color-text-secondary, #9aa0b0);
+  font-size: 0.75rem;
+  font-family: var(--font-mono, monospace);
+}
+
+/* Button Group */
+.outcome-btn-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.outcome-btn {
+  flex: 1;
+  min-width: 95px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary, #f0f2f5);
+}
+
+.outcome-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Done Button */
+.outcome-btn-done {
+  border-color: rgba(22, 163, 74, 0.3);
+  color: #4ade80;
+}
+
+.outcome-btn-done:hover:not(:disabled) {
+  background-color: rgba(22, 163, 74, 0.18);
+  border-color: #22c55e;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);
+}
+
+.outcome-btn-done.outcome-btn-active {
+  background-color: rgba(22, 163, 74, 0.25);
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
+}
+
+/* Postponed Button */
+.outcome-btn-postponed {
+  border-color: rgba(217, 119, 6, 0.3);
+  color: #fbbf24;
+}
+
+.outcome-btn-postponed:hover:not(:disabled) {
+  background-color: rgba(217, 119, 6, 0.18);
+  border-color: #f59e0b;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+}
+
+.outcome-btn-postponed.outcome-btn-active {
+  background-color: rgba(217, 119, 6, 0.25);
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+}
+
+/* Skipped Button */
+.outcome-btn-skipped {
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #cbd5e1;
+}
+
+.outcome-btn-skipped:hover:not(:disabled) {
+  background-color: rgba(148, 163, 184, 0.18);
+  border-color: #94a3b8;
+  box-shadow: 0 2px 8px rgba(148, 163, 184, 0.2);
+}
+
+.outcome-btn-skipped.outcome-btn-active {
+  background-color: rgba(148, 163, 184, 0.25);
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.3);
+}
+
+/* Mini spinner inside outcome button */
+.outcome-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: currentColor;
+  animation: outcome-spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes outcome-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Inline Error message inside card */
+.outcome-error-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.outcome-error-close {
+  background: none;
+  border: none;
+  color: #fca5a5;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
