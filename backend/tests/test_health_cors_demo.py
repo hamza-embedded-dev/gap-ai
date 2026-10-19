@@ -32,6 +32,9 @@ class FakeStore:
     def __init__(self) -> None:
         self.tokens: dict[str, tuple[AuthenticatedUser, str | None]] = {}
         self.created_plans: list[dict[str, object]] = []
+        self.created_outcomes: list[dict[str, object]] = []
+        self.deleted_demo_users: list[str] = []
+        self.fail_outcome_creation = False
 
     def get_user_for_token_hash(self, token_hash: str):
         return self.tokens.get(token_hash)
@@ -39,6 +42,22 @@ class FakeStore:
     def create_plan(self, plan: dict[str, object]) -> dict[str, object]:
         self.created_plans.append(plan)
         return plan
+
+    def list_plans(self, *, user_id: str, from_time=None, to_time=None):
+        return [
+            {**plan, "latest_outcome": None}
+            for plan in self.created_plans
+            if plan["user_id"] == user_id
+        ]
+
+    def create_outcome(
+        self, *, user_id: str, plan_id: str, outcome: dict[str, object]
+    ) -> dict[str, object]:
+        if self.fail_outcome_creation:
+            raise RuntimeError("seed outcome failed")
+        row = {**outcome, "user_id": user_id, "plan_id": plan_id}
+        self.created_outcomes.append(row)
+        return row
 
     def create_plan_idempotently(self, **kwargs):
         raise NotImplementedError
@@ -54,6 +73,14 @@ class FakeStore:
         )
         self.tokens[token_hash] = (user, expires_at.isoformat())
         return user
+
+    def delete_demo_session(self, *, user_id: str) -> None:
+        self.deleted_demo_users.append(user_id)
+        self.tokens = {
+            token_hash: value
+            for token_hash, value in self.tokens.items()
+            if value[0].id != user_id
+        }
 
 
 @pytest.fixture
@@ -176,6 +203,10 @@ def test_create_demo_session_issues_token_with_24h_expiry(fake_store: FakeStore)
     dumped = response.model_dump()
     assert "token_hash" not in dumped
     assert set(dumped.keys()) == {"token", "expires_at", "is_demo"}
+    assert len(fake_store.created_plans) == 22
+    assert fake_store.created_outcomes
+    assert {plan["user_id"] for plan in fake_store.created_plans} == {user.id}
+    assert {outcome["user_id"] for outcome in fake_store.created_outcomes} == {user.id}
 
 
 def test_issued_demo_token_authenticates_with_current_user(fake_store: FakeStore) -> None:
@@ -184,6 +215,9 @@ def test_issued_demo_token_authenticates_with_current_user(fake_store: FakeStore
     user = current_user(creds, fake_store)
     assert user.is_demo is True
     assert user.timezone == "Europe/Istanbul"
+    response = plans_api.list_plans(user, fake_store)
+    assert len(response["items"]) == 22
+    assert all(plan["latest_outcome"] is None for plan in response["items"])
 
 
 def test_create_demo_session_fails_closed_without_pepper(
@@ -197,6 +231,16 @@ def test_create_demo_session_fails_closed_without_pepper(
     with pytest.raises(HTTPException) as exc_info:
         create_demo_session(fake_store)
     assert exc_info.value.status_code == 500
+
+
+def test_demo_seed_failure_deletes_the_new_demo_user(fake_store: FakeStore) -> None:
+    fake_store.fail_outcome_creation = True
+
+    with pytest.raises(RuntimeError, match="seed outcome failed"):
+        create_demo_session(fake_store)
+
+    assert len(fake_store.deleted_demo_users) == 1
+    assert not fake_store.tokens
 
 
 # --- 4. ASGI Integration Tests (Windows skipped due to sandbox socket-pair) ---

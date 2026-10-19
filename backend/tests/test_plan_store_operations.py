@@ -158,3 +158,38 @@ def test_create_outcome_uses_authenticated_owner_and_appends_each_event() -> Non
     assert [row["status"] for row in sent] == ["postponed", "done"]
     assert all(row["user_id"] == "user-one" for row in sent)
     assert all(row["plan_id"] == "plan-one" for row in sent)
+
+
+def test_create_outcome_preserves_supplied_reported_at_for_seed_history() -> None:
+    sent: list[dict[str, object]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(201, json=[{"id": "outcome-one"}], request=request)
+
+    store = _store(handle)
+    try:
+        store.create_outcome(
+            user_id="demo-user",
+            plan_id="plan-one",
+            outcome={
+                "status": "done",
+                "reported_via": "web",
+                "reported_at": "2026-10-19T08:20:00+03:00",
+            },
+        )
+    finally:
+        store._client.close()
+
+    assert sent == [
+        {
+            "user_id": "demo-user",
+            "plan_id": "plan-one",
+            "status": "done",
+            "actual_start": None,
+            "postponed_to": None,
+            "note": None,
+            "reported_via": "web",
+            "reported_at": "2026-10-19T08:20:00+03:00",
+        }
+    ]
