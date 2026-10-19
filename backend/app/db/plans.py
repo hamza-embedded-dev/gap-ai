@@ -17,12 +17,17 @@ class AuthenticatedUser:
     timezone: str
     is_demo: bool
     demo_expires_at: str | None
+    display_name: str | None = None
 
 
 class PlanStore(Protocol):
     def get_user_for_token_hash(
         self, token_hash: str
     ) -> tuple[AuthenticatedUser, str | None] | None: ...
+
+    def update_profile(
+        self, *, user_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -98,7 +103,7 @@ class SupabasePlanStore:
         user_response = self._client.get(
             urljoin(self._rest_url, "users"),
             params={
-                "select": "id,timezone,is_demo,demo_expires_at",
+                "select": "id,display_name,timezone,is_demo,demo_expires_at",
                 "id": f"eq.{token['user_id']}",
                 "limit": "1",
             },
@@ -113,7 +118,26 @@ class SupabasePlanStore:
             timezone=user["timezone"],
             is_demo=user["is_demo"],
             demo_expires_at=user["demo_expires_at"],
+            display_name=user.get("display_name"),
         ), token["expires_at"]
+
+    def update_profile(
+        self, *, user_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if not changes:
+            raise ValueError("Profile update requires at least one field")
+        response = self._client.patch(
+            urljoin(self._rest_url, "users"),
+            params={
+                "select": "id,display_name,timezone,is_demo",
+                "id": f"eq.{user_id}",
+            },
+            headers={"Prefer": "return=representation"},
+            json=changes,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if rows else None
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         response = self._client.post(
@@ -242,7 +266,7 @@ class SupabasePlanStore:
         expires_iso = expires_at.isoformat()
         user_response = self._client.post(
             urljoin(self._rest_url, "users"),
-            params={"select": "id,timezone,is_demo,demo_expires_at"},
+            params={"select": "id,display_name,timezone,is_demo,demo_expires_at"},
             headers={"Prefer": "return=representation"},
             json={
                 "display_name": "Demo User",
@@ -276,6 +300,7 @@ class SupabasePlanStore:
             timezone=user["timezone"],
             is_demo=user["is_demo"],
             demo_expires_at=user["demo_expires_at"],
+            display_name=user.get("display_name"),
         )
 
     def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None:
@@ -390,6 +415,11 @@ class LazyPlanStore:
         self, token_hash: str
     ) -> tuple[AuthenticatedUser, str | None] | None:
         return _build_plan_store().get_user_for_token_hash(token_hash)
+
+    def update_profile(
+        self, *, user_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return _build_plan_store().update_profile(user_id=user_id, changes=changes)
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         return _build_plan_store().create_plan(plan)
