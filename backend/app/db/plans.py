@@ -62,6 +62,8 @@ class PlanStore(Protocol):
         expires_at: datetime,
     ) -> AuthenticatedUser: ...
 
+    def delete_demo_session(self, *, user_id: str) -> None: ...
+
     def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
 
     def save_suggestion(
@@ -204,6 +206,8 @@ class SupabasePlanStore:
             "note": outcome.get("note"),
             "reported_via": outcome["reported_via"],
         }
+        if "reported_at" in outcome:
+            body["reported_at"] = outcome["reported_at"]
         response = self._client.post(
             urljoin(self._rest_url, "outcomes"),
             params={"select": OUTCOME_FIELDS},
@@ -302,6 +306,13 @@ class SupabasePlanStore:
             demo_expires_at=user["demo_expires_at"],
             display_name=user.get("display_name"),
         )
+
+    def delete_demo_session(self, *, user_id: str) -> None:
+        response = self._client.delete(
+            urljoin(self._rest_url, "users"),
+            params={"id": f"eq.{user_id}", "is_demo": "eq.true"},
+        )
+        response.raise_for_status()
 
     def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None:
         response = self._client.get(
@@ -472,6 +483,9 @@ class LazyPlanStore:
             created_at=created_at,
             expires_at=expires_at,
         )
+
+    def delete_demo_session(self, *, user_id: str) -> None:
+        _build_plan_store().delete_demo_session(user_id=user_id)
 
     def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None:
         return _build_plan_store().get_suggestion(user_id, plan_id)
