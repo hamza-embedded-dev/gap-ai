@@ -269,7 +269,22 @@ class SupabasePlanStore:
                 "expires_at": user["demo_expires_at"],
             },
         )
-        token_response.raise_for_status()
+        try:
+            token_response.raise_for_status()
+        except httpx.HTTPStatusError:
+            # User and token creation are separate PostgREST requests. If token
+            # creation fails, remove only the demo user created above so failed
+            # sessions do not accumulate orphan rows.
+            try:
+                cleanup_response = self._client.delete(
+                    urljoin(self._rest_url, "users"),
+                    params={"id": f"eq.{user['id']}"},
+                )
+                cleanup_response.raise_for_status()
+            except Exception:
+                # Preserve the token-creation error; cleanup is best-effort.
+                pass
+            raise
 
         return AuthenticatedUser(
             id=user["id"],
