@@ -86,7 +86,7 @@ class NebiusLLMClient:
         self._default_model = (
             default_model
             if default_model is not None
-            else settings.nebius_model or "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"
+            else settings.nebius_model or "nvidia/Nemotron-3_5-Lightning"
         )
 
         self._default_timeout = (

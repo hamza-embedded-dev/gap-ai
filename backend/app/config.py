@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         validation_alias="NEBIUS_BASE_URL",
     )
     nebius_model: str = Field(
-        default="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+        default="nvidia/Nemotron-3_5-Lightning",
         validation_alias=AliasChoices("NEBIUS_MODEL", "MODEL_SUPER"),
     )
     nebius_timeout_seconds: float = Field(
