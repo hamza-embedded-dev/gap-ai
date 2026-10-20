@@ -1,4 +1,5 @@
 #include "api.h"
+#include "display.h"
 #include "esp_chip_info.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
@@ -36,10 +37,18 @@ static void log_chip_info(void)
              ESP_IDF_VERSION_MAJOR, ESP_IDF_VERSION_MINOR, ESP_IDF_VERSION_PATCH);
 }
 
+static void show_status(bool online, esp_err_t health)
+{
+    display_show("GAP-AI", online ? "Wi-Fi: bagli" : "Wi-Fi: baglaniyor...",
+                 !online ? NULL : health == ESP_OK ? "Backend: OK" : "Backend: yanit yok", NULL);
+}
+
 void app_main(void)
 {
     log_chip_info();
     init_nvs();
+    display_init();
+    show_status(false, ESP_FAIL);
     wifi_start();
 
     if (!wifi_wait_connected(WIFI_CONNECT_TIMEOUT_MS)) {
@@ -47,9 +56,8 @@ void app_main(void)
     }
 
     while (true) {
-        if (wifi_is_connected()) {
-            api_check_health();
-        }
+        bool online = wifi_is_connected();
+        show_status(online, online ? api_check_health() : ESP_FAIL);
         vTaskDelay(pdMS_TO_TICKS(HEALTH_INTERVAL_MS));
     }
 }
