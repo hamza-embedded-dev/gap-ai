@@ -41,6 +41,8 @@ class PlanStore(Protocol):
 
     def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
 
+    def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]: ...
+
     def create_outcome(
         self, *, user_id: str, plan_id: str, outcome: dict[str, Any]
     ) -> dict[str, Any]: ...
@@ -191,6 +193,18 @@ class SupabasePlanStore:
         response.raise_for_status()
         rows = response.json()
         return rows[0] if rows else None
+
+    def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]:
+        response = self._client.get(
+            urljoin(self._rest_url, "outcomes"),
+            params={
+                "select": OUTCOME_FIELDS,
+                "user_id": f"eq.{user_id}",
+                "order": "reported_at.asc,id.asc",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     def create_outcome(
         self, *, user_id: str, plan_id: str, outcome: dict[str, Any]
@@ -463,6 +477,9 @@ class LazyPlanStore:
 
     def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None:
         return _build_plan_store().get_plan(user_id=user_id, plan_id=plan_id)
+
+    def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]:
+        return _build_plan_store().list_outcomes(user_id=user_id)
 
     def create_outcome(
         self, *, user_id: str, plan_id: str, outcome: dict[str, Any]
