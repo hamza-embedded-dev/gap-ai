@@ -67,6 +67,16 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias=AliasChoices("GROQ_TIMEOUT_SECONDS", "STT_TIMEOUT_SECONDS"),
     )
+    tts_enabled: bool = Field(default=True, validation_alias="TTS_ENABLED")
+    tts_model: str = Field(
+        default="canopylabs/orpheus-v1-english",
+        validation_alias="TTS_MODEL",
+    )
+    tts_voice: str = Field(default="troy", validation_alias="TTS_VOICE")
+    tts_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias="TTS_TIMEOUT_SECONDS",
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

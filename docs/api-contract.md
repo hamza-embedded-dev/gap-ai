@@ -169,6 +169,10 @@ Ses biçimi mono PCM/WAV, 16 kHz, 16-bit olmalı ve en fazla 10 saniye (yaklaş�
 
 Ses metne çevrilir ve sonuç "ai/schema.json" dosyasına göre doğrulanır. "intent" değeri "create_plan" ise backend planı kaydeder. Yanıtta metinsel sonuç zorunludur; TTS/sesli yanıt zorunlu değildir.
 
+Her JSON yanıtı, cihazın kullanıcıya söyleyeceği kısa "reply_text" alanını da içerir (plan onayı, netleştirme sorusu veya "anlaşılamadı" mesajı). Metin ParsedPlan'den sabit şablonlarla üretilir; ek LLM çağrısı yapılmaz.
+
+Sesli yanıt (isteğe bağlı): İstemci "Accept: audio/wav" gönderirse ve TTS açıksa ("TTS_ENABLED"), yanıt gövdesi Groq TTS ile seslendirilmiş "reply_text" WAV dosyasıdır ("Content-Type: audio/wav", durum kodu JSON yanıtıyla aynı: 201 veya 200). Metinler başlıklarda URL-encoded UTF-8 olarak gelir: "X-Transcript", "X-Reply-Text", "X-Intent" ve plan oluşturulduysa "X-Plan-Id". TTS herhangi bir nedenle başarısız olursa yanıt sessizce normal JSON'a döner; istemci "Content-Type" başlığına bakarak ikisini ayırt eder. WAV örnekleme hızı TTS modeline bağlıdır; istemci başlıktan okur.
+
 Plan oluşturulduğunda yanıt, transkriptin ve "ParsedPlan" sonucunun yanında kaydedilmiş planı da içerir:
 
 {
