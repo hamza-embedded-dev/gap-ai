@@ -6,7 +6,7 @@ if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/secrets.h")
 endif()
 
 idf_component_register(
-    SRCS "main.c" "wifi.c" "api.c" "audio_record.c"
+    SRCS "main.c" "wifi.c" "api.c" "audio_record.c" "display.c"
     INCLUDE_DIRS "."
-    REQUIRES esp_wifi esp_netif esp_event nvs_flash esp_http_client esp-tls mbedtls esp_driver_i2s
+    REQUIRES esp_wifi esp_netif esp_event nvs_flash esp_http_client esp-tls mbedtls esp_driver_i2s esp_driver_i2c
 )
