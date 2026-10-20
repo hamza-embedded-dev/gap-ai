@@ -5,6 +5,7 @@ import hashlib
 import io
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import unquote
 from uuid import uuid4
 import wave
 
@@ -25,7 +26,9 @@ from app.ai.stt import (
     STTUnavailableError,
     get_stt_client,
 )
+from app.ai.tts import TTSUnavailableError, get_tts_client
 import app.api.plans as plans_api
+import app.api.voice as voice_api
 from app.db.plans import AuthenticatedUser, get_plan_store
 from app.main import app
 
@@ -544,3 +547,114 @@ def test_voice_llm_unavailable_returns_503(client: TestClient) -> None:
     )
     assert response.status_code == 503
     assert response.json()["error"] == "llm_unavailable"
+
+
+# =============================================================================
+# 8. Spoken Reply (TTS) Tests
+# =============================================================================
+
+
+class FakeTTSClient:
+    def __init__(self, exception: Exception | None = None) -> None:
+        self.exception = exception
+        self.texts: list[str] = []
+
+    def synthesize(self, text: str, **kwargs: Any) -> bytes:
+        self.texts.append(text)
+        if self.exception is not None:
+            raise self.exception
+        return _make_wav_bytes(sample_rate=24000, duration_seconds=0.2)
+
+
+@pytest.fixture
+def fake_tts() -> FakeTTSClient:
+    tts = FakeTTSClient()
+    app.dependency_overrides[get_tts_client] = lambda: tts
+    yield tts
+    app.dependency_overrides.pop(get_tts_client, None)
+
+
+def _post_voice(client: TestClient, accept: str | None = None) -> Any:
+    headers = _auth_headers()
+    if accept:
+        headers["Accept"] = accept
+    return client.post(
+        "/voice",
+        headers=headers,
+        data={"current_date": "2026-10-18"},
+        files={"audio": ("sample.wav", _make_wav_bytes(duration_seconds=1.0), "audio/wav")},
+    )
+
+
+def test_voice_json_includes_reply_text_and_skips_tts(
+    client: TestClient, fake_store: FakePlanStore, fake_tts: FakeTTSClient
+) -> None:
+    app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient()
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([_valid_create_plan()])
+
+    response = _post_voice(client)
+
+    assert response.status_code == 201
+    assert response.json()["reply_text"] == "Tamam, Koşu planını yarın saat 18:00 için kaydettim."
+    assert fake_tts.texts == []
+
+
+def test_voice_returns_wav_when_device_accepts_audio(
+    client: TestClient, fake_store: FakePlanStore, fake_tts: FakeTTSClient
+) -> None:
+    app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(transcript="Yarın 18'de koşu.")
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([_valid_create_plan()])
+
+    response = _post_voice(client, accept="audio/wav")
+
+    assert response.status_code == 201
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content[:4] == b"RIFF"
+    assert unquote(response.headers["x-transcript"]) == "Yarın 18'de koşu."
+    assert unquote(response.headers["x-reply-text"]) == fake_tts.texts[0]
+    assert response.headers["x-intent"] == "create_plan"
+    assert response.headers["x-plan-id"] == fake_store.created_plans[0]["id"]
+
+
+def test_voice_clarify_audio_has_no_plan_id(
+    client: TestClient, fake_store: FakePlanStore, fake_tts: FakeTTSClient
+) -> None:
+    app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient()
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([_valid_clarify()])
+
+    response = _post_voice(client, accept="audio/wav, application/json")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["x-intent"] == "clarify"
+    assert "x-plan-id" not in response.headers
+    assert fake_tts.texts == ["Koşuya saat kaçta çıkmak istersiniz?"]
+    assert fake_store.created_plans == []
+
+
+def test_voice_falls_back_to_json_when_tts_fails(
+    client: TestClient, fake_store: FakePlanStore, fake_tts: FakeTTSClient
+) -> None:
+    fake_tts.exception = TTSUnavailableError("down")
+    app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient()
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([_valid_create_plan()])
+
+    response = _post_voice(client, accept="audio/wav")
+
+    assert response.status_code == 201
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["reply_text"]
+    assert len(fake_store.created_plans) == 1
+
+
+def test_voice_skips_tts_when_disabled(
+    client: TestClient, fake_store: FakePlanStore, fake_tts: FakeTTSClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(voice_api, "get_settings", lambda: SimpleNamespace(tts_enabled=False))
+    app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient()
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([_valid_create_plan()])
+
+    response = _post_voice(client, accept="audio/wav")
+
+    assert response.headers["content-type"].startswith("application/json")
+    assert fake_tts.texts == []

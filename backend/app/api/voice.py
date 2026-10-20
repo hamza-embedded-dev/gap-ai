@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 import logging
 from typing import Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 
 from app.ai.llm import NebiusLLMClient, get_llm_client
+from app.ai.reply import build_reply_text
 from app.ai.stt import (
     GroqWhisperClient,
     STTConfigurationError,
@@ -19,9 +21,11 @@ from app.ai.stt import (
     STTValidationError,
     get_stt_client,
 )
+from app.ai.tts import GroqTTSClient, TTSError, get_tts_client
 from app.api.errors import APIError
 from app.api.parse import parse_text
 from app.api.plans import PlanResponse, current_user
+from app.config import get_settings
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.schemas.parsed_plan import ParsedPlan
 
@@ -41,6 +45,7 @@ class VoicePlanResponse(BaseModel):
     transcript: str
     parsed_plan: ParsedPlan
     plan: PlanResponse
+    reply_text: str
 
 
 class VoiceClarifyResponse(BaseModel):
@@ -48,6 +53,48 @@ class VoiceClarifyResponse(BaseModel):
 
     transcript: str
     parsed_plan: ParsedPlan
+    reply_text: str
+
+
+def _wants_wav(accept: str | None) -> bool:
+    return bool(accept) and "audio/wav" in accept.lower()
+
+
+def _header_text(value: str) -> str:
+    # HTTP headers are latin-1; URL-encode so Turkish characters survive intact.
+    return quote(value, safe="")
+
+
+def _spoken_reply(
+    *,
+    accept: str | None,
+    tts_client: GroqTTSClient,
+    status_code: int,
+    transcript: str,
+    reply_text: str,
+    intent: str,
+    plan_id: str | None,
+) -> Response | None:
+    """Returns the reply as audio/wav when the client asked for it and TTS works, else None.
+
+    TTS is optional (api-contract): any TTS failure falls back to the JSON response.
+    """
+    if not _wants_wav(accept) or not get_settings().tts_enabled:
+        return None
+    try:
+        audio = tts_client.synthesize(reply_text)
+    except TTSError as exc:
+        logger.warning("TTS failed, falling back to JSON reply: %s", exc)
+        return None
+
+    headers = {
+        "X-Transcript": _header_text(transcript),
+        "X-Reply-Text": _header_text(reply_text),
+        "X-Intent": intent,
+    }
+    if plan_id:
+        headers["X-Plan-Id"] = plan_id
+    return Response(content=audio, media_type="audio/wav", status_code=status_code, headers=headers)
 
 
 async def _read_audio_stream_with_limit(audio: UploadFile, max_bytes: int = MAX_AUDIO_BYTES) -> bytes:
@@ -116,6 +163,10 @@ def _build_plan_record(
     "/voice",
     response_model=VoicePlanResponse | VoiceClarifyResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        200: {"content": {"audio/wav": {}}},
+        201: {"content": {"audio/wav": {}}},
+    },
 )
 async def handle_voice_endpoint(
     response: Response,
@@ -127,7 +178,9 @@ async def handle_voice_endpoint(
     store: PlanStore = Depends(get_plan_store),
     stt_client: GroqWhisperClient = Depends(get_stt_client),
     llm_client: NebiusLLMClient = Depends(get_llm_client),
-) -> VoicePlanResponse | VoiceClarifyResponse:
+    tts_client: GroqTTSClient = Depends(get_tts_client),
+    accept: str | None = Header(default=None),
+) -> VoicePlanResponse | VoiceClarifyResponse | Response:
     # 1. Timezone verification (D-010)
     if timezone is not None and timezone != user.timezone:
         raise APIError(
@@ -197,22 +250,48 @@ async def handle_voice_endpoint(
         llm_client=llm_client,
     )
 
-    intent = parsed_plan.root.get("intent")
+    intent = str(parsed_plan.root.get("intent"))
+    reply_text = build_reply_text(parsed_plan.root, today=resolved_date)
 
     # 7. Intent routing: create_plan -> persist plan (K-3 source: "voice") + 201 Created
     if intent == "create_plan":
         plan_record = _build_plan_record(parsed_plan, user)
         created_plan_dict = store.create_plan(plan_record)
+        plan = PlanResponse.model_validate(created_plan_dict)
+        spoken = _spoken_reply(
+            accept=accept,
+            tts_client=tts_client,
+            status_code=status.HTTP_201_CREATED,
+            transcript=transcript,
+            reply_text=reply_text,
+            intent=intent,
+            plan_id=str(created_plan_dict.get("id") or "") or None,
+        )
+        if spoken is not None:
+            return spoken
         response.status_code = status.HTTP_201_CREATED
         return VoicePlanResponse(
             transcript=transcript,
             parsed_plan=parsed_plan,
-            plan=PlanResponse.model_validate(created_plan_dict),
+            plan=plan,
+            reply_text=reply_text,
         )
 
     # 8. Clarify / Unsupported -> do NOT persist + 200 OK
+    spoken = _spoken_reply(
+        accept=accept,
+        tts_client=tts_client,
+        status_code=status.HTTP_200_OK,
+        transcript=transcript,
+        reply_text=reply_text,
+        intent=intent,
+        plan_id=None,
+    )
+    if spoken is not None:
+        return spoken
     response.status_code = status.HTTP_200_OK
     return VoiceClarifyResponse(
         transcript=transcript,
         parsed_plan=parsed_plan,
+        reply_text=reply_text,
     )
