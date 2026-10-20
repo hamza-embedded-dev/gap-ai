@@ -12,6 +12,7 @@
 static const char *TAG = "audio_rec";
 
 #define I2S_READ_CHUNK_SAMPLES  128
+#define I2S_READ_TIMEOUT_MS     200
 #define TASK_STACK_SIZE         4096
 #define TASK_PRIORITY           5
 #define TASK_STOP_TIMEOUT_MS    1500
@@ -59,8 +60,10 @@ static void audio_record_task(void *arg)
 
     while (!s_stop_requested && s_current_pcm_bytes < s_target_pcm_bytes) {
         size_t bytes_read = 0;
+        // The timeout argument is in milliseconds (not ticks): pdMS_TO_TICKS(200) gave
+        // 20 ms at 100 Hz, shorter than one DMA buffer, and ended recordings early.
         esp_err_t err = i2s_channel_read(s_rx_chan, raw_samples, sizeof(raw_samples),
-                                         &bytes_read, pdMS_TO_TICKS(200));
+                                         &bytes_read, I2S_READ_TIMEOUT_MS);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "i2s_channel_read returned %s", esp_err_to_name(err));
             s_last_error = err;
@@ -74,9 +77,17 @@ static void audio_record_task(void *arg)
             }
 
             // INMP441 outputs 24-bit audio in a 32-bit slot, MSB aligned.
-            // Bit 31 is the sign bit. An arithmetic right shift (>> 16) preserves
-            // sign extension and scales down the top 16 bits to 16-bit signed PCM.
-            int16_t pcm_sample = (int16_t)(raw_samples[i] >> 16);
+            // Bit 31 is the sign bit. An arithmetic right shift preserves sign
+            // extension. >> 16 would keep the top 16 bits, but normal speech then
+            // peaks around -28 dBFS; AUDIO_RECORD_SHIFT 14 is 4x (+12 dB) louder,
+            // with clipping instead of wrap-around on very loud input.
+            int32_t scaled = raw_samples[i] >> AUDIO_RECORD_SHIFT;
+            if (scaled > INT16_MAX) {
+                scaled = INT16_MAX;
+            } else if (scaled < INT16_MIN) {
+                scaled = INT16_MIN;
+            }
+            int16_t pcm_sample = (int16_t)scaled;
 
             memcpy(pcm_dest + s_current_pcm_bytes, &pcm_sample, sizeof(int16_t));
             s_current_pcm_bytes += sizeof(int16_t);
