@@ -13,5 +13,5 @@
 #define BACKEND_BASE_URL "http://192.168.1.50:8000"
 
 // Device Bearer token produced by backend/scripts/create_access_token.py (B3-3).
-// Not needed for GET /health; used by later device endpoints.
+// Not needed for GET /health; required for POST /voice (push-to-talk).
 #define DEVICE_TOKEN ""

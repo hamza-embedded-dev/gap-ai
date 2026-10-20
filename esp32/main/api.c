@@ -12,7 +12,7 @@
 
 static const char *TAG = "api";
 
-static void init_client_config(esp_http_client_config_t *cfg, const char *url)
+void api_client_config(esp_http_client_config_t *cfg, const char *url)
 {
     memset(cfg, 0, sizeof(*cfg));
     cfg->url = url;
@@ -27,7 +27,7 @@ esp_err_t api_check_health(void)
 {
     const char *url = BACKEND_BASE_URL "/health";
     esp_http_client_config_t cfg;
-    init_client_config(&cfg, url);
+    api_client_config(&cfg, url);
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == NULL) {

@@ -1,0 +1,8 @@
+# ESP32-S3 only (merged on top of sdkconfig.defaults when the target is esp32s3).
+# The voice recording buffer (up to 320 KB) needs PSRAM next to Wi-Fi + TLS.
+# Modules with octal PSRAM (N8R8, N16R8, ...) use OCT; quad-PSRAM modules (N8R2)
+# should switch to CONFIG_SPIRAM_MODE_QUAD=y in their local sdkconfig.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+CONFIG_SPIRAM_USE_MALLOC=y
