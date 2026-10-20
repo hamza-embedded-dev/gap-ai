@@ -130,6 +130,35 @@ def test_development_settings_need_no_secret(monkeypatch: pytest.MonkeyPatch) ->
     assert Settings(_env_file=None).environment == "development"
 
 
+ALLOWED_ORIGINS_CASES = [
+    ("", []),
+    ("http://localhost:5173", ["http://localhost:5173"]),
+    ("https://gap.netlify.app, http://localhost:5173", ["https://gap.netlify.app", "http://localhost:5173"]),
+    ('["https://gap.netlify.app","http://localhost:5173"]', ["https://gap.netlify.app", "http://localhost:5173"]),
+    ("*", ["*"]),
+]
+
+
+@pytest.mark.parametrize(("raw", "expected"), ALLOWED_ORIGINS_CASES)
+def test_allowed_origins_from_environment(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    # Render sets real environment variables; DEPLOY.md documents the comma-separated form.
+    monkeypatch.setenv("ALLOWED_ORIGINS", raw)
+    assert Settings(_env_file=None).allowed_origins == expected
+
+
+@pytest.mark.parametrize(("raw", "expected"), ALLOWED_ORIGINS_CASES)
+def test_allowed_origins_from_env_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, raw: str, expected: list[str]
+) -> None:
+    # .env.example ships with an empty ALLOWED_ORIGINS= line.
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"ALLOWED_ORIGINS={raw}\n", encoding="utf-8")
+    assert Settings(_env_file=env_file).allowed_origins == expected
+
+
 def test_http_errors_use_contract_top_level_shape() -> None:
     response = http_error_response(404, "Plan not found")
     assert response.status_code == 404

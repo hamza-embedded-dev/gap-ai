@@ -149,7 +149,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "jsonschema", specifier = ">=4.23,<5" },
-    { name = "pydantic-settings", specifier = ">=2.6,<3" },
+    { name = "pydantic-settings", specifier = ">=2.7,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<9" },
     { name = "python-multipart", specifier = ">=0.0.9,<1" },
     { name = "trio", marker = "extra == 'dev'", specifier = ">=0.27,<1" },

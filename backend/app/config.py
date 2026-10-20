@@ -1,10 +1,10 @@
 from functools import lru_cache
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     supabase_service_key: SecretStr | None = Field(
         default=None, validation_alias="SUPABASE_SERVICE_KEY"
     )
-    allowed_origins: list[str] = Field(
+    # NoDecode: pydantic-settings would otherwise JSON-decode list fields before
+    # parse_allowed_origins runs, so empty and comma-separated values crashed startup.
+    allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="ALLOWED_ORIGINS"
     )
     nebius_api_key: SecretStr | None = Field(
