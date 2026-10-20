@@ -32,8 +32,6 @@ Endpoints or payload fields not defined in these specifications must not be adde
 - **Database Schema & PostgREST Adapter:**
   - The Gate 1 core SQL migration exists at `database/migrations/20261013_001_gate1_core.sql` (defining `users`, `access_tokens`, `plans`, `outcomes`, `plan_creation_requests`, RLS rules, and the `create_plan_idempotently` stored function). **Its execution against a live PostgreSQL/Supabase database has not yet been verified.**
   - `backend/app/db/plans.py` contains a PostgREST client implementation for Supabase, tested with mock stores.
-- **Root Prototype Script:**
-  - `gemini-code-1791624011543.py` is a standalone prototype script with mock endpoints. It is not integrated into `backend/app/` and does not conform to the active API contract.
 
 ### 3. Not Yet Implemented
 - **Web Client (`web/`):** React / PWA application is planned; directory currently contains only placeholder files (`.gitkeep`).
