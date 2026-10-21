@@ -1,0 +1,52 @@
+# ==============================================================================
+# GAP-AI Web - Netlify Configuration
+# Continuous Deployment for Vite SPA Client
+# ==============================================================================
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--prefer-offline --no-audit"
+
+# Production context: settings applied for builds from the production branch (main)
+[context.production]
+  [context.production.environment]
+    # Production backend API URL is injected via Netlify UI:
+    # VITE_API_URL = "https://<production-backend-api-url>"
+
+# Staging context: settings applied for staging branch builds
+[context.staging]
+  [context.staging.environment]
+    # Staging backend API URL (from Task E-5) is injected via Netlify UI:
+    # VITE_API_URL = "https://<staging-backend-api-url>"
+
+# Deploy Previews: settings applied for pull request preview builds
+[context.deploy-preview]
+  [context.deploy-preview.environment]
+    # Deploy previews connect to staging backend by default (set in Netlify UI)
+
+# SPA Single Page Application fallback:
+# Direct navigation and browser refresh route to index.html with HTTP 200 so React client routing handles them
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security and caching headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Cache immutable Vite static assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
