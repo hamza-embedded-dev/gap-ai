@@ -21,6 +21,10 @@ extern "C" {
 #define MAX_AUDIO_PCM_BYTES      (MAX_AUDIO_DURATION_SEC * AUDIO_BYTE_RATE)                          // 320000 B
 #define MAX_AUDIO_WAV_BYTES      (44 + MAX_AUDIO_PCM_BYTES)                                          // 320044 B
 
+// Right shift from the INMP441's 32-bit slot to 16-bit PCM. 16 = no gain; 14 = +12 dB,
+// measured on hardware to bring normal speech to about -13 dBFS peaks.
+#define AUDIO_RECORD_SHIFT       14
+
 /**
  * Standard 44-byte RIFF/WAVE header for mono 16-bit PCM.
  * Packed tightly to guarantee exact byte alignment on wire/file.

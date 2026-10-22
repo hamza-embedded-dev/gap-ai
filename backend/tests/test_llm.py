@@ -19,7 +19,7 @@ from app.schemas.parsed_plan import ParsedPlan
 
 TEST_API_KEY = "test-nebius-secret-key-123456789"
 TEST_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
-TEST_MODEL = "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"
+TEST_MODEL = "nvidia/Nemotron-3_5-Lightning"
 
 
 def _make_openai_chat_response(content: str, model: str = TEST_MODEL) -> dict[str, Any]:

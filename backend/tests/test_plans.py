@@ -4,8 +4,9 @@ import threading
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 import httpx
@@ -19,6 +20,7 @@ from app.api.plans import (
     create_plan,
     list_plans,
 )
+import app.db.plans as db_plans
 from app.db.plans import AuthenticatedUser, SupabasePlanStore
 
 
@@ -446,3 +448,187 @@ def test_list_plans_raises_not_implemented_if_store_lacks_method() -> None:
     user = AuthenticatedUser("user-one", "Europe/Istanbul", False, None)
     with pytest.raises(NotImplementedError, match="does not support list_plans"):
         list_plans(user, IncompleteStore())  # type: ignore[arg-type]
+
+
+# --- Suggestion storage (B3-7) ----------------------------------------------
+
+PLAN_ID = "7b0d1c52-3f7e-4a57-9c0c-2b8f7f5e9a10"
+SAVED_SUGGESTION = {
+    "plan_id": PLAN_ID,
+    "reason": "weather",
+    "message": "Rain expected. Move your run to Thursday 19:00?",
+    "proposed_start": "2026-10-08T16:00:00+00:00",
+    "proposed_end": "2026-10-08T17:00:00+00:00",
+    "evidence": {"forecast": "rain", "adherence_pct": 66.7},
+}
+
+
+class SuggestionAPI:
+    """Fake PostgREST /suggestions endpoint that records every request."""
+
+    def __init__(self, stored: list[dict[str, object]] | None = None) -> None:
+        self.stored = stored or []
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        assert request.url.path == "/rest/v1/suggestions"
+        if request.method == "GET":
+            user = request.url.params["user_id"].removeprefix("eq.")
+            plan = request.url.params["plan_id"].removeprefix("eq.")
+            rows = [s for s in self.stored if s["user_id"] == user and s["plan_id"] == plan]
+            return httpx.Response(200, json=[_public(s) for s in rows[:1]], request=request)
+        row = json.loads(request.content)
+        if any(s["plan_id"] == row["plan_id"] for s in self.stored):
+            return httpx.Response(201, json=[], request=request)  # ignore-duplicates
+        self.stored.append(row)
+        return httpx.Response(201, json=[_public(row)], request=request)
+
+
+def _public(row: dict[str, object]) -> dict[str, object]:
+    return {key: row[key] for key in SAVED_SUGGESTION}
+
+
+def _suggestion_store(api: SuggestionAPI) -> SupabasePlanStore:
+    store = SupabasePlanStore("https://example.invalid", "test-service-key")
+    store._client.close()
+    store._client = httpx.Client(
+        base_url="https://example.invalid", transport=httpx.MockTransport(api)
+    )
+    return store
+
+
+def _new_suggestion(**changes: object) -> dict[str, object]:
+    data = {key: value for key, value in SAVED_SUGGESTION.items() if key != "plan_id"}
+    data.update(changes)
+    return data
+
+
+def test_get_suggestion_filters_by_user_and_plan() -> None:
+    api = SuggestionAPI([{**SAVED_SUGGESTION, "user_id": "user-one"}])
+    store = _suggestion_store(api)
+
+    assert store.get_suggestion("user-one", PLAN_ID) == SAVED_SUGGESTION
+    params = api.requests[0].url.params
+    assert params["user_id"] == "eq.user-one"
+    assert params["plan_id"] == f"eq.{PLAN_ID}"
+    assert params["select"] == "plan_id,reason,message,proposed_start,proposed_end,evidence"
+
+
+def test_get_suggestion_returns_none_when_nothing_saved() -> None:
+    store = _suggestion_store(SuggestionAPI())
+
+    assert store.get_suggestion("user-one", PLAN_ID) is None
+
+
+def test_get_suggestion_does_not_leak_another_users_suggestion() -> None:
+    store = _suggestion_store(SuggestionAPI([{**SAVED_SUGGESTION, "user_id": "user-two"}]))
+
+    assert store.get_suggestion("user-one", PLAN_ID) is None
+
+
+def test_save_suggestion_then_read_returns_same_suggestion() -> None:
+    api = SuggestionAPI()
+    store = _suggestion_store(api)
+
+    saved = store.save_suggestion("user-one", PLAN_ID, _new_suggestion())
+
+    assert saved == SAVED_SUGGESTION
+    assert store.get_suggestion("user-one", PLAN_ID) == saved
+    post = api.requests[0]
+    assert post.method == "POST"
+    assert post.url.params["on_conflict"] == "plan_id"
+    assert "resolution=ignore-duplicates" in post.headers["Prefer"]
+    assert "return=representation" in post.headers["Prefer"]
+
+
+def test_save_suggestion_uses_owner_from_arguments_only() -> None:
+    api = SuggestionAPI()
+    store = _suggestion_store(api)
+
+    store.save_suggestion("user-one", PLAN_ID, _new_suggestion(user_id="user-two"))
+
+    body = json.loads(api.requests[0].content)
+    assert body["user_id"] == "user-one"
+    assert body["plan_id"] == PLAN_ID
+
+
+def test_save_suggestion_returns_first_saved_suggestion_on_conflict() -> None:
+    api = SuggestionAPI([{**SAVED_SUGGESTION, "user_id": "user-one"}])
+    store = _suggestion_store(api)
+
+    result = store.save_suggestion(
+        "user-one", PLAN_ID, _new_suggestion(reason="pattern", message="Try earlier.")
+    )
+
+    assert result == SAVED_SUGGESTION
+    assert [r.method for r in api.requests] == ["POST", "GET"]
+    assert len(api.stored) == 1
+
+
+def test_save_suggestion_serializes_datetimes_with_offset() -> None:
+    api = SuggestionAPI()
+    store = _suggestion_store(api)
+    start = datetime(2026, 10, 8, 19, 0, tzinfo=ZoneInfo("Europe/Istanbul"))
+
+    store.save_suggestion(
+        "user-one",
+        PLAN_ID,
+        _new_suggestion(proposed_start=start, proposed_end=start + timedelta(hours=1)),
+    )
+
+    body = json.loads(api.requests[0].content)
+    assert body["proposed_start"] == "2026-10-08T19:00:00+03:00"
+    assert body["proposed_end"] == "2026-10-08T20:00:00+03:00"
+
+
+def test_save_suggestion_defaults_missing_evidence_to_empty_object() -> None:
+    api = SuggestionAPI()
+    store = _suggestion_store(api)
+    data = _new_suggestion()
+    del data["evidence"]
+
+    store.save_suggestion("user-one", PLAN_ID, data)
+
+    assert json.loads(api.requests[0].content)["evidence"] == {}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"plan_id": "another-plan"},
+        {"proposed_start": datetime(2026, 10, 8, 19, 0)},
+    ],
+    ids=["mismatched-plan-id", "naive-datetime"],
+)
+def test_save_suggestion_rejects_invalid_data_without_request(changes) -> None:
+    api = SuggestionAPI()
+    store = _suggestion_store(api)
+
+    with pytest.raises(ValueError):
+        store.save_suggestion("user-one", PLAN_ID, _new_suggestion(**changes))
+
+    assert api.requests == []
+
+
+def test_lazy_store_delegates_suggestion_methods(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    class Recorder:
+        def get_suggestion(self, *args):
+            calls.append(("get", args))
+            return None
+
+        def save_suggestion(self, *args):
+            calls.append(("save", args))
+            return SAVED_SUGGESTION
+
+    monkeypatch.setattr(db_plans, "_build_plan_store", lambda: Recorder())
+    lazy = db_plans.LazyPlanStore()
+
+    assert lazy.get_suggestion("user-one", PLAN_ID) is None
+    assert lazy.save_suggestion("user-one", PLAN_ID, {"reason": "weather"}) == SAVED_SUGGESTION
+    assert calls == [
+        ("get", ("user-one", PLAN_ID)),
+        ("save", ("user-one", PLAN_ID, {"reason": "weather"})),
+    ]

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from app.config import get_settings
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.schemas.parsed_plan import ParsedPlan
+from app.system_time import get_system_time
 
 from .errors import APIError
 
@@ -51,6 +52,7 @@ class PlanListResponse(BaseModel):
 def current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     store: PlanStore = Depends(get_plan_store),
+    now: datetime | None = None,
 ) -> AuthenticatedUser:
     settings = get_settings()
     if credentials is None or settings.token_hash_pepper is None:
@@ -65,7 +67,7 @@ def current_user(
         raise APIError(401, "unauthorized", "Token is missing or invalid.")
 
     user, token_expires_at = authenticated
-    now = datetime.now(timezone.utc)
+    now = (now or get_system_time()).astimezone(timezone.utc)
     if token_expires_at is not None and _parse_timestamp(token_expires_at) <= now:
         raise APIError(401, "unauthorized", "Token is missing or invalid.")
     if user.is_demo and (

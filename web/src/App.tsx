@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { createDemoSession } from './api/demo';
+import { CreatePlan } from './pages/CreatePlan';
+import { PlanList } from './pages/PlanList';
 import {
   clearStoredToken,
   extractTokenFromUrlAndClean,
@@ -10,10 +12,11 @@ import { Insights } from './pages/Insights';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import './App.css';
 
-type ActiveTab = 'insights' | 'demo';
+type ActiveTab = 'insights' | 'plans' | 'create' | 'demo';
 
 function App() {
   // Capture ?t= parameter on initial load or read stored token:
+// Sayfa ilk yüklendiğinde URL'deki ?t= parametresini yakala veya kayıtlı token'ı oku:
   const [token, setToken] = useState<string | null>(() => {
     return extractTokenFromUrlAndClean() || getStoredToken();
   });
@@ -122,6 +125,130 @@ function App() {
                     {token ? 'Active Session' : 'No Active Session'}
                   </span>
                 </div>
+    <div className="app-container">
+      <header className="app-header">
+        <div className="badge">GAP-AI • Web Client</div>
+        <h1>Hedef &amp; Eylem Planlama</h1>
+        <p className="app-subtitle">Kişisel Davranış ve Analiz Asistanı</p>
+      </header>
+
+      {/* Navigasyon Sekmeleri */}
+      <nav className="nav-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          id="tab-insights"
+          aria-selected={activeTab === 'insights'}
+          className={`nav-tab-btn ${activeTab === 'insights' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('insights')}
+        >
+          📊 Analiz (Insights)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-plan-list"
+          aria-selected={activeTab === 'plans'}
+          className={`nav-tab-btn ${activeTab === 'plans' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('plans')}
+        >
+          📋 Planlarım (W1-3)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-create-plan"
+          aria-selected={activeTab === 'create'}
+          className={`nav-tab-btn ${activeTab === 'create' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('create')}
+        >
+          ✍️ Plan Oluştur (W1-2)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-demo-session"
+          aria-selected={activeTab === 'demo'}
+          className={`nav-tab-btn ${activeTab === 'demo' ? 'nav-tab-active' : ''}`}
+          onClick={() => setActiveTab('demo')}
+        >
+          🔑 Demo &amp; Oturum (W1-1)
+        </button>
+      </nav>
+
+      <main className="app-main">
+        {/* Bildirim Alanları */}
+        {errorMessage && (
+          <div className="alert alert-error" role="alert" id="error-alert">
+            <span className="alert-icon">⚠️</span>
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="alert alert-success" role="status" id="success-alert">
+            <span className="alert-icon">✓</span>
+            <span>{successMessage}</span>
+          </div>
+        )}
+
+        {/* Analiz ekranı */}
+        {activeTab === 'insights' && <Insights />}
+
+        {/* Plan listesi ve sonuç bildirme */}
+        {activeTab === 'plans' && (
+          <PlanList
+            token={token}
+            onRequireToken={() => setActiveTab('demo')}
+            onNavigateCreate={() => setActiveTab('create')}
+          />
+        )}
+
+        {/* Plan oluşturma */}
+        {activeTab === 'create' && (
+          <CreatePlan
+            token={token}
+            onRequireToken={() => setActiveTab('demo')}
+          />
+        )}
+
+        {/* Demo ve kimlik doğrulama */}
+        {activeTab === 'demo' && (
+          <>
+            <section className="card demo-card">
+              <div className="card-header">
+                <h2>Demo Oturumu ve Yetkilendirme</h2>
+                <span
+                  id="token-status-badge"
+                  className={`status-pill ${token ? 'pill-active' : 'pill-inactive'}`}
+                >
+                  {token ? 'Oturum Açık' : 'Oturum Yok'}
+                </span>
+              </div>
+
+              <p className="card-desc">
+                Yerel backend üzerindeki <code>POST /demo/session</code> uç noktasını çağırarak
+                24 saat geçerli izole bir demo token'ı alabilir veya URL üzerinden{' '}
+                <code>?t=&lt;token&gt;</code> parametresiyle giriş yapabilirsiniz.
+              </p>
+
+              <div className="action-row">
+                <button
+                  id="try-demo-btn"
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleTryDemo}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <span className="spinner" aria-hidden="true"></span>
+                      <span>Bağlanıyor...</span>
+                    </>
+                  ) : (
+                    'Try Demo'
+                  )}
+                </button>
 
                 <p className="card-desc">
                   Call the <code>POST /demo/session</code> endpoint on the local backend to receive
