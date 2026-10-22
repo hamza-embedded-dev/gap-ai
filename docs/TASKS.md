@@ -1,142 +1,31 @@
-# GAP: Görev Listesi (TASKS)
+# GAP-AI — Görev ve Durum Takibi
 
-> **Güncel görev listesi (14–29 Ekim 2026):** [GOREVLER_14-29_EKIM.md](GOREVLER_14-29_EKIM.md). Aşağıdaki liste ilk planlamadır; tarih ve sorumlular için yeni dosya geçerlidir.
+Bu dosya, depodaki mevcut kod ve yapılandırmaya göre güncellenir. **Kodda mevcut** ifadesi özelliğin uygulama dosyalarının bulunduğunu belirtir; canlı ortamda veya donanımda uçtan uca doğrulandığı anlamına gelmez. Dağıtım, gerçek servis bağlantısı ve fiziksel cihaz testi ayrıca kanıtlanmalıdır.
 
-Nebius x NVIDIA Global AI Hackathon için ekip görev planı. **Son gönderim: 30 Ekim 2026, 20:00 (Türkiye saati).** Hedef gönderim günü: **29 Ekim**. Demo, jüri dönemi bitene kadar (15 Aralık) ayakta kalmalıdır.
+> Önceki ekip planı, tarihleri ve sorumlulukları için [GOREVLER_14-29_EKIM.md](GOREVLER_14-29_EKIM.md) tarihsel planlama belgesidir; bu dosyadaki durumların yerine geçmez.
 
+## Depoda mevcut olanlar
 
-## Takımlar ve sorumlular
+- [x] **Backend API temeli:** FastAPI uygulaması, CORS ve standart hata yanıtları; `/health`, `/demo/session`, `/me`, `/plans`, `/plans/{id}/outcome`, `/parse`, `/voice`, `/me/upcoming`, `/insights` ve `/plans/{id}/suggestion` router'ları kayıtlıdır. Kaynak: `backend/app/main.py`.
+- [x] **Plan ve sonuç veri erişimi:** Supabase PostgREST adaptörü, plan listeleme/oluşturma, sonuç olayları ve idempotent plan oluşturma kodu vardır. Kaynak: `backend/app/db/plans.py`, `backend/app/api/plans.py`, `backend/app/api/outcomes.py`.
+- [x] **Demo akışı:** İzole demo oturumu ve sentetik plan/sonuç seed verisi kodlanmıştır. Kaynak: `backend/app/api/demo.py`, `backend/app/db/demo_seed.py`, `demo/seed/demo_plans.json`.
+- [x] **Metinle plan oluşturma:** Nebius istemcisi ve `ParsedPlan` schema doğrulama/yeniden deneme akışı vardır. Kaynak: `backend/app/api/parse.py`, `backend/app/ai/llm.py`, `ai/schema.json`.
+- [x] **Backend ses uç noktası:** `/voice`, yüklenen WAV dosyasını doğrular, Groq STT'ye gönderir ve `create_plan` sonucunu kaydeder. Kaynak: `backend/app/api/voice.py`, `backend/app/ai/stt.py`.
+- [x] **Analiz ve öneri kodu:** Deterministik insights hesaplama, hava durumu/örüntü önerisi ve öneri saklama akışı vardır. Kaynak: `backend/app/analytics/insights.py`, `backend/app/api/insights.py`, `backend/app/api/suggestions.py`.
+- [x] **Web uygulaması:** React arayüzünde demo oturumu, metinle plan oluşturma, plan listesi/sonuç bildirimi ve insights ekranı vardır. Kaynak: `web/src/`.
+- [x] **Şema ve SQL doğrulama dosyaları:** Temel ve suggestions migration'ları ile SQL doğrulama betikleri ve GitHub Actions iş akışı vardır. Kaynak: `database/migrations/`, `database/tests/`, `.github/workflows/backend-tests.yml`.
+- [x] **ESP32 başlangıç firmware'i ve ses kayıt modülü:** Wi-Fi bağlantısı, `/health` kontrolü ve bağımsız I2S/WAV kayıt kodu vardır. Kaynak: `esp32/main/`.
 
-| Kod | Sorumlu | Ekip | Ana teslim |
-|---|---|---|---|
-| B1 | Hamza Fatih | Backend/AI | FastAPI iskeleti ve plan API uçları |
-| B2 | Ülkü Sena | Backend/AI | Nemotron entegrasyonu ve plan çıkarma |
-| B3 | Ece Ulvi | Backend/AI | Supabase bağlantısı ve plan/sonuç kayıtları |
-| B4 | Ahmet Zeren | Backend/AI ve Donanım | Backend-donanım entegrasyonu ve cihaz sonuç bildirimi |
-| B5 | Burak Varol | Backend/AI | Whisper ses tanıma entegrasyonu ve hata yönetimi |
-| W1 | Taylan | Web | Plan oluşturma, plan listesi ve sonuç bildirme arayüzü |
-| W2 | Sevde Betül | Web | Analiz/öneri arayüzü ve web dağıtımı |
-| D1 | Ahmet Zeren | Donanım | ESP32 butonları, ekranı ve API bağlantısı |
-| D2 | Eren | Donanım | Mikrofon, ses kaydı ve ses yükleme |
-| V1 | Mustafa Kerem | Veri/Test | Demo verisi, test senaryoları ve hata raporları |
-| E | Hamza Yüksel | Entegrasyon | API sözleşmesi, bağımlılıklar, PR inceleme ve teslim koordinasyonu |
+## Tamamlanması veya doğrulanması gerekenler
 
-**Kişi sayımı:** Ahmet Zeren hem B4 hem D1 görevini yürütür; tek kişi sayılır.
+- [ ] **API sözleşmesi kapsamındaki eksik backend rotaları:** `POST /plans/{id}/reschedule`, `GET /me/export` ve `DELETE /me/data` sözleşmede tanımlı; mevcut FastAPI router'larında uygulanmamıştır. Kapsama dair karar verilmeden bunları tamamlanmış olarak işaretlemeyin. Ayrıntı: [api-contract.md](api-contract.md).
+- [ ] **Tam backend test koşusu:** Backend pytest paketi CI'da çalışacak şekilde tanımlıdır; yerel/sandbox doğrulaması tam sonuç vermediyse CI sonucu kontrol edilip başarısızlıklar giderilmelidir.
+- [ ] **Web plan API testlerinin test komutuna dahil edilmesi:** `web/src/api/plans.test.ts` dosyası mevcut; `web/package.json` içindeki `npm test` komutu `tests/*.test.mjs` desenini kullanıyor ve bu TypeScript test dosyasını çalıştırmıyor.
+- [ ] **Canlı veritabanı ve servis entegrasyonu:** Supabase migration'larının hedef projede uygulanması; plan, sonuç, öneri ve demo akışlarının gerçek Supabase ile doğrulanması gerekir. Nebius ve Groq çağrıları da geçerli servis kimlik bilgileriyle ayrıca kontrol edilmelidir.
+- [ ] **ESP32 uçtan uca entegrasyonu:** Firmware'e token ile `/voice` yüklemesi ve `/plans/{id}/outcome` bildirimi bağlanmalı; gerekiyorsa sıradaki plan/işlem durumunu gösterecek ekran eklenmelidir. Şu an firmware'in API çağrısı `/health` ile sınırlıdır; I2S modülü tek başına cihaz-sunucu ses akışını tamamlamaz.
+- [ ] **Web ve backend dağıtım durumu:** `docs/DEPLOY.md` staging dağıtım talimatı verir; canlı URL ve çalışan deploy bilgisi bu depodan doğrulanamaz. Demo öncesi deploy ve tarayıcıdan uçtan uca akış kontrol edilmelidir.
+- [ ] **Üretim öncesi işletim/güvenlik kontrolü:** Kimlik doğrulamasız demo session üretimi için kullanım sınırları ve web token saklama yaklaşımı gözden geçirilmelidir. `.env.example` içindeki değişkenler runtime'da okunan ayarlarla karşılaştırılmalıdır.
 
-## Alınacak kararlar (ilk hafta)
+## Doğrulama kaydı
 
-| Karar | Sorumlu | Son tarih |
-|---|---|---|
-| Web arayüz çatısı: React (D-009) | Web UI | 10 Eki (karar kaydı) |
-| Ses biçimi ve en uzun kayıt süresi (WAV 16 kHz, kısa kayıt) | Donanım + Backend | 8 Eki (toplantıda) |
-| Buton eşlemesi (kısa, çift, uzun basış) | Donanım + Backend | 8 Eki (toplantıda) |
-| Kullanıcı girişi (Supabase Auth, demo hesabı, cihaz tokenı) | Backend + Web UI | 8 Eki (toplantıda) |
-| Nebius Token Factory setup | Entegrasyon + Backend | 8 Eki (toplantıda) |
-| Supabase setup | Backend | 8 Eki (toplantıda) |
-
-## Zaman Çizelgesi
-
-| Tarih | Kilometre taşı | Çıkış ölçütü |
-|---|---|---|
-| 8-10 Eki | Temel kurulum | Repo, API sözleşmesi, Supabase şeması hazır; ESP32 Wi-Fi bağlı; ortak kararlar verildi |
-| 14 Eki | İlk uçtan uca akış | ESP32 veya web sesi → FastAPI → Whisper → metin döner |
-| 19 Eki öncesi | Çekirdek özellikler | Akış A ve B tamam: plan kaydı, buton → sonuç → analiz → öneri web'de görünür; Nebius'ta yayında (PLAN.md feature-freeze hedefi) |
-| 19 Eki | Özellik dondurma | Yeni özellik yok; yalnızca hata düzeltme, güvenlik, test ve dokümantasyon (CONTRIBUTING.md ve PLAN.md) |
-| 27-28 Eki | Video ve belgeler | Demo videosu YouTube'da; README ve Devpost metni hazır |
-| 29 Eki | Gönderim | Devpost'a gönderildi (yedek gün 30 Eki; son saat 20:00 Türkiye saati) |
-| 30 Eki - 15 Ara | Demo canlı kalır | Sunucu ve kredi takibi; jüri erişimi kesintisiz |
-
-## Bağımlılıklar
-
-- Donanım ve Web UI, Backend'in /voice ve /outcome uç noktalarına bağlı. Bu yüzden API sözleşmesi 10 Eki'de kilitlenir.
-- Veri ve Test, Backend'in analiz motoruna ve Supabase şemasına bağlı. Şema 10 Eki'de hazır olmalı.
-- Hikaye ve Sunum, Donanım ve Web UI'nin çalışan görüntülerine bağlı. Çekimler 27 Eki'den önce bitmeli.
-- Entegrasyon, tüm ekiplerin çıktılarını toplar ve denetler.
-
-## 1. Donanım Ekibi
-
-**Üyeler:** Ahmet ve Eren  
-**Sorumluluk:** ESP32 cihazı, ses kaydı, butonlar, ekran ve donanım çekimleri
-
-- [ ] ESP32 geliştirme ortamını kur (Arduino IDE veya ESP-IDF); Wi-Fi ve HTTPS bağlantısını test et. **Son tarih: 10 Eki**
-- [ ] I2S mikrofonu bağla; mono PCM/WAV, 16 kHz, 16-bit kayıt al ve süreyi en fazla 10 saniyeyle sınırla. **Son tarih: 11 Eki**
-- [ ] Kaydı HTTPS ile FastAPI aracılığı ile ses serverine yolla; yanıtı (başarılı/hata) cihazda göster. **Son tarih: 17 Eki**
-- [ ] Üç buton: kısa basış yapıldı, çift basış ertelendi, uzun basış atlandı; POST /plans/{id}/outcome. **Son tarih: 18 Eki**
-- [ ] Ekran: sıradaki plan, kayıt durumu, bağlantı durumu. **Son tarih: 22 Eki**
-- [ ] Wi-Fi kopması ve gönderim hatasında yeniden bağlanma ve yeniden deneme. **Son tarih: 24 Eki**
-- [ ] Devreyi perf board gibi bir karta düzenli bir şekilde kurmak. **Son tarih: 25 Eki**
-- [ ] Kutu/kasa ve kablolama; demo masası düzeni. **Son tarih: 25 Eki**
-- [ ] Firmware kaynak kodu ve bağlantı şeması repoda; İngilizce kurulum notu. **Son tarih: 26 Eki**
-- [ ] Donanım çekimleri: en az 1 dakikalık net ESP32 görüntüsü (çekim planı Hamza ve Ahmet ile). **Son tarih: 27 Eki**
-
-## 2. Backend ve AI Pilotları
-
-**Üyeler:** Hamza Fatih, Ülkü Sena, Ece Ulvi, Ahmet Zeren ve Burak Varol  
-**Sorumluluk:** FastAPI, Whisper ve Nemotron entegrasyonu, analiz motoru, Nebius dağıtımı
-
-- [ ] FastAPI iskeleti, Dockerfile, ortam değişkenleri (.env.example); gizli anahtarlar repoya girmez. **Son tarih: 10 Eki**
-- [ ] OpenAPI Nebius: /voice, /parse, /plans, /plans/{id}/outcome ve önerileri okuma, test etme (Entegrasyon ile). **Son tarih: 11 Eki**
-- [ ] Nebius Token Factory bağlantısı; Nemotron ile JSON modu. **Son tarih: 15 Eki**
-- [ ] Doğrudan Groq üzerinden Whisper Large V3; zaman aşımı ve hata yönetimi. **Son tarih: 17 Eki**
-- [ ] Metinden niyet, tarih, saat, kategori, saat dilimi gibi şeyleri Nemotron ile halletme. **Son tarih: 18 Eki**
-- [ ] Pydantic ile JSON doğrulaması; çıkan JSON doğru mu değil mi? Değil ise yeniden deneme. **Son tarih: 21 Eki**
-- [ ] Supabase bağlantısı; plan ve sonuç kaydı; benzer geçmiş planları çekme (uzun süreli hafıza). **Son tarih: 24 Eki**
-- [ ] Öneri prompt'u: sayılar analiz motorundan gelir, model yalnızca yorumlar; önerileri kaydet. **Son tarih: 24 Eki**
-- [ ] GAP analiz motoru: uyum yüzdesi, gün/saat bazında erteleme, gecikme süresi, kronik erteleme tespiti (ör. 3 kez). **Son tarih: 25 Eki**
-- [ ] Nebius'a dağıtım (Serverless Endpoint); 15 Aralık'a kadar ayakta kalacak kurulum ve maliyet takibi. **Son tarih: 25 Eki**
-- [ ] 7/24 zamanlayıcı görev; çift tetiklenmeyi önle (tek kopya veya veritabanı kilidi). **Son tarih: 25 Eki**
-- [ ] Her şeyin serverless endpoint ile birlikte sorunsuz çalıştığını test etme ve son dokunuşlar. **Son tarih: 26 Eki**
-
-## 3. Web UI Ekibi
-
-**Üyeler:** Sevde Betül ve Taylan  
-**Sorumluluk:** Web uygulaması, tasarım, Capacitor ile mobil uygulama, yayına alma
-
-- [ ] D-009 kararına göre React arayüz temelini kur. **Son tarih: belirlenmedi**
-- [ ] Tasarım dili: renkler, tipografi, bileşenler; ana ekranların taslağı ve ilk versiyon. **Son tarih: 11 Eki**
-- [ ] Yazılı giriş + sesli kayıt ile uygulama üzerinden plan ekleme → (ses biçimini Backend ile netleştir). **Son tarih: 15 Eki**
-- [ ] Plan listesi ve bugün görünümü; yapıldı, ertelendi, atlandı butonları. **Son tarih: 17 Eki**
-- [ ] Analiz ekranı: uyum yüzdesi, gün ve saat bazında erteleme grafikleri. **Son tarih: 20 Eki**
-- [ ] Öneri kartları (kabul et / reddet) ve proaktif öneri gösterimi. **Son tarih: 21 Eki**
-- [ ] Netlify ile Web sürümünü HTTPS ile yayına al (jüri için demo URL); 15 Aralık'a kadar ayakta. **Son tarih: 24 Eki**
-- [ ] Capacitor ile Android uygulaması (mikrofon izni dahil); iOS opsiyonel. **Son tarih: 25 Eki**
-- [ ] Yükleme, hata ve boş durumlar; mobil uyumluluk; tüm arayüz metinleri İngilizce. **Son tarih: 25 Eki**
-- [ ] Netlify ve Supabase'in birlikte çalıştığının doğrulanması ve testler. **Son tarih: 26 Eki**
-- [ ] Demo için ekran kayıtları ve görüntüleri (Hamza ve Ahmet'e teslim). **Son tarih: 27 Eki**
-
-## 4. Veri ve Test
-
-**Üyeler:** Mustafa Kerem  
-**Sorumluluk:** Supabase şeması, demo verisi, testler ve ölçümler
-
-- [ ] Sahte demo verisi oluşturma (bozuk veri (dwnadwad), günlük veri gibi (Yarın 8'de koşuya çıkacağım)): 3-4 haftalık geçmiş, farklı kullanıcı davranışları ile veri seti oluşturma (düzenli, kronik erteleyen). **Son tarih: 15 Eki**
-- [ ] Proje belirlenene göre model doğru davranıyor mu gibi bir doğruluk raporu. **Son tarih: 25 Eki**
-- [ ] Analiz ve testler: uyum yüzdesi, erteleme örüntüsü, sınır durumlar vb. verilerle test edilip kalite kontrol yapılır. **Son tarih: 25 Eki**
-- [ ] Ses tanıma testi: farklı kişi, aksan ve gürültü; ESP32 ve tarayıcı kayıt kalitesi karşılaştırması. **Son tarih: 25 Eki**
-- [ ] API ve akış testleri; hatalar GitHub Issues'ta takip edilir. **Son tarih: 26 Eki**
-- [ ] Son test. **Son tarih: 26 Eki**
-
-## 5. Hikaye ve Sunum
-
-**Üyeler:** Ahmet ve Hamza  
-**Sorumluluk:** Hikaye, demo videosu, Devpost metinleri, görseller
-
-- [ ] Hikaye: problem (niyet ile eylem arasındaki boşluk), hedef kullanıcı, etki: Gibi alanlar için proje özeti (README.md için hazırlık) (markdown ile ve İngilizce yazılacak). **Son tarih: 22 Eki**
-- [ ] İngilizce projenin mimarisinin diyagramı (diyagramlar *mermaid* ile yapılacak) ve kapak görseli (kapak görseli photoshop ile fiziksel ürünü içerecek ve entegratör ile kararlaştırılarak yapılacak). **Son tarih: 25 Eki**
-- [ ] Devpost proje açıklaması (İngilizce): ne, neden, nasıl ve mermaid diyagramlar ile birleştirilip en son README.md dosyası oluşturulup githuba eklenecek. **Son tarih: 26 Eki**
-- [ ] Video çekimi: hedef cihazda çalışan ürün + en az 1 dk donanım; telifli müzik ve üçüncü taraf marka yok. **Son tarih: 27 Eki**
-- [ ] Kurgu ve YouTube'a herkese açık yükleme. **Son tarih: 28 Eki**
-
-## 6. Entegrasyon
-
-**Üyeler:** Hamza Yüksel  
-**Sorumluluk:** Repo, ortak sözleşmeler, uçtan uca test, README ve gönderim
-
-- [ ] Monorepo yapısı (/backend, /web, /firmware, /docs), branch ve PR kuralları. **Son tarih: 8 Eki (toplantıda)**
-- [ ] API sözleşmesini kilitle ve tüm ekiplere dağıt; değişiklikler PR ile. **Son tarih: 10 Eki**
-- [ ] Ortak gizli anahtar yönetimi (Groq, Token Factory, Supabase); .env.example güncel. **Son tarih: 10 Eki**
-- [ ] Docker image'ının tamamen çalışır hale gelmesi. **Son tarih: 11 Eki**
-- [ ] README (İngilizce): kurulum, NVIDIA modelinin kullanımı, Token Factory hız kazancı, kullanılan Nebius servisleri kontrolü. **Son tarih: 26 Eki**
-- [ ] 19 Ekim özellik dondurmasına göre sürümü hazırlama. **Son tarih: 19 Eki**
-- [ ] Devpost'a gönderim (yedek gün 30 Eki). **Son tarih: 29 Eki**
-- [ ] Demo'nun 15 Aralık'a kadar ayakta kalması: izleme ve kredi kontrolü. **Son tarih: 30 Eki sonrası**
+Doğrulama sonuçlarını, çalıştırılan komut ve tarih ile güncel tutun. Kaynak kodun veya test dosyasının bulunması tek başına başarılı test/entegrasyon kanıtı değildir. Şema ve SQL davranışı için backend testlerinin yanı sıra `.github/workflows/backend-tests.yml` içindeki PostgreSQL migration işi de izlenmelidir.
