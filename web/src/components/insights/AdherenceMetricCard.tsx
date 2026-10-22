@@ -1,7 +1,7 @@
 import React from 'react';
 import type { InsightsResponse } from '../../api/insights';
 
-interface AdherenceMetricCardProps {
+export interface AdherenceMetricCardProps {
   insights: InsightsResponse;
 }
 
@@ -10,7 +10,7 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
   const hasAdherence = adherence !== null && adherence !== undefined && !Number.isNaN(adherence);
   const formattedPct = hasAdherence ? adherence.toFixed(1) : '--';
 
-  // SVG çember parametreleri:
+  // SVG circle gauge parameters:
   const radius = 54;
   const stroke = 10;
   const normalizedRadius = radius - stroke / 2;
@@ -26,13 +26,13 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
     <section className="insights-metric-card" id="adherence-card">
       <div className="metric-header">
         <div>
-          <span className="metric-eyebrow">Uyum ve Sadakat Metriği</span>
-          <h2 className="metric-title">Genel Plan Uyum Yüzdesi</h2>
+          <span className="metric-eyebrow">Adherence Metric</span>
+          <h2 className="metric-title">Overall Plan Adherence</h2>
         </div>
         {hasTrend && (
           <div
             className={`trend-pill ${trendDelta >= 0 ? 'trend-up' : 'trend-down'}`}
-            title="Önceki periyoda kıyasla değişim"
+            title="Change vs. previous period"
           >
             <span className="trend-arrow" aria-hidden="true">
               {trendDelta >= 0 ? '↑' : '↓'}
@@ -40,14 +40,14 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
             <span className="trend-text">
               {trendDelta >= 0 ? `+${trendDelta.toFixed(1)}%` : `${trendDelta.toFixed(1)}%`}
             </span>
-            <span className="trend-sub">önceki döneme göre</span>
+            <span className="trend-sub">vs. previous period</span>
           </div>
         )}
       </div>
 
       <div className="metric-body">
-        {/* Dairesel İlerleme Grafiği */}
-        <div className="gauge-wrapper" aria-label={`Uyum yüzdesi: %${formattedPct}`}>
+        {/* Circular Progress Gauge */}
+        <div className="gauge-wrapper" aria-label={`Adherence: ${formattedPct}%`}>
           <svg height={radius * 2} width={radius * 2} className="gauge-svg">
             <circle
               className="gauge-bg"
@@ -73,16 +73,16 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
           </svg>
           <div className="gauge-center">
             <span className="gauge-value" id="adherence-percentage-value">
-              %{formattedPct}
+              {formattedPct}%
             </span>
-            <span className="gauge-label">Uyum Oranı</span>
+            <span className="gauge-label">Adherence Rate</span>
           </div>
         </div>
 
-        {/* Dağılım İstatistikleri */}
+        {/* Breakdown Statistics Grid */}
         <div className="stats-grid">
           <div className="stat-box stat-planned">
-            <span className="stat-label">Toplam Planlanan</span>
+            <span className="stat-label">Total Planned</span>
             <span className="stat-number" id="stat-planned-count">
               {insights.planned}
             </span>
@@ -91,7 +91,7 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
           <div className="stat-box stat-done">
             <div className="stat-indicator indicator-done" aria-hidden="true"></div>
             <div>
-              <span className="stat-label">Tamamlanan</span>
+              <span className="stat-label">Done</span>
               <span className="stat-number" id="stat-done-count">
                 {insights.done}
               </span>
@@ -101,7 +101,7 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
           <div className="stat-box stat-postponed">
             <div className="stat-indicator indicator-postponed" aria-hidden="true"></div>
             <div>
-              <span className="stat-label">Ertelenen</span>
+              <span className="stat-label">Postponed</span>
               <span className="stat-number" id="stat-postponed-count">
                 {insights.postponed}
               </span>
@@ -111,7 +111,7 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
           <div className="stat-box stat-skipped">
             <div className="stat-indicator indicator-skipped" aria-hidden="true"></div>
             <div>
-              <span className="stat-label">Atlanan</span>
+              <span className="stat-label">Skipped</span>
               <span className="stat-number" id="stat-skipped-count">
                 {insights.skipped}
               </span>
@@ -120,7 +120,7 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
 
           {insights.unreported > 0 && (
             <div className="stat-box stat-unreported">
-              <span className="stat-label">Raporlanmayan</span>
+              <span className="stat-label">Unreported</span>
               <span className="stat-number" id="stat-unreported-count">
                 {insights.unreported}
               </span>
@@ -130,9 +130,9 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
           {insights.avg_start_delay_min !== null &&
             insights.avg_start_delay_min !== undefined && (
               <div className="stat-box stat-delay">
-                <span className="stat-label">Ort. Başlama Gecikmesi</span>
+                <span className="stat-label">Avg. Start Delay</span>
                 <span className="stat-number" id="stat-delay-count">
-                  {insights.avg_start_delay_min} <small>dk</small>
+                  {insights.avg_start_delay_min} <small>min</small>
                 </span>
               </div>
             )}
@@ -150,3 +150,5 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
     </section>
   );
 };
+
+export default AdherenceMetricCard;

@@ -5,7 +5,7 @@
  * - Brand Theme: Light Theme (Purple / Violet #7c3aed primary)
  * - Semantic Accents: Mint / Emerald Green (#16a34a) for Done/Success
  * - Typography: Nunito / Clean sans-serif hierarchy
- * - Layout: Responsive card grid with micro-interactions
+ * - Layout: Responsive card grid with 375px mobile optimization and zero overflow-x
  */
 
 .insights-page {
@@ -13,6 +13,7 @@
   flex-direction: column;
   gap: var(--space-6, 24px);
   width: 100%;
+  max-width: 100%;
 }
 
 /* ==========================================================================
@@ -25,12 +26,14 @@
   flex-wrap: wrap;
   gap: var(--space-4, 16px);
   padding-bottom: var(--space-2, 8px);
+  width: 100%;
 }
 
 .insights-heading-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-1, 4px);
+  max-width: 100%;
 }
 
 .insights-title-row {
@@ -47,15 +50,17 @@
   color: var(--color-text-primary, #0f172a);
   letter-spacing: -0.02em;
   margin: 0;
+  line-height: 1.25;
 }
 
 .insights-subtitle {
   font-size: var(--font-size-sm, 0.875rem);
   color: var(--color-text-muted, #64748b);
   margin: 0;
+  line-height: 1.5;
 }
 
-/* Sample Data Rozeti */
+/* Sample Data Badge */
 .sample-data-badge {
   display: inline-flex;
   align-items: center;
@@ -79,7 +84,7 @@
   background-color: var(--color-primary, #7c3aed);
 }
 
-/* Periyot Seçici Buton Grubu */
+/* Period Selector Group */
 .period-selector-wrapper {
   display: flex;
   align-items: center;
@@ -101,6 +106,7 @@
   border-radius: var(--radius-md, 6px);
   cursor: pointer;
   transition: all var(--transition-fast, 150ms);
+  white-space: nowrap;
 }
 
 .period-btn:hover:not(:disabled) {
@@ -121,56 +127,7 @@
 }
 
 /* ==========================================================================
-   Yükleme ve Hata Durumları
-   ========================================================================== */
-.insights-loading-box,
-.insights-error-box {
-  background-color: var(--color-bg-surface, #ffffff);
-  border: 1px solid var(--color-border-subtle, #e2e8f0);
-  border-radius: var(--radius-2xl, 16px);
-  padding: var(--space-10, 40px) var(--space-6, 24px);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-4, 16px);
-  box-shadow: var(--shadow-sm);
-}
-
-.insights-spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid var(--color-primary-subtle, #f5f3ff);
-  border-top-color: var(--color-primary, #7c3aed);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.loading-text {
-  color: var(--color-text-muted, #64748b);
-  font-size: var(--font-size-sm, 0.875rem);
-}
-
-.insights-error-box {
-  border-color: var(--color-danger-border, #fecaca);
-  background-color: var(--color-danger-bg, #fef2f2);
-}
-
-.error-title {
-  color: var(--color-danger-text, #991b1b);
-  font-size: var(--font-size-md, 1.125rem);
-  font-weight: var(--font-weight-bold, 700);
-  margin: 0;
-}
-
-.error-message {
-  color: var(--color-danger-text, #991b1b);
-  font-size: var(--font-size-sm, 0.875rem);
-  margin: 0;
-}
-
-/* ==========================================================================
-   Uyum Metriği Kartı (AdherenceMetricCard)
+   Adherence Metric Card (AdherenceMetricCard)
    ========================================================================== */
 .insights-metric-card {
   background-color: var(--color-bg-surface, #ffffff);
@@ -182,6 +139,7 @@
   gap: var(--space-6, 24px);
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition-normal);
+  width: 100%;
 }
 
 .insights-metric-card:hover {
@@ -211,6 +169,7 @@
   font-weight: var(--font-weight-bold, 700);
   color: var(--color-text-primary, #0f172a);
   margin: 0;
+  line-height: 1.3;
 }
 
 .trend-pill {
@@ -250,9 +209,10 @@
   align-items: center;
   gap: var(--space-8, 32px);
   flex-wrap: wrap;
+  width: 100%;
 }
 
-/* Gösterge (Gauge) */
+/* Gauge */
 .gauge-wrapper {
   position: relative;
   display: inline-flex;
@@ -297,7 +257,7 @@
   margin-top: 3px;
 }
 
-/* İstatistik Kutuları */
+/* Statistics Grid */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -359,7 +319,7 @@
   color: var(--color-text-muted, #64748b);
 }
 
-/* Narrative / Yorum Kutusu */
+/* Narrative Box */
 .metric-narrative {
   display: flex;
   align-items: flex-start;
@@ -383,12 +343,13 @@
 }
 
 /* ==========================================================================
-   Grafik Kartları ve Görselleştirmeler (DistributionCharts)
+   Distribution Charts (DistributionCharts)
    ========================================================================== */
 .distribution-charts-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-6, 24px);
+  width: 100%;
 }
 
 @media (max-width: 768px) {
@@ -407,6 +368,8 @@
   gap: var(--space-4, 16px);
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition-normal);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .chart-card:hover {
@@ -436,6 +399,7 @@
   font-weight: var(--font-weight-bold, 700);
   color: var(--color-text-primary, #0f172a);
   margin: 0;
+  line-height: 1.35;
 }
 
 .chart-legend {
@@ -444,6 +408,7 @@
   gap: var(--space-3, 12px);
   font-size: var(--font-size-xs, 0.75rem);
   color: var(--color-text-secondary, #475569);
+  flex-wrap: wrap;
 }
 
 .legend-item {
@@ -466,11 +431,12 @@
   background-color: var(--color-status-done, #16a34a);
 }
 
-/* Yatay Çubuklar (Gün Dağılımı) */
+/* Horizontal Weekday Bars */
 .chart-bars-horizontal {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
 }
 
 .weekday-row {
@@ -478,6 +444,7 @@
   align-items: center;
   gap: 12px;
   font-size: var(--font-size-xs, 0.75rem);
+  width: 100%;
 }
 
 .row-label {
@@ -493,6 +460,7 @@
   flex-direction: column;
   gap: 3px;
   flex-grow: 1;
+  min-width: 0;
   background-color: var(--color-bg-app, #f8fafc);
   padding: 4px 6px;
   border-radius: var(--radius-sm, 4px);
@@ -524,7 +492,7 @@
   line-height: 1;
 }
 
-/* Dikey Çubuklar (Saat Dağılımı) */
+/* Vertical Hour Bars */
 .chart-bars-vertical {
   display: flex;
   align-items: flex-end;
@@ -532,6 +500,10 @@
   height: 160px;
   padding-top: 16px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  width: 100%;
+  scrollbar-width: thin;
 }
 
 .hour-col {
@@ -587,7 +559,7 @@
 }
 
 /* ==========================================================================
-   Ertelenen Hedefler Kartı (PostponedTargetsList)
+   Postponed Targets Card (PostponedTargetsList)
    ========================================================================== */
 .postponed-targets-card {
   width: 100%;
@@ -597,6 +569,7 @@
   font-size: var(--font-size-sm, 0.875rem);
   color: var(--color-text-secondary, #475569);
   margin: 0;
+  line-height: 1.5;
 }
 
 .targets-count-badge {
@@ -613,6 +586,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--space-3, 12px);
+  width: 100%;
 }
 
 .target-item {
@@ -684,7 +658,7 @@
 }
 
 /* ==========================================================================
-   Boş Durum Ekranı (EmptyInsights: "Not enough data")
+   Empty State (EmptyInsights: "Not enough data")
    ========================================================================== */
 .empty-insights-card {
   background-color: var(--color-bg-surface, #ffffff);
@@ -698,6 +672,7 @@
   gap: var(--space-3, 12px);
   box-shadow: var(--shadow-sm);
   animation: fadeIn 0.3s ease-in-out;
+  width: 100%;
 }
 
 .empty-insights-icon {
@@ -722,16 +697,124 @@
   margin: 0;
 }
 
+.empty-period-highlight {
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-primary, #7c3aed);
+}
+
 .empty-insights-hint {
   font-size: var(--font-size-xs, 0.75rem);
   color: var(--color-text-muted, #64748b);
   background-color: var(--color-bg-app, #f8fafc);
   border: 1px solid var(--color-border-subtle, #e2e8f0);
   padding: 8px 16px;
-  border-radius: var(--radius-full, 9999px);
+  border-radius: var(--radius-lg, 8px);
   margin-top: var(--space-2, 8px);
+  max-width: 480px;
+  line-height: 1.5;
 }
 
 .empty-refresh-btn {
   margin-top: var(--space-2, 8px);
+  min-height: 44px;
+}
+
+/* ==========================================================================
+   Mobile Responsive Breakdown (Strict 375px & Small Screen Optimization)
+   ========================================================================== */
+@media (max-width: 640px) {
+  .insights-top-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .period-selector-wrapper {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .period-btn {
+    padding: 8px 4px;
+    font-size: 0.8rem;
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .insights-page {
+    gap: var(--space-4, 16px);
+  }
+
+  .insights-main-title {
+    font-size: 1.45rem;
+  }
+
+  .insights-metric-card,
+  .chart-card {
+    padding: var(--space-4, 16px) var(--space-3, 12px);
+    border-radius: var(--radius-xl, 12px);
+    gap: var(--space-4, 16px);
+  }
+
+  .metric-header {
+    gap: 6px;
+  }
+
+  .metric-title {
+    font-size: 1.25rem;
+  }
+
+  .metric-body {
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .stat-box {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .stat-number {
+    font-size: 1.1rem;
+  }
+
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .weekday-row {
+    gap: 8px;
+  }
+
+  .row-label {
+    width: 28px;
+    font-size: 0.7rem;
+  }
+
+  .targets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .empty-insights-card {
+    padding: var(--space-8, 32px) var(--space-3, 12px);
+    border-radius: var(--radius-xl, 12px);
+  }
+
+  .empty-refresh-btn {
+    width: 100%;
+  }
 }

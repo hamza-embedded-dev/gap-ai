@@ -1,19 +1,9 @@
 import React from 'react';
 import type { PostponedTarget } from '../../api/insights';
 
-interface PostponedTargetsListProps {
+export interface PostponedTargetsListProps {
   targets?: PostponedTarget[];
 }
-
-const WEEKDAY_TR: Record<string, string> = {
-  Monday: 'Pazartesi',
-  Tuesday: 'Salı',
-  Wednesday: 'Çarşamba',
-  Thursday: 'Perşembe',
-  Friday: 'Cuma',
-  Saturday: 'Cumartesi',
-  Sunday: 'Pazar',
-};
 
 export const PostponedTargetsList: React.FC<PostponedTargetsListProps> = ({
   targets = [],
@@ -22,16 +12,16 @@ export const PostponedTargetsList: React.FC<PostponedTargetsListProps> = ({
     <section className="chart-card postponed-targets-card" id="postponed-targets-section">
       <div className="chart-header">
         <div>
-          <span className="chart-eyebrow">Erteleme Örüntüleri</span>
-          <h3 className="chart-title">Ertelenen Hedef Zamanlar</h3>
+          <span className="chart-eyebrow">Postponement Patterns</span>
+          <h3 className="chart-title">Postponed Target Slots</h3>
         </div>
         <span className="targets-count-badge">
-          {targets.length} {targets.length === 1 ? 'Örüntü' : 'Örüntü'}
+          {targets.length} {targets.length === 1 ? 'Slot' : 'Slots'}
         </span>
       </div>
 
       <p className="section-desc">
-        Planlarınızı ertelediğinizde en çok tercih ettiğiniz hedef gün ve saat dilimleri:
+        Most frequent days and hours chosen when postponing plans:
       </p>
 
       {targets.length === 0 ? (
@@ -39,12 +29,11 @@ export const PostponedTargetsList: React.FC<PostponedTargetsListProps> = ({
           <span className="no-data-icon" aria-hidden="true">
             🎯
           </span>
-          <span>Bu periyotta kaydedilmiş bir erteleme hedefi bulunmuyor.</span>
+          <span>No postponed target slots recorded in this period.</span>
         </div>
       ) : (
         <div className="targets-grid" id="postponed-targets-grid">
           {targets.map((target, idx) => {
-            const dayName = WEEKDAY_TR[target.weekday] || target.weekday;
             const hourFormatted = `${String(target.hour).padStart(2, '0')}:00`;
 
             return (
@@ -54,12 +43,15 @@ export const PostponedTargetsList: React.FC<PostponedTargetsListProps> = ({
                 id={`postponed-target-${idx}`}
               >
                 <div className="target-time">
-                  <span className="target-weekday">{dayName}</span>
+                  <span className="target-weekday">{target.weekday}</span>
                   <span className="target-hour">{hourFormatted}</span>
                 </div>
-                <div className="target-count-pill" title={`${target.count} kez bu zamana ertelendi`}>
+                <div
+                  className="target-count-pill"
+                  title={`Postponed to this slot ${target.count} times`}
+                >
                   <span className="target-count-val">{target.count}</span>
-                  <span className="target-count-label">erteleme</span>
+                  <span className="target-count-label">postponed</span>
                 </div>
               </div>
             );
@@ -69,3 +61,5 @@ export const PostponedTargetsList: React.FC<PostponedTargetsListProps> = ({
     </section>
   );
 };
+
+export default PostponedTargetsList;

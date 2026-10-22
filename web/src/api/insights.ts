@@ -53,11 +53,11 @@ export interface InsightsResponse {
 }
 
 /**
- * Backend'deki `GET /insights?period=${period}` uç noktasını çağırarak
- * deterministik davranış analizi ve uyum metriklerini çeker.
+ * Calls the `GET /insights?period=${period}` backend endpoint
+ * to fetch deterministic behavior analytics and adherence metrics.
  *
- * @param period Analiz aralığı: 'week' (varsayılan), 'last_week' veya 'all'
- * @returns {Promise<InsightsResponse>} Analiz yanıt nesnesi
+ * @param period Insights timeframe: 'week' (default), 'last_week', or 'all'
+ * @returns {Promise<InsightsResponse>} Insights response object
  */
 export async function fetchInsights(
   period: InsightsPeriod = 'week'

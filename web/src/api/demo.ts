@@ -7,9 +7,9 @@ export interface DemoSessionResponse {
 }
 
 /**
- * Backend'deki `POST /demo/session` uç noktasını çağırarak izole bir demo oturumu başlatır.
+ * Calls the `POST /demo/session` endpoint on the backend to initialize an isolated demo session.
  *
- * @returns {Promise<DemoSessionResponse>} Token, son kullanma tarihi ve demo bayrağı içeren nesne.
+ * @returns {Promise<DemoSessionResponse>} Object containing token, expiration date, and demo flag.
  */
 export async function createDemoSession(): Promise<DemoSessionResponse> {
   const data = await apiFetch<DemoSessionResponse>('/demo/session', {
@@ -17,7 +17,7 @@ export async function createDemoSession(): Promise<DemoSessionResponse> {
   });
 
   if (!data || typeof data.token !== 'string' || !data.token.trim()) {
-    throw new Error('Geçersiz demo oturum yanıtı: Token verisi eksik veya boş.');
+    throw new Error('Invalid demo session response: Token is missing or empty.');
   }
 
   return data;
