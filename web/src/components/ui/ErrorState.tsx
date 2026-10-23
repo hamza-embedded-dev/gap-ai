@@ -1,4 +1,5 @@
 import React from 'react';
+import { AlertTriangle, KeyRound, RotateCcw } from 'lucide-react';
 import './ErrorState.css';
 
 export interface ErrorStateProps {
@@ -10,6 +11,7 @@ export interface ErrorStateProps {
   onRetry?: () => void;
   isRetrying?: boolean;
   retryText?: string;
+  onRequireAuth?: () => void;
 }
 
 export const ErrorState: React.FC<ErrorStateProps> = ({
@@ -21,6 +23,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   onRetry,
   isRetrying = false,
   retryText = 'Retry Connection',
+  onRequireAuth,
 }) => {
   const isNetworkOrDown =
     errorType === 'network_error' ||
@@ -31,20 +34,25 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
 
   const resolvedTitle =
     title ||
-    (isNetworkOrDown
+    (statusCode === 401 || errorType === 'auth_required'
+      ? 'Session Required'
+      : isNetworkOrDown
       ? 'Backend Service Offline'
       : statusCode
       ? `Request Failed (${statusCode})`
       : 'Unable to Load Data');
 
-  const resolvedHint = isNetworkOrDown
-    ? 'Unable to reach the GAP-AI backend. Please check your internet connection or ensure the local backend service is running on the expected port.'
-    : 'If this issue persists, please refresh the page or verify your session authorization.';
+  const requiresAuth = statusCode === 401 || errorType === 'auth_required';
+  const resolvedHint = requiresAuth
+    ? 'Your session is missing or expired. Start a new demo session or provide a valid access token to continue.'
+    : isNetworkOrDown
+      ? 'Unable to reach the GAP-AI service. Check your internet connection and try again.'
+      : 'If this issue persists, refresh the page or contact your administrator.';
 
   return (
     <section className="error-state-card" id={id} role="alert" aria-live="assertive">
       <div className="error-state-icon-wrapper" aria-hidden="true">
-        <span>⚠️</span>
+        <AlertTriangle size={26} strokeWidth={1.8} />
       </div>
 
       {statusCode !== undefined && statusCode > 0 && (
@@ -65,7 +73,19 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
         {resolvedHint}
       </div>
 
-      {onRetry && (
+      {requiresAuth && onRequireAuth ? (
+        <div className="error-state-actions">
+          <button
+            id={`${id}-auth-btn`}
+            type="button"
+            className="btn btn-primary error-state-retry-btn"
+            onClick={onRequireAuth}
+          >
+            <KeyRound size={17} aria-hidden="true" />
+            <span>Open Demo &amp; Auth</span>
+          </button>
+        </div>
+      ) : onRetry ? (
         <div className="error-state-actions">
           <button
             id={`${id}-retry-btn`}
@@ -81,13 +101,13 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
               </>
             ) : (
               <>
-                <span aria-hidden="true">↻</span>
+                <RotateCcw size={17} aria-hidden="true" />
                 <span>{retryText}</span>
               </>
             )}
           </button>
         </div>
-      )}
+      ) : null}
     </section>
   );
 };

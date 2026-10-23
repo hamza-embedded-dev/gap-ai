@@ -47,6 +47,7 @@
 /* Main Navigation Tabs */
 .main-nav-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -56,6 +57,7 @@
   border-radius: 12px;
   border: 1px solid var(--color-border);
   box-sizing: border-box;
+  max-width: 100%;
 }
 
 .nav-tab-btn {
@@ -87,7 +89,9 @@
 }
 
 .tab-icon {
-  font-size: 1rem;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
 }
 
 .tab-pill {
@@ -383,17 +387,26 @@
 
   .main-nav-tabs {
     width: 100%;
-    display: flex;
-    gap: 4px;
-    padding: 4px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 6px;
   }
 
   .nav-tab-btn {
-    flex: 1;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
     justify-content: center;
-    padding: 8px 8px;
-    font-size: 0.82rem;
+    padding: 8px 6px;
+    font-size: 0.78rem;
     gap: 6px;
+    white-space: normal;
+    line-height: 1.2;
+  }
+
+  .tab-pill {
+    display: none;
   }
 
   .card {
@@ -431,34 +444,4 @@
   .info-item .label {
     min-width: unset;
   }
-/* Navigasyon Sekmeleri */
-.nav-tabs {
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-}
-
-.nav-tab-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--color-text-secondary);
-  padding: 8px 18px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.nav-tab-btn:hover {
-  color: var(--color-text-primary);
-  background-color: rgba(255, 255, 255, 0.05);
-}
-
-.nav-tab-active {
-  color: var(--color-text-primary);
-  background-color: var(--color-surface);
-  border-color: var(--color-border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }

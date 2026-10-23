@@ -190,6 +190,12 @@
   line-height: 1.4;
 }
 
+.outcome-error-message {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .outcome-error-close {
   background: none;
   border: none;

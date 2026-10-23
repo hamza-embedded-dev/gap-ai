@@ -1,4 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  AlertTriangle,
+  BarChart3,
+  Check,
+  ClipboardList,
+  KeyRound,
+  Link2,
+  Pencil,
+  Server,
+  ShieldCheck,
+} from 'lucide-react';
 import { createDemoSession } from './api/demo';
 import { CreatePlan } from './pages/CreatePlan';
 import { PlanList } from './pages/PlanList';
@@ -10,6 +21,7 @@ import {
 } from './utils/auth';
 import { Insights } from './pages/Insights';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { AUTH_SESSION_INVALID_EVENT } from './api/client';
 import './App.css';
 
 type ActiveTab = 'insights' | 'plans' | 'create' | 'demo';
@@ -25,6 +37,16 @@ function App() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('insights');
 
+  useEffect(() => {
+    const handleInvalidSession = () => {
+      setToken(null);
+      setExpiresAt(null);
+    };
+
+    window.addEventListener(AUTH_SESSION_INVALID_EVENT, handleInvalidSession);
+    return () => window.removeEventListener(AUTH_SESSION_INVALID_EVENT, handleInvalidSession);
+  }, []);
+
   const handleTryDemo = async () => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -32,7 +54,9 @@ function App() {
 
     try {
       const session = await createDemoSession();
-      setStoredToken(session.token);
+      if (!setStoredToken(session.token)) {
+        throw new Error('The session was created, but this browser could not save its access token. Enable browser storage and try again.');
+      }
       setToken(session.token);
       setExpiresAt(session.expires_at);
       setSuccessMessage('Demo session created successfully and token saved.');
@@ -69,7 +93,7 @@ function App() {
           <p className="app-subtitle">Personal Behavior &amp; Analytics Assistant</p>
 
           {/* Main Navigation Tabs */}
-          <nav className="main-nav-tabs" aria-label="Main Navigation Tabs">
+          <nav className="main-nav-tabs" role="tablist" aria-label="Main navigation">
             <button
               id="tab-insights-btn"
               type="button"
@@ -78,7 +102,7 @@ function App() {
               className={`nav-tab-btn ${activeTab === 'insights' ? 'active' : ''}`}
               onClick={() => setActiveTab('insights')}
             >
-              <span className="tab-icon" aria-hidden="true">📊</span>
+              <BarChart3 className="tab-icon" aria-hidden="true" />
               <span>Insights</span>
             </button>
             <button
@@ -89,7 +113,7 @@ function App() {
               className={`nav-tab-btn ${activeTab === 'plans' ? 'active' : ''}`}
               onClick={() => setActiveTab('plans')}
             >
-              <span className="tab-icon" aria-hidden="true">📋</span>
+              <ClipboardList className="tab-icon" aria-hidden="true" />
               <span>My Plans</span>
             </button>
             <button
@@ -100,7 +124,7 @@ function App() {
               className={`nav-tab-btn ${activeTab === 'create' ? 'active' : ''}`}
               onClick={() => setActiveTab('create')}
             >
-              <span className="tab-icon" aria-hidden="true">✍️</span>
+              <Pencil className="tab-icon" aria-hidden="true" />
               <span>Create Plan</span>
             </button>
             <button
@@ -111,7 +135,7 @@ function App() {
               className={`nav-tab-btn ${activeTab === 'demo' ? 'active' : ''}`}
               onClick={() => setActiveTab('demo')}
             >
-              <span className="tab-icon" aria-hidden="true">🔑</span>
+              <KeyRound className="tab-icon" aria-hidden="true" />
               <span>Demo &amp; Auth</span>
               {token && <span className="tab-pill">Active</span>}
             </button>
@@ -122,20 +146,22 @@ function App() {
           {/* Notification Alerts */}
           {errorMessage && (
             <div className="alert alert-error" role="alert" id="error-alert">
-              <span className="alert-icon">⚠️</span>
+              <AlertTriangle className="alert-icon" aria-hidden="true" />
               <span>{errorMessage}</span>
             </div>
           )}
 
           {successMessage && (
             <div className="alert alert-success" role="status" id="success-alert">
-              <span className="alert-icon">✓</span>
+              <Check className="alert-icon" aria-hidden="true" />
               <span>{successMessage}</span>
             </div>
           )}
 
           {/* Insights Analytics Tab */}
-          {activeTab === 'insights' && <Insights />}
+          {activeTab === 'insights' && (
+            <Insights token={token} onRequireAuth={() => setActiveTab('demo')} />
+          )}
 
           {activeTab === 'plans' && (
             <PlanList
@@ -229,24 +255,24 @@ function App() {
 
               {/* Architecture & Verification Card */}
               <section className="card info-card">
-                <h2>Skeleton &amp; API Client Validations</h2>
+                <h2>Session and API Security</h2>
                 <ul className="feature-list">
                   <li>
-                    <span className="check">✓</span>
+                    <ShieldCheck className="check" aria-hidden="true" />
                     <span>
-                      <strong>Bearer Token Management:</strong> Stored token is automatically attached to authenticated API requests.
+                      <strong>Secure sessions:</strong> Access tokens are stored locally and sent with authenticated requests.
                     </span>
                   </li>
                   <li>
-                    <span className="check">✓</span>
+                    <Link2 className="check" aria-hidden="true" />
                     <span>
-                      <strong>URL Parameter Sanitization:</strong> The <code>?t=</code> parameter is captured and sanitized via <code>history.replaceState</code> while preserving existing query/hash parameters.
+                      <strong>Secure sign-in links:</strong> Access tokens in the <code>?t=</code> parameter are saved and removed from the address bar.
                     </span>
                   </li>
                   <li>
-                    <span className="check">✓</span>
+                    <Server className="check" aria-hidden="true" />
                     <span>
-                      <strong>Backend Proxy:</strong> Vite dev server proxies <code>/api</code> requests to the local backend.
+                      <strong>Private API access:</strong> Protected requests require a valid session token.
                     </span>
                   </li>
                 </ul>

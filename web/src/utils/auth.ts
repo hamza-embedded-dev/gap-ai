@@ -1,13 +1,15 @@
 export const TOKEN_STORAGE_KEY = 'gap_access_token';
+export const AUTH_SESSION_INVALID_EVENT = 'gap:auth-session-invalid';
 
 /**
  * Reads stored Bearer token from browser localStorage.
  */
 export function getStoredToken(): string | null {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  if (typeof window === 'undefined') {
     return null;
   }
   try {
+    if (!window.localStorage) return null;
     const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
     if (!token || !token.trim()) {
       return null;
@@ -23,7 +25,7 @@ export function getStoredToken(): string | null {
  * Does not store null or whitespace-only strings.
  */
 export function setStoredToken(token: string): boolean {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  if (typeof window === 'undefined') {
     return false;
   }
   if (typeof token !== 'string') {
@@ -34,6 +36,7 @@ export function setStoredToken(token: string): boolean {
     return false;
   }
   try {
+    if (!window.localStorage) return false;
     window.localStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
     return true;
   } catch {
@@ -45,10 +48,11 @@ export function setStoredToken(token: string): boolean {
  * Clears stored token from localStorage.
  */
 export function clearStoredToken(): void {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  if (typeof window === 'undefined') {
     return;
   }
   try {
+    if (!window.localStorage) return;
     window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   } catch {
     // Continue silently if storage access fails
@@ -75,9 +79,10 @@ export function extractTokenFromUrlAndClean(): string | null {
 
     if (hasTokenParam) {
       const tokenValue = url.searchParams.get('t')?.trim();
+      let tokenWasStored = false;
 
       if (tokenValue) {
-        setStoredToken(tokenValue);
+        tokenWasStored = setStoredToken(tokenValue);
       }
 
       // Remove only the 't' parameter:
@@ -89,7 +94,7 @@ export function extractTokenFromUrlAndClean(): string | null {
 
       window.history.replaceState(window.history.state, '', cleanUrl);
 
-      if (tokenValue) {
+      if (tokenValue && tokenWasStored) {
         return tokenValue;
       }
     }

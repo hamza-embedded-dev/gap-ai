@@ -168,6 +168,7 @@ export function mockParsePlan(text: string, options?: ParsePlanOptions): ParsedP
   const lower = text.toLowerCase().trim();
   const folded = foldTurkishText(text);
   const currentDate = getLocalCurrentDate();
+  const useEnglish = options?.language === 'en';
 
   const isChitChat = CHIT_CHAT_KEYWORDS.some((k) => folded.includes(k));
   const hasActivity = ALL_ACTIVITIES.some((k) => folded.includes(k));
@@ -192,25 +193,25 @@ export function mockParsePlan(text: string, options?: ParsePlanOptions): ParsedP
 
   // Determine activity title and category
   let category: ParsedPlan['category'] = 'other';
-  let title = 'Planlanan Aktivite';
+  let title = useEnglish ? 'Planned Activity' : 'Planlanan Aktivite';
   let needsWeather = false;
 
   if (SPORT_KEYWORDS.some((k) => folded.includes(k))) {
     category = 'sport';
-    title = 'Koşu';
+    title = useEnglish ? 'Run' : 'Koşu';
     needsWeather = true;
   } else if (STUDY_KEYWORDS.some((k) => folded.includes(k))) {
     category = 'study';
-    title = 'Ders Çalışma';
+    title = useEnglish ? 'Study Session' : 'Ders Çalışma';
   } else if (MEETING_KEYWORDS.some((k) => folded.includes(k))) {
     category = 'meeting';
-    title = 'Toplantı';
+    title = useEnglish ? 'Meeting' : 'Toplantı';
   } else if (HEALTH_KEYWORDS.some((k) => folded.includes(k))) {
     category = 'health';
-    title = 'Sağlık Randevusu';
+    title = useEnglish ? 'Health Appointment' : 'Sağlık Randevusu';
   } else if (SOCIAL_KEYWORDS.some((k) => folded.includes(k))) {
     category = 'social';
-    title = 'Sosyal Buluşma';
+    title = useEnglish ? 'Social Event' : 'Sosyal Buluşma';
   }
 
   // Check if time is specified:
@@ -225,12 +226,17 @@ export function mockParsePlan(text: string, options?: ParsePlanOptions): ParsedP
     /\b(ogleden sonra|aksam|sabah|gece)\b/.test(folded);
 
   if (!hasTimePattern) {
-    const question =
-      category === 'sport'
+    const question = useEnglish
+      ? category === 'sport'
+        ? 'What time would you like to go for your run?'
+        : category === 'study'
+          ? 'What time would you like to start studying?'
+          : `What time would you like to start your ${title.toLowerCase()}?`
+      : category === 'sport'
         ? 'Koşuya saat kaçta çıkmak istersiniz?'
         : category === 'study'
-        ? 'Çalışmaya saat kaçta başlamak istersiniz?'
-        : `${title} aktivitesine saat kaçta başlamak istersiniz?`;
+          ? 'Çalışmaya saat kaçta başlamak istersiniz?'
+          : `${title} aktivitesine saat kaçta başlamak istersiniz?`;
 
     return {
       intent: 'clarify',
@@ -323,7 +329,7 @@ export async function parseNaturalLanguagePlan(
 ): Promise<ParsedPlan> {
   const trimmed = text.trim();
   if (!trimmed) {
-    throw new ApiError('Plan metni boş bırakılamaz.', 422, 'validation_error');
+    throw new ApiError('Plan text cannot be empty.', 422, 'validation_error');
   }
 
   if (options?.mockMode) {
@@ -357,7 +363,7 @@ export async function createPlan(
 ): Promise<Plan> {
   if (parsedPlan.intent !== 'create_plan') {
     throw new ApiError(
-      'Yalnızca create_plan niyetine sahip planlar kaydedilebilir.',
+      'Only create_plan intents can be saved.',
       422,
       'validation_error'
     );
@@ -365,7 +371,7 @@ export async function createPlan(
 
   if (!isValidUUID(idempotencyKey)) {
     throw new ApiError(
-      'Geçersiz Idempotency-Key formatı: UUID v4 bekleniyor.',
+      'Invalid idempotency key format. A UUID v4 is required.',
       422,
       'validation_error'
     );
@@ -522,13 +528,13 @@ export async function reportPlanOutcome(
 ): Promise<PlanOutcome> {
   const trimmedId = planId?.trim();
   if (!trimmedId) {
-    throw new ApiError('Plan kimliği boş bırakılamaz.', 422, 'validation_error');
+    throw new ApiError('Plan ID cannot be empty.', 422, 'validation_error');
   }
 
   const validStatuses: OutcomeStatus[] = ['done', 'postponed', 'skipped'];
   if (!validStatuses.includes(status)) {
     throw new ApiError(
-      `Geçersiz sonuç durumu: ${status}. Beklenen: done, postponed, skipped.`,
+      `Invalid outcome status: ${status}. Expected done, postponed, or skipped.`,
       422,
       'validation_error'
     );

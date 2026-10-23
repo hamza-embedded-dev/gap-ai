@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, ClipboardList, Pencil, RotateCcw, Repeat } from 'lucide-react';
 import { listPlans } from '../api/plans';
 import { OutcomeButtons } from '../components/OutcomeButtons';
 import type { Plan, PlanOutcome } from '../types/plan';
@@ -9,6 +10,13 @@ export interface PlanListProps {
   onRequireToken?: () => void;
   onNavigateCreate?: () => void;
 }
+
+const MOCK_PLAN_TITLES: Record<string, string> = {
+  'Sabah Koşusu': 'Morning Run',
+  'Haftalık Ekip Senkronizasyonu': 'Weekly Team Sync',
+  'GAP-AI Frontend Geliştirme': 'GAP-AI Frontend Development',
+  'Akşam Yürüyüşü': 'Evening Walk',
+};
 
 export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListProps) {
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -32,7 +40,7 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
       if (!token && !mockMode) {
         if (!ignore) {
           setPlans([]);
-          setErrorMessage('Planlarınızı görebilmek için lütfen önce "Try Demo" ile oturum açın.');
+          setErrorMessage('Sign in with Demo & Auth to view your plans.');
           setIsLoading(false);
         }
         return;
@@ -49,7 +57,7 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
           const msg =
             err instanceof Error
               ? err.message
-              : 'Planlar yüklenirken beklenmeyen bir hata oluştu.';
+              : 'An unexpected error occurred while loading plans.';
           setErrorMessage(msg);
           setPlans([]);
         }
@@ -77,7 +85,7 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
     try {
       const d = new Date(isoString);
       if (isNaN(d.getTime())) return isoString;
-      return d.toLocaleString('tr-TR', {
+      return d.toLocaleString('en-US', {
         day: 'numeric',
         month: 'short',
         year: 'numeric',
@@ -93,7 +101,7 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
     try {
       const d = new Date(isoString);
       if (isNaN(d.getTime())) return isoString;
-      return d.toLocaleTimeString('tr-TR', {
+      return d.toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
       });
@@ -104,15 +112,15 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
 
   return (
     <div className="plan-list-wrapper">
-      {/* Test / Canlı Modu Göstergesi */}
+      {/* API mode controls */}
       <div className="mode-toggle-bar">
         <div className="mode-toggle-left">
-          <span>Mod:</span>
+          <span>Mode:</span>
           <span
             className={`mode-badge ${mockMode ? 'mode-mock' : 'mode-live'}`}
             id="plan-list-mode-badge"
           >
-            {mockMode ? '● Test / Mock Modu (B4-1 Bağımsız)' : '● Canlı Backend API'}
+            {mockMode ? 'Test / Mock Mode' : 'Live Backend API'}
           </span>
         </div>
         <button
@@ -124,17 +132,17 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
             setMockMode(nextMode);
           }}
         >
-          {mockMode ? 'Canlı Moda Geç' : 'Test Moduna Geç'}
+          {mockMode ? 'Switch to Live API' : 'Switch to Mock Mode'}
         </button>
       </div>
 
       {/* Header and Actions */}
       <div className="plan-list-header">
         <div className="plan-list-title-group">
-          <h2>Planlarım</h2>
+          <h2>My Plans</h2>
           {!isLoading && !errorMessage && (
             <span className="plan-count-badge" id="plan-count-badge">
-              {plans.length} plan
+              {plans.length} {plans.length === 1 ? 'plan' : 'plans'}
             </span>
           )}
         </div>
@@ -147,7 +155,8 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
               id="header-create-plan-btn"
               onClick={onNavigateCreate}
             >
-              + Yeni Plan
+              <Pencil size={16} aria-hidden="true" />
+              Create Plan
             </button>
           )}
 
@@ -157,10 +166,10 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
             id="refresh-plans-btn"
             onClick={loadPlans}
             disabled={isLoading}
-            title="Listeyi yenile"
+            title="Refresh plans"
           >
-            <span aria-hidden="true">↻</span>
-            <span>{isLoading ? 'Yükleniyor...' : 'Yenile'}</span>
+            <RotateCcw size={16} aria-hidden="true" />
+            <span>{isLoading ? 'Loading...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
@@ -169,15 +178,15 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
       {isLoading && (
         <div className="plan-list-loading" id="plan-list-loading-state">
           <div className="large-spinner" aria-hidden="true" />
-          <p>Planlarınız getiriliyor...</p>
+          <p>Loading your plans...</p>
         </div>
       )}
 
       {/* Error State */}
       {!isLoading && errorMessage && (
         <div className="plan-list-error" role="alert" id="plan-list-error-state">
-          <span className="alert-icon" style={{ fontSize: '2rem' }}>⚠️</span>
-          <h3 className="error-title">Planlar Yüklenemedi</h3>
+          <AlertTriangle className="alert-icon" size={28} aria-hidden="true" />
+          <h3 className="error-title">Unable to load plans</h3>
           <p className="error-desc">{errorMessage}</p>
           <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
             <button
@@ -186,7 +195,7 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
               id="retry-load-plans-btn"
               onClick={loadPlans}
             >
-              Yeniden Dene
+              Try Again
             </button>
             {!token && onRequireToken && (
               <button
@@ -195,7 +204,7 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                 id="login-from-plans-btn"
                 onClick={onRequireToken}
               >
-                Oturum Aç (Try Demo)
+                Open Demo &amp; Auth
               </button>
             )}
           </div>
@@ -205,11 +214,10 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
       {/* Empty State */}
       {!isLoading && !errorMessage && plans.length === 0 && (
         <div className="plan-list-empty" id="plan-list-empty-state">
-          <div className="empty-icon" aria-hidden="true">📋</div>
-          <h3 className="empty-title">Henüz Bir Planınız Yok</h3>
+          <div className="empty-icon" aria-hidden="true"><ClipboardList size={28} /></div>
+          <h3 className="empty-title">No plans yet</h3>
           <p className="empty-desc">
-            Doğal dilde hedeflerinizi yazarak hemen yeni bir plan oluşturabilir veya demo
-            oturumundaki hazır planları inceleyebilirsiniz.
+            Create a plan using natural language, or review the sample plans in your demo session.
           </p>
           {onNavigateCreate && (
             <button
@@ -218,7 +226,8 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
               id="empty-create-plan-btn"
               onClick={onNavigateCreate}
             >
-              ✍️ İlk Planını Oluştur
+              <Pencil size={16} aria-hidden="true" />
+              Create Your First Plan
             </button>
           )}
         </div>
@@ -243,18 +252,18 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                 <div className="plan-card-header">
                   <div className="plan-card-title-row">
                     <h3 className="plan-title" id={`plan-title-${plan.id}`}>
-                      {plan.title}
+                      {mockMode ? MOCK_PLAN_TITLES[plan.title] || plan.title : plan.title}
                     </h3>
                     <div className="plan-badges">
                       <span className={`category-tag ${categoryClass}`}>
-                        {plan.category || 'Genel'}
+                        {plan.category || 'Other'}
                       </span>
                       <span className="source-tag">
-                        Kaynak: {plan.source === 'voice' ? 'Sesli' : plan.source === 'device' ? 'Cihaz' : 'Metin'}
+                        Source: {plan.source === 'voice' ? 'Voice' : plan.source === 'device' ? 'Device' : 'Text'}
                       </span>
                       {plan.recurrence_rule && (
-                        <span className="recurrence-badge" title="Yinelenme Kuralı">
-                          🔁 {plan.recurrence_rule}
+                        <span className="recurrence-badge" title="Recurrence rule">
+                          <Repeat size={14} aria-hidden="true" /> {plan.recurrence_rule}
                         </span>
                       )}
                     </div>
@@ -264,11 +273,11 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                 {/* Details Grid */}
                 <div className="plan-details-grid">
                   <div className="detail-item">
-                    <span className="detail-label">Planlanan Başlangıç</span>
+                    <span className="detail-label">Scheduled start</span>
                     <span className="detail-value">{formatDateTime(plan.planned_start)}</span>
                   </div>
                   <div className="detail-item">
-                    <span className="detail-label">Bitiş</span>
+                    <span className="detail-label">End</span>
                     <span className="detail-value">{formatTimeOnly(plan.planned_end)}</span>
                   </div>
                 </div>

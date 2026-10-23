@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { AlertTriangle, Check, Clock3, SkipForward, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { reportPlanOutcome } from '../api/plans';
 import type { OutcomeStatus, PlanOutcome } from '../types/plan';
 import './OutcomeButtons.css';
@@ -14,12 +16,12 @@ export interface OutcomeButtonsProps {
 const OUTCOME_OPTIONS: Array<{
   status: OutcomeStatus;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   className: string;
 }> = [
-  { status: 'done', label: 'Done', icon: '✓', className: 'outcome-btn-done' },
-  { status: 'postponed', label: 'Postponed', icon: '⏳', className: 'outcome-btn-postponed' },
-  { status: 'skipped', label: 'Skipped', icon: '⏭', className: 'outcome-btn-skipped' },
+  { status: 'done', label: 'Done', icon: Check, className: 'outcome-btn-done' },
+  { status: 'postponed', label: 'Postponed', icon: Clock3, className: 'outcome-btn-postponed' },
+  { status: 'skipped', label: 'Skipped', icon: SkipForward, className: 'outcome-btn-skipped' },
 ];
 
 export function OutcomeButtons({
@@ -49,7 +51,7 @@ export function OutcomeButtons({
       const msg =
         err instanceof Error
           ? err.message
-          : 'Sonuç kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.';
+          : 'The outcome could not be saved. Please try again.';
       setErrorMessage(msg);
       // NOTE: latestOutcome is NOT updated on failure.
     } finally {
@@ -61,14 +63,14 @@ export function OutcomeButtons({
     if (!latestOutcome) {
       return (
         <span className="outcome-badge outcome-badge-none" id={`outcome-badge-${planId}`}>
-          Beklemede (Raporlanmadı)
+          Pending · Not reported
         </span>
       );
     }
 
     const { status, reported_at } = latestOutcome;
     const formattedDate = reported_at
-      ? new Date(reported_at).toLocaleTimeString('tr-TR', {
+      ? new Date(reported_at).toLocaleTimeString('en-US', {
           hour: '2-digit',
           minute: '2-digit',
         })
@@ -78,19 +80,19 @@ export function OutcomeButtons({
       case 'done':
         return (
           <span className="outcome-badge outcome-badge-done" id={`outcome-badge-${planId}`}>
-            ✓ Tamamlandı (Done) {formattedDate && `• ${formattedDate}`}
+            Done {formattedDate && `· ${formattedDate}`}
           </span>
         );
       case 'postponed':
         return (
           <span className="outcome-badge outcome-badge-postponed" id={`outcome-badge-${planId}`}>
-            ⏳ Ertelendi (Postponed) {formattedDate && `• ${formattedDate}`}
+            Postponed {formattedDate && `· ${formattedDate}`}
           </span>
         );
       case 'skipped':
         return (
           <span className="outcome-badge outcome-badge-skipped" id={`outcome-badge-${planId}`}>
-            ⏭ Atlandı (Skipped) {formattedDate && `• ${formattedDate}`}
+            Skipped {formattedDate && `· ${formattedDate}`}
           </span>
         );
       default:
@@ -106,13 +108,14 @@ export function OutcomeButtons({
     <div className="outcome-container">
       {/* Current Outcome Status Display */}
       <div className="outcome-current-badge-row">
-        <span className="outcome-badge-label">Mevcut Durum:</span>
+        <span className="outcome-badge-label">Current status:</span>
         {getStatusBadge()}
       </div>
 
       {/* Outcome Selection Buttons */}
-      <div className="outcome-btn-group" role="group" aria-label="Sonuç bildir">
+      <div className="outcome-btn-group" role="group" aria-label="Report plan outcome">
         {OUTCOME_OPTIONS.map((opt) => {
+          const OutcomeIcon = opt.icon;
           const isSubmittingThis = submittingStatus === opt.status;
           const isAnySubmitting = submittingStatus !== null;
           const isActive = isCurrentStatus(opt.status);
@@ -125,7 +128,7 @@ export function OutcomeButtons({
               className={`outcome-btn ${opt.className} ${isActive ? 'outcome-btn-active' : ''}`}
               onClick={() => handleSelectOutcome(opt.status)}
               disabled={disabled || isAnySubmitting}
-              title={`${opt.label} olarak bildir`}
+              title={`Mark as ${opt.label.toLowerCase()}`}
               aria-pressed={isActive}
             >
               {isSubmittingThis ? (
@@ -135,7 +138,7 @@ export function OutcomeButtons({
                 </>
               ) : (
                 <>
-                  <span aria-hidden="true">{opt.icon}</span>
+                  <OutcomeIcon size={15} aria-hidden="true" />
                   <span>{opt.label}</span>
                 </>
               )}
@@ -147,15 +150,15 @@ export function OutcomeButtons({
       {/* Inline Error Message */}
       {errorMessage && (
         <div className="outcome-error-alert" role="alert" id={`outcome-error-${planId}`}>
-          <span>⚠️ {errorMessage}</span>
+          <span className="outcome-error-message"><AlertTriangle size={15} aria-hidden="true" />{errorMessage}</span>
           <button
             type="button"
             className="outcome-error-close"
             onClick={() => setErrorMessage(null)}
-            title="Kapat"
-            aria-label="Hatayı kapat"
+            title="Dismiss"
+            aria-label="Dismiss error"
           >
-            ×
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
       )}

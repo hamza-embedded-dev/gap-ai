@@ -23,7 +23,12 @@ interface ErrorStateData {
   errorType?: string;
 }
 
-export const Insights: React.FC = () => {
+interface InsightsProps {
+  token: string | null;
+  onRequireAuth: () => void;
+}
+
+export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
   const [period, setPeriod] = useState<InsightsPeriod>('week');
   const [insights, setInsights] = useState<InsightsResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -31,6 +36,17 @@ export const Insights: React.FC = () => {
   const [errorData, setErrorData] = useState<ErrorStateData | null>(null);
 
   const loadData = useCallback(async (selectedPeriod: InsightsPeriod, isManualRetry = false) => {
+    if (!token) {
+      setInsights(null);
+      setErrorData({
+        message: 'Sign in to load your insights and plan activity.',
+        errorType: 'auth_required',
+      });
+      setIsLoading(false);
+      setIsRetrying(false);
+      return;
+    }
+
     if (isManualRetry) {
       setIsRetrying(true);
     } else {
@@ -60,12 +76,22 @@ export const Insights: React.FC = () => {
       setIsLoading(false);
       setIsRetrying(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     let isCancelled = false;
 
     const run = async () => {
+      if (!token) {
+        setInsights(null);
+        setErrorData((current) => current?.statusCode === 401 ? current : {
+          message: 'Sign in to load your insights and plan activity.',
+          errorType: 'auth_required',
+        });
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setErrorData(null);
       try {
@@ -74,7 +100,10 @@ export const Insights: React.FC = () => {
           setInsights(data);
         }
       } catch (err) {
-        if (!isCancelled) {
+        // A 401 clears the token and changes the effect dependencies, which
+        // cancels this request. Preserve its actual error so the user sees
+        // the authorization failure instead of a generic missing-session state.
+        if (!isCancelled || (err instanceof ApiError && err.status === 401)) {
           if (err instanceof ApiError) {
             setErrorData({
               message: err.message,
@@ -102,7 +131,7 @@ export const Insights: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [period]);
+  }, [period, token]);
 
   const handlePeriodChange = (newPeriod: InsightsPeriod) => {
     if (newPeriod !== period) {
@@ -174,6 +203,7 @@ export const Insights: React.FC = () => {
           onRetry={() => loadData(period, true)}
           isRetrying={isRetrying}
           retryText="Retry Connection"
+          onRequireAuth={onRequireAuth}
         />
       )}
 
