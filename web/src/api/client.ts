@@ -1,7 +1,7 @@
 import { getStoredToken } from '../utils/auth.ts';
 
 /**
- * Ortam değişkeninden API temel URL'i; varsayılan olarak Vite dev proxy'si için '/api' kullanılır.
+ * Base API URL read from environment; defaults to Vite dev proxy '/api'.
  */
 const API_BASE = (
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
@@ -27,10 +27,10 @@ export class ApiError extends Error {
 }
 
 /**
- * GAP-AI backend API istemcisi.
- * - Kayıtlı token varsa otomatik `Authorization: Bearer <token>` başlığı ekler.
- * - JSON gövdeleri için `Content-Type: application/json` başlığını ekler.
- * - HTTP hatalarını `ApiError` nesnesi olarak fırlatır.
+ * GAP-AI backend API client.
+ * - Automatically attaches `Authorization: Bearer <token>` header if a token is stored.
+ * - Sets `Content-Type: application/json` for non-FormData request payloads.
+ * - Throws structured `ApiError` instances on HTTP and network failures.
  */
 export async function apiFetch<T>(
   endpoint: string,
@@ -41,13 +41,13 @@ export async function apiFetch<T>(
 
   const headers = new Headers(options.headers || {});
 
-  // Kayıtlı Bearer token varsa başlığa ekle:
+  // Attach stored Bearer token if present:
   const token = getStoredToken();
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  // İstek gövdesi varsa ve FormData değilse Content-Type JSON yap:
+  // Set JSON Content-Type if body is present and not FormData:
   if (
     options.body &&
     !(options.body instanceof FormData) &&
@@ -63,17 +63,17 @@ export async function apiFetch<T>(
       headers,
     });
   } catch (err) {
-    const originalMessage = err instanceof Error ? err.message : 'Ağ hatası';
+    const originalMessage = err instanceof Error ? err.message : 'Network error';
     throw new ApiError(
-      `Sunucuya bağlanılamadı (${originalMessage}). Backend servisinin çalıştığından emin olun.`,
+      `Unable to connect to server (${originalMessage}). Please ensure the backend service is running.`,
       0,
       'network_error'
     );
   }
 
-  // HTTP hata kodlarını ayrıştır:
+  // Parse HTTP error status codes:
   if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}: ${response.statusText || 'Bilinmeyen hata'}`;
+    let errorMessage = `HTTP ${response.status}: ${response.statusText || 'Unknown error'}`;
     let errorType = 'http_error';
 
     try {
@@ -87,13 +87,13 @@ export async function apiFetch<T>(
         errorType = errorJson.error;
       }
     } catch {
-      // Yanıt gövdesi JSON değilse varsayılan HTTP durum metni kullanılır.
+      // If response body is not JSON, default to status text.
     }
 
     throw new ApiError(errorMessage, response.status, errorType);
   }
 
-  // 204 No Content veya boş yanıtlar:
+  // Handle 204 No Content or empty responses:
   if (response.status === 204) {
     return {} as T;
   }
@@ -107,7 +107,7 @@ export async function apiFetch<T>(
     return JSON.parse(rawText) as T;
   } catch {
     throw new ApiError(
-      'Sunucudan geçerli bir JSON yanıtı alınamadı.',
+      'Failed to parse JSON response from server.',
       response.status,
       'invalid_json'
     );

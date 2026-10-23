@@ -1,7 +1,7 @@
 export const TOKEN_STORAGE_KEY = 'gap_access_token';
 
 /**
- * Tarayıcı yerel deposundan kayıtlı Bearer token'ı okur.
+ * Reads stored Bearer token from browser localStorage.
  */
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined' || !window.localStorage) {
@@ -19,8 +19,8 @@ export function getStoredToken(): string | null {
 }
 
 /**
- * Geçerli bir Bearer token'ı yerel depoya kaydeder.
- * Boş veya yalnızca boşluktan oluşan değerleri saklamaz.
+ * Saves a valid Bearer token into localStorage.
+ * Does not store null or whitespace-only strings.
  */
 export function setStoredToken(token: string): boolean {
   if (typeof window === 'undefined' || !window.localStorage) {
@@ -42,7 +42,7 @@ export function setStoredToken(token: string): boolean {
 }
 
 /**
- * Yerel depodaki token kaydını temizler.
+ * Clears stored token from localStorage.
  */
 export function clearStoredToken(): void {
   if (typeof window === 'undefined' || !window.localStorage) {
@@ -51,18 +51,18 @@ export function clearStoredToken(): void {
   try {
     window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   } catch {
-    // Depolama erişim hatası durumunda sessizce devam et
+    // Continue silently if storage access fails
   }
 }
 
 /**
- * URL'deki `?t=` parametresini okur.
- * - Geçerli bir token varsa yerel depoya kaydeder.
- * - Adres çubuğundaki diğer arama parametrelerini ve hash (#) kısmını bozmadan
- *   yalnızca `t` parametresini `history.replaceState` ile kaldırır.
- * - URL'de `t` yoksa mevcut kayıtlı token'ı korur.
+ * Extracts `?t=` parameter from current window URL.
+ * - If a valid token is found, persists it into localStorage.
+ * - Sanitizes the address bar using `history.replaceState` while preserving
+ *   other search query parameters and hash (#).
+ * - If no `t` parameter is present, keeps existing stored token.
  *
- * @returns Aktif veya yeni kaydedilen token (varsa), yoksa null.
+ * @returns Active or newly captured token if available, otherwise null.
  */
 export function extractTokenFromUrlAndClean(): string | null {
   if (typeof window === 'undefined' || !window.location) {
@@ -80,7 +80,7 @@ export function extractTokenFromUrlAndClean(): string | null {
         setStoredToken(tokenValue);
       }
 
-      // Yalnızca 't' parametresini temizle:
+      // Remove only the 't' parameter:
       url.searchParams.delete('t');
 
       const remainingQuery = url.searchParams.toString();
@@ -94,7 +94,7 @@ export function extractTokenFromUrlAndClean(): string | null {
       }
     }
   } catch {
-    // URL parsing hatasında mevcut depolanmış token'a geri dön
+    // Return stored token on URL parsing failure
   }
 
   return getStoredToken();

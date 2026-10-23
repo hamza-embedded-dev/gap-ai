@@ -1,26 +1,26 @@
 import React from 'react';
 import type { WeekdayStats, HourStats } from '../../api/insights';
 
-interface DistributionChartsProps {
+export interface DistributionChartsProps {
   byWeekday?: Record<string, WeekdayStats>;
   byHour?: Record<string, HourStats>;
 }
 
 const WEEKDAYS_ORDER = [
-  { key: 'Monday', label: 'Pzt', full: 'Pazartesi' },
-  { key: 'Tuesday', label: 'Sal', full: 'Salı' },
-  { key: 'Wednesday', label: 'Çar', full: 'Çarşamba' },
-  { key: 'Thursday', label: 'Per', full: 'Perşembe' },
-  { key: 'Friday', label: 'Cum', full: 'Cuma' },
-  { key: 'Saturday', label: 'Cmt', full: 'Cumartesi' },
-  { key: 'Sunday', label: 'Paz', full: 'Pazar' },
+  { key: 'Monday', label: 'Mon', full: 'Monday' },
+  { key: 'Tuesday', label: 'Tue', full: 'Tuesday' },
+  { key: 'Wednesday', label: 'Wed', full: 'Wednesday' },
+  { key: 'Thursday', label: 'Thu', full: 'Thursday' },
+  { key: 'Friday', label: 'Fri', full: 'Friday' },
+  { key: 'Saturday', label: 'Sat', full: 'Saturday' },
+  { key: 'Sunday', label: 'Sun', full: 'Sunday' },
 ];
 
 export const DistributionCharts: React.FC<DistributionChartsProps> = ({
   byWeekday = {},
   byHour = {},
 }) => {
-  // Haftalık gün verilerini hazırla:
+  // Prepare weekday data:
   const weekdayData = WEEKDAYS_ORDER.map(({ key, label, full }) => {
     const stats = byWeekday[key] || byWeekday[full] || { planned: 0, done: 0, postponed: 0 };
     return {
@@ -38,8 +38,7 @@ export const DistributionCharts: React.FC<DistributionChartsProps> = ({
     ...weekdayData.map((d) => Math.max(d.planned, d.done + d.postponed))
   );
 
-  // Saatlik verileri hazırla:
-  // by_hour sözleşmede {"18": {"planned": 3, "done": 2}} şeklinde
+  // Prepare hourly data (API contract: {"18": {"planned": 3, "done": 2}})
   const hourEntries = Object.entries(byHour)
     .map(([hourStr, stats]) => ({
       hour: parseInt(hourStr, 10),
@@ -57,21 +56,21 @@ export const DistributionCharts: React.FC<DistributionChartsProps> = ({
 
   return (
     <div className="distribution-charts-container" id="distribution-charts">
-      {/* Gün Dağılımı Kartı */}
+      {/* Weekday Distribution Card */}
       <section className="chart-card" id="weekday-distribution-card">
         <div className="chart-header">
           <div>
-            <span className="chart-eyebrow">Haftalık Dağılım</span>
-            <h3 className="chart-title">Günlere Göre Plan ve Gerçekleşme</h3>
+            <span className="chart-eyebrow">Weekly Distribution</span>
+            <h3 className="chart-title">Planned vs. Completed by Weekday</h3>
           </div>
           <div className="chart-legend">
             <span className="legend-item">
               <span className="legend-dot dot-planned" aria-hidden="true"></span>
-              Planlanan
+              Planned
             </span>
             <span className="legend-item">
               <span className="legend-dot dot-done" aria-hidden="true"></span>
-              Tamamlanan
+              Completed
             </span>
           </div>
         </div>
@@ -87,19 +86,19 @@ export const DistributionCharts: React.FC<DistributionChartsProps> = ({
                   {day.label}
                 </div>
                 <div className="row-track">
-                  {/* Planlanan Çubuğu */}
+                  {/* Planned Bar */}
                   <div
                     className="bar bar-planned"
                     style={{ width: `${Math.max(day.planned > 0 ? 6 : 0, plannedWidth)}%` }}
-                    title={`${day.full} - Planlanan: ${day.planned}`}
+                    title={`${day.full} - Planned: ${day.planned}`}
                   >
                     {day.planned > 0 && <span className="bar-num">{day.planned}</span>}
                   </div>
-                  {/* Tamamlanan Çubuğu */}
+                  {/* Completed Bar */}
                   <div
                     className="bar bar-done"
                     style={{ width: `${Math.max(day.done > 0 ? 6 : 0, doneWidth)}%` }}
-                    title={`${day.full} - Tamamlanan: ${day.done}`}
+                    title={`${day.full} - Completed: ${day.done}`}
                   >
                     {day.done > 0 && <span className="bar-num">{day.done}</span>}
                   </div>
@@ -110,29 +109,29 @@ export const DistributionCharts: React.FC<DistributionChartsProps> = ({
         </div>
       </section>
 
-      {/* Saat Dağılımı Kartı */}
+      {/* Hour Distribution Card */}
       <section className="chart-card" id="hour-distribution-card">
         <div className="chart-header">
           <div>
-            <span className="chart-eyebrow">Zaman Dilimi</span>
-            <h3 className="chart-title">Günün Saatlerine Göre Dağılım</h3>
+            <span className="chart-eyebrow">Time Distribution</span>
+            <h3 className="chart-title">Distribution by Hour of Day</h3>
           </div>
           <div className="chart-legend">
             <span className="legend-item">
               <span className="legend-dot dot-planned" aria-hidden="true"></span>
-              Planlanan
+              Planned
             </span>
             <span className="legend-item">
               <span className="legend-dot dot-done" aria-hidden="true"></span>
-              Tamamlanan
+              Completed
             </span>
           </div>
         </div>
 
         {hourEntries.length === 0 ? (
-          <div className="no-chart-data">Bu periyotta saatlik aktivite kaydı yok.</div>
+          <div className="no-chart-data">No hourly activity recorded for this period.</div>
         ) : (
-          <div className="chart-bars-vertical">
+          <div className="chart-bars-vertical" tabIndex={0} role="region" aria-label="Hourly activity chart">
             {hourEntries.map((item) => {
               const plannedHeight = (item.planned / maxHourVal) * 100;
               const doneHeight = (item.done / maxHourVal) * 100;
@@ -143,14 +142,14 @@ export const DistributionCharts: React.FC<DistributionChartsProps> = ({
                     <div
                       className="col-bar bar-planned"
                       style={{ height: `${Math.max(item.planned > 0 ? 8 : 0, plannedHeight)}%` }}
-                      title={`${item.label} - Planlanan: ${item.planned}`}
+                      title={`${item.label} - Planned: ${item.planned}`}
                     >
                       {item.planned > 0 && <span className="col-num">{item.planned}</span>}
                     </div>
                     <div
                       className="col-bar bar-done"
                       style={{ height: `${Math.max(item.done > 0 ? 8 : 0, doneHeight)}%` }}
-                      title={`${item.label} - Tamamlanan: ${item.done}`}
+                      title={`${item.label} - Completed: ${item.done}`}
                     >
                       {item.done > 0 && <span className="col-num">{item.done}</span>}
                     </div>
@@ -165,3 +164,5 @@ export const DistributionCharts: React.FC<DistributionChartsProps> = ({
     </div>
   );
 };
+
+export default DistributionCharts;

@@ -1,0 +1,122 @@
+/**
+ * GAP-AI Design System: ErrorState UI
+ *
+ * User-friendly, accessible error screen for network failures and API errors.
+ * Adheres strictly to design tokens in web/src/styles/tokens.css.
+ */
+
+.error-state-card {
+  background-color: var(--color-bg-surface, #ffffff);
+  border: 1px solid var(--color-danger-border, #fecaca);
+  border-radius: var(--radius-2xl, 16px);
+  padding: var(--space-8, 32px) var(--space-6, 24px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-4, 16px);
+  box-shadow: var(--shadow-sm);
+  width: 100%;
+  animation: errorFadeIn 0.3s ease-in-out;
+}
+
+@keyframes errorFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.error-state-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: var(--color-danger-bg, #fef2f2);
+  border: 1px solid var(--color-danger-border, #fecaca);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  color: var(--color-danger, #dc2626);
+  flex-shrink: 0;
+}
+
+.error-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-semibold, 600);
+  background-color: var(--color-danger-bg, #fef2f2);
+  color: var(--color-danger-text, #991b1b);
+  border: 1px solid var(--color-danger-border, #fecaca);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.error-state-title {
+  font-family: var(--font-family-base, 'Nunito', sans-serif);
+  font-size: var(--font-size-xl, 1.5rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #0f172a);
+  margin: 0;
+}
+
+.error-state-message {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #475569);
+  max-width: 520px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.error-state-hint {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-danger-text, #991b1b);
+  background-color: var(--color-danger-bg, #fef2f2);
+  border: 1px dashed var(--color-danger-border, #fecaca);
+  padding: 10px 16px;
+  border-radius: var(--radius-lg, 8px);
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+.error-state-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  margin-top: var(--space-2, 8px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.error-state-retry-btn {
+  min-width: 140px;
+  min-height: 44px;
+}
+
+@media (max-width: 480px) {
+  .error-state-card {
+    padding: var(--space-6, 24px) var(--space-4, 16px);
+    gap: var(--space-3, 12px);
+  }
+
+  .error-state-title {
+    font-size: var(--font-size-lg, 1.25rem);
+  }
+
+  .error-state-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .error-state-retry-btn {
+    width: 100%;
+  }
+}
