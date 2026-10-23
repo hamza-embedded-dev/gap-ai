@@ -24,7 +24,7 @@ Kod| HTTP| Açıklama
 "not_found"| 404| Kaynak bu kullanıcı için bulunamadı
 "payload_too_large"| 413| Ses veya istek gövdesi boyut sınırını aşıyor
 "validation_error"| 422| İstek, sözleşmeye veya "ai/schema.json" dosyasına uymuyor
-"rate_limited"| 429| İstek sınırı aşıldı
+"rate_limited"| 429| Sözleşmede tanımlı hata; mevcut uygulamada istek oranı sınırlayıcı middleware yoktur.
 "parse_failed"| 502| Model çıktısı yeniden denemeden sonra da doğrulanamadı
 "llm_unavailable"| 503| Model sağlayıcısına ulaşılamıyor
 
@@ -89,9 +89,29 @@ Bir plan için birden fazla sonuç olayı kaydedilebilir.
   }
 }
 
-"reason": "weather" | "pattern". Öneriler veritabanına kaydedilir ve ilgili planla ilişkilendirilir. Mesajı model oluşturur; sayılar ve uygun zaman aralıkları backend tarafından hesaplanır. Hava durumu öneri üretiminde kullanılır.
+"reason": "weather" | "pattern". Öneriler veritabanına kaydedilir ve ilgili planla ilişkilendirilir. Backend önce Nebius modelinden mesaj almaya çalışır; model çağrısı başarısız veya boş yanıt verirse deterministik bir metin kullanır. Sayılar ve öneri zamanı backend tarafından hesaplanır. Mevcut MVP hava durumu kontrolü Open-Meteo ve sabit Üsküdar koordinatlarını kullanır.
 
-Endpoint'ler
+Uygulama durumu
+
+Bu belge API arayüz sözleşmesidir; tek başına her endpoint'in uygulanmış olduğunu göstermez. Aşağıdaki durumlar FastAPI router'larının mevcut kodda kayıtlı olup olmadığına göredir. **Uygulandı**, endpoint kodunun bulunduğunu belirtir; canlı servis veya uçtan uca entegrasyonun doğrulandığı anlamına gelmez. İstek ve yanıt tanımları, uygulama tamamlanana kadar hedef sözleşme olarak kalır.
+
+| Endpoint | Backend durumu |
+| --- | --- |
+| `GET /health` | Uygulandı |
+| `POST /demo/session` | Uygulandı |
+| `GET /me`, `PATCH /me` | Uygulandı |
+| `POST /parse` | Uygulandı |
+| `POST /voice` | Uygulandı; ESP32 firmware'ine yükleme entegrasyonu yapılmamış |
+| `POST /plans`, `GET /plans` | Uygulandı |
+| `GET /plans/{id}/suggestion` | Uygulandı |
+| `POST /plans/{id}/outcome` | Uygulandı |
+| `GET /insights` | Uygulandı |
+| `GET /me/upcoming` | Uygulandı |
+| `POST /plans/{id}/reschedule` | **Uygulanmadı** |
+| `GET /me/export` | **Uygulanmadı** |
+| `DELETE /me/data` | **Uygulanmadı** |
+
+## Endpoint'ler
 
 "GET /health"
 
@@ -159,9 +179,9 @@ Geçerli bir "Authorization: Bearer <token>" gerektirir. Doğal dildeki metni do
 
 Yanıt, "ai/schema.json" dosyasındaki "ParsedPlan" biçimindedir. "intent" değeri "clarify" ise istemci "clarification_question" alanını gösterir ve plan oluşturmaz.
 
-"POST /voice"
+"POST /voice" — Backend'de uygulanmıştır; ESP32'ye bağlanmamıştır.
 
-Kimlik doğrulaması gerekir. ESP32 ses akışını işler.
+Kimlik doğrulaması gerekir. Backend bu endpoint'te yüklenen sesi işler. Mevcut ESP32 firmware'i `/health` kontrolü yapar; kaydı `/voice` endpoint'ine yüklemez.
 
 İstek "multipart/form-data" biçimindedir: "audio", isteğe bağlı "language", "current_date" ve "timezone".
 
@@ -210,7 +230,7 @@ Yanıt:
   ]
 }
 
-"GET /plans/{id}/suggestion"
+"GET /plans/{id}/suggestion" — Backend'de uygulanmıştır.
 
 Kayıtlı öneriyi döndürür. Henüz kayıtlı öneri yoksa ilk istekte, yeterli veri ve uygun koşullar bulunduğunda hava durumu ve geçmiş verilere göre bir öneri oluşturulur ve veritabanına kaydedilir. Öneri üretilemiyorsa "suggestion" değeri "null" döndürülür. Sonraki isteklerde kayıtlı öneri döndürülür; MVP kapsamında otomatik güncelleme yapılmaz.
 
@@ -238,7 +258,7 @@ Henüz öneri yoksa "suggestion" değeri "null" olur. Öneri oluşturulup kayded
 
 "reason": "weather" | "pattern".
 
-Öneriler veritabanına kaydedilir ve ilgili planla ilişkilendirilir. Mesajı model oluşturur; sayılar ve uygun zaman aralıkları backend tarafından hesaplanır. Hava durumu entegrasyonu MVP kapsamındadır.
+Öneriler veritabanına kaydedilir ve ilgili planla ilişkilendirilir. Backend önce Nebius modelinden mesaj almaya çalışır; model çağrısı başarısız veya boş yanıt verirse deterministik bir metin kullanır. Sayılar ve öneri zamanı backend tarafından hesaplanır. Mevcut MVP hava durumu kontrolü Open-Meteo ve sabit Üsküdar koordinatlarını kullanır.
 
 "POST /plans/{id}/outcome"
 
@@ -256,7 +276,7 @@ Bir plan için sonuç olayı kaydeder.
 
 Yanıt oluşturulan sonuç olayıdır ("201 Created"). Cihazlar "postponed_to" olmadan "postponed" gönderebilir; analiz bunu hedef zamanı bilinmeyen erteleme olarak sayar. Bir planın tüm sonuç olayları saklanır ve tüm erteleme olayları örüntü analizine dahil edilir.
 
-"POST /plans/{id}/reschedule"
+"POST /plans/{id}/reschedule" — **Henüz uygulanmadı.** Aşağıdaki tanım hedef sözleşmedir.
 
 Kullanıcının onayından sonra yeni plan zamanını uygular. Orijinal zaman, denetim kaydı ve sonuç olayları üzerinden korunur.
 
@@ -339,11 +359,11 @@ Yanıt:
   ]
 }
 
-"GET /me/export"
+"GET /me/export" — **Henüz uygulanmadı.** Aşağıdaki tanım hedef sözleşmedir.
 
 Yalnızca giriş yapan kullanıcının profilini, planlarını, sonuçlarını, kayıtlı önerilerini ve önbelleğe alınmış analizlerini dışa aktarır. Ham tokenlar dışa aktarıma dahil edilmez.
 
-"DELETE /me/data"
+"DELETE /me/data" — **Henüz uygulanmadı.** Aşağıdaki onay başlığı ve yanıt hedef sözleşmedir.
 
 "X-Confirm-Delete: true" başlığını gerektirir.
 
