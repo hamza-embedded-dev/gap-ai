@@ -1,4 +1,5 @@
 import React from 'react';
+import { CalendarClock } from 'lucide-react';
 import type { PostponedTarget } from '../../api/insights';
 
 export interface PostponedTargetsListProps {
@@ -26,9 +27,7 @@ export const PostponedTargetsList: React.FC<PostponedTargetsListProps> = ({
 
       {targets.length === 0 ? (
         <div className="no-postponed-data" id="empty-postponed-targets">
-          <span className="no-data-icon" aria-hidden="true">
-            🎯
-          </span>
+          <CalendarClock className="no-data-icon" aria-hidden="true" />
           <span>No postponed target slots recorded in this period.</span>
         </div>
       ) : (

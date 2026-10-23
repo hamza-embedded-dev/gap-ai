@@ -1,4 +1,5 @@
 import React from 'react';
+import { Lightbulb } from 'lucide-react';
 import type { InsightsResponse } from '../../api/insights';
 
 export interface AdherenceMetricCardProps {
@@ -141,9 +142,7 @@ export const AdherenceMetricCard: React.FC<AdherenceMetricCardProps> = ({ insigh
 
       {insights.narrative && (
         <div className="metric-narrative" id="metric-narrative-box">
-          <span className="narrative-icon" aria-hidden="true">
-            💡
-          </span>
+          <Lightbulb className="narrative-icon" size={18} aria-hidden="true" />
           <p className="narrative-text">{insights.narrative}</p>
         </div>
       )}

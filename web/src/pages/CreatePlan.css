@@ -134,6 +134,9 @@
 }
 
 .sample-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background-color: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--color-border, #2d3142);
   color: var(--color-text-secondary, #9aa0b0);
@@ -352,7 +355,10 @@
 }
 
 .success-icon {
-  font-size: 1.8rem;
+  width: 28px;
+  height: 28px;
+  color: #10b981;
+  flex-shrink: 0;
 }
 
 .success-title {
@@ -402,4 +408,40 @@
 .btn-success:hover:not(:disabled) {
   background-color: #059669;
   box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+}
+
+@media (max-width: 480px) {
+  .mode-toggle-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .mode-toggle-left {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .mode-toggle-btn {
+    width: 100%;
+    min-height: 40px;
+  }
+
+  .textarea-footer {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .idempotency-box {
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .idempotency-key-code {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
 }

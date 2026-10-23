@@ -1,4 +1,14 @@
 import { useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  Ban,
+  BookOpen,
+  Check,
+  CircleHelp,
+  MessageCircleQuestion,
+  Pencil,
+} from 'lucide-react';
 import { createPlan, parseNaturalLanguagePlan } from '../api/plans';
 import type { ParsedPlan, Plan, PlanCategory } from '../types/plan';
 import { generateIdempotencyKey } from '../utils/idempotency';
@@ -30,10 +40,10 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
 
   // Quick sample templates
   const SAMPLE_PROMPTS = [
-    { label: '🏃 Yarın 18:00 Koşu', text: "Yarın saat 18:00'de Belgrad Ormanı'nda 1 saat tempolu koşu yapacağım." },
-    { label: '📚 Bu Cuma Kodlama', text: 'Bu cuma 14:30 ile 16:30 arasında GAP-AI projesine kod yazacağım.' },
-    { label: '❓ Açıklama Gerektiren (Clarify)', text: 'Yarın koşuya çıkacağım.' },
-    { label: '🚫 Desteklenmeyen (Chit-Chat)', text: 'Merhaba nasılsın, bugün bana bir fıkra anlatabilir misin?' },
+    { label: 'Run tomorrow at 6 PM', text: 'I will go for a one-hour run in the park tomorrow at 18:00.', icon: Activity },
+    { label: 'Code this Friday', text: 'I will work on the GAP-AI project this Friday from 2:30 PM to 4:30 PM.', icon: BookOpen },
+    { label: 'Needs clarification', text: 'I will go for a run tomorrow.', icon: CircleHelp },
+    { label: 'Unsupported request', text: 'Hello, can you tell me a joke today?', icon: Ban },
   ];
 
   const handleSelectSample = (text: string) => {
@@ -47,12 +57,12 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
   const handleParse = async (textToParse?: string) => {
     const text = (textToParse ?? inputText).trim();
     if (!text) {
-      setErrorMessage('Lütfen planınızı açıklayan bir metin girin.');
+      setErrorMessage('Enter a description of the plan you want to create.');
       return;
     }
 
     if (!token && !mockMode) {
-      setErrorMessage('API çağrısı yapabilmek için lütfen önce "Try Demo" ile oturum açın.');
+      setErrorMessage('Sign in through Demo & Auth before making API requests.');
       if (onRequireToken) onRequireToken();
       return;
     }
@@ -63,7 +73,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
 
     try {
       const result = await parseNaturalLanguagePlan(text, {
-        language: 'tr',
+        language: 'en',
         mockMode,
       });
 
@@ -77,7 +87,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
         setIdempotencyKey(null);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Metin çözümlenirken bir hata oluştu.';
+      const msg = err instanceof Error ? err.message : 'An error occurred while parsing the text.';
       setErrorMessage(msg);
       setParsedPlan(null);
     } finally {
@@ -91,7 +101,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
   const handleClarifySubmit = async () => {
     const reply = clarifyReply.trim();
     if (!reply) {
-      setErrorMessage('Lütfen açıklama sorusuna bir yanıt girin.');
+      setErrorMessage('Enter an answer to the clarification question.');
       return;
     }
 
@@ -107,17 +117,17 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
    */
   const handleSavePlan = async () => {
     if (!parsedPlan || parsedPlan.intent !== 'create_plan') {
-      setErrorMessage('Kaydedilecek geçerli bir plan bulunamadı.');
+      setErrorMessage('No valid plan is available to save.');
       return;
     }
 
     if (!idempotencyKey) {
-      setErrorMessage('İstek için geçerli bir Idempotency-Key bulunamadı.');
+      setErrorMessage('A valid idempotency key is missing for this request.');
       return;
     }
 
     if (!token && !mockMode) {
-      setErrorMessage('Planı kaydedebilmek için lütfen oturum açın.');
+      setErrorMessage('Sign in before saving this plan.');
       if (onRequireToken) onRequireToken();
       return;
     }
@@ -131,7 +141,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
       setSavedPlan(planResult);
       setParsedPlan(null);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Plan kaydedilirken bir hata oluştu.';
+      const msg = err instanceof Error ? err.message : 'An error occurred while saving the plan.';
       setErrorMessage(msg);
       // Hata durumunda idempotencyKey korunur; kullanıcı tekrar "Dene" derse aynı anahtarla yineler.
     } finally {
@@ -164,12 +174,12 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
 
   return (
     <div className="create-plan-wrapper">
-      {/* Test / Canlı Modu Göstergesi */}
+      {/* API mode controls */}
       <div className="mode-toggle-bar">
         <div className="mode-toggle-left">
-          <span>Mod:</span>
+          <span>Mode:</span>
           <span className={`mode-badge ${mockMode ? 'mode-mock' : 'mode-live'}`} id="api-mode-badge">
-            {mockMode ? '● Test / Mock Modu (B2-2 Bağımsız)' : '● Canlı Backend API'}
+            {mockMode ? 'Test / Mock Mode' : 'Live Backend API'}
           </span>
         </div>
         <button
@@ -182,69 +192,73 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
             setErrorMessage(null);
           }}
         >
-          {mockMode ? 'Canlı API Moduna Geç' : 'Mock Moduna Geç'}
+          {mockMode ? 'Switch to Live API' : 'Switch to Mock Mode'}
         </button>
       </div>
 
-      {/* Hata Bildirimi */}
+      {/* Error message */}
       {errorMessage && (
         <div className="alert alert-error" role="alert" id="plan-error-alert">
-          <span className="alert-icon">⚠️</span>
+          <AlertTriangle className="alert-icon" aria-hidden="true" />
           <span>{errorMessage}</span>
         </div>
       )}
 
-      {/* Desteklenmeyen (Unsupported) Uyarı Bildirimi */}
+      {/* Unsupported request notice */}
       {parsedPlan && parsedPlan.intent === 'unsupported' && (
         <div className="alert alert-error" role="alert" id="unsupported-alert">
-          <span className="alert-icon">🚫</span>
+          <Ban className="alert-icon" aria-hidden="true" />
           <span>
-            <strong>Plan Algılanamadı (Unsupported):</strong> Girdiğiniz metin bir hedef, aktivite veya eylem planı olarak yorumlanamadı. Sistem desteklenmeyen bu girdiyi plana dönüştürmez ve kaydetmeye izin vermez.
+            <strong>Plan not recognized:</strong> Your text could not be interpreted as a goal, activity, or action plan. Unsupported requests cannot be converted into or saved as plans.
           </span>
         </div>
       )}
 
-      {/* Adım 1: Metin Giriş Kartı */}
+      {/* Step 1: Plan description */}
       {!savedPlan && (
         <section className="card plan-input-card">
           <div className="card-header">
-            <h2>Doğal Dilde Planınızı Yazın</h2>
+            <h2>Describe your plan</h2>
             <span className="badge">POST /parse</span>
           </div>
 
           <p className="card-desc">
-            Hedefinizi, gününü ve saatini doğal bir dille yazın. GAP-AI yapay zekâsı ifadenizi
-            ayrıştıracak ve onayınıza sunacaktır.
+            Describe your goal, date, and time in natural language. GAP-AI will parse your request
+            and present the plan for your review.
           </p>
 
           <div className="samples-row">
-            <span className="samples-label">Örnekler:</span>
-            {SAMPLE_PROMPTS.map((sample, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className="sample-chip"
-                onClick={() => handleSelectSample(sample.text)}
-                disabled={isParsing || isSaving}
-              >
-                {sample.label}
-              </button>
-            ))}
+            <span className="samples-label">Examples:</span>
+            {SAMPLE_PROMPTS.map((sample, idx) => {
+              const SampleIcon = sample.icon;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  className="sample-chip"
+                  onClick={() => handleSelectSample(sample.text)}
+                  disabled={isParsing || isSaving}
+                >
+                  <SampleIcon size={15} aria-hidden="true" />
+                  <span>{sample.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="textarea-container">
             <textarea
               id="plan-input-textarea"
               className="plan-textarea"
-              placeholder="Örnek: Yarın saat 18:00'de Belgrad Ormanı'nda 1 saat tempolu koşu yapacağım."
+              placeholder="Example: I will go for a one-hour run in the park tomorrow at 18:00."
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               disabled={isParsing || isSaving}
               rows={3}
             />
             <div className="textarea-footer">
-              <span>{inputText.length} karakter</span>
-              <span>D-004 tek AI şeması (ai/schema.json)</span>
+              <span>{inputText.length} characters</span>
+              <span>AI plan schema (ai/schema.json)</span>
             </div>
           </div>
 
@@ -259,10 +273,10 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               {isParsing ? (
                 <>
                   <span className="spinner" aria-hidden="true"></span>
-                  <span>Ayrıştırılıyor...</span>
+                  <span>Parsing...</span>
                 </>
               ) : (
-                'Planı Ayrıştır'
+                'Parse Plan'
               )}
             </button>
 
@@ -274,24 +288,23 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
                 onClick={handleResetFlow}
                 disabled={isParsing || isSaving}
               >
-                Temizle
+                Clear
               </button>
             )}
           </div>
         </section>
       )}
 
-      {/* Adım 2A: Clarify Kartı (Soru ve Yanıt Girişi) */}
+      {/* Step 2A: Clarification question and answer */}
       {parsedPlan && parsedPlan.intent === 'clarify' && (
         <section className="card clarify-card" id="clarify-card">
           <div className="clarify-header">
-            <span className="clarify-icon">💬</span>
-            <h3 className="clarify-title">Ek Bilgi Gerekiyor (Clarify)</h3>
+            <MessageCircleQuestion className="clarify-icon" aria-hidden="true" />
+            <h3 className="clarify-title">More information needed</h3>
           </div>
 
           <p className="card-desc">
-            Model planınızı tespit etti ancak belirli zorunlu alanlar eksik veya belirsiz olduğu
-            için tahmin yürütmek yerine size bir açıklama sorusu yöneltti:
+            The plan was recognized, but some required details are missing or unclear. Please answer this clarification question:
           </p>
 
           <div className="clarify-question-box" id="clarification-question-text">
@@ -303,7 +316,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               type="text"
               id="clarify-reply-input"
               className="clarify-reply-input"
-              placeholder="Yanıtınızı yazın (Örnek: Saat 18:30'da)"
+              placeholder="Your answer (for example, 6:30 PM)"
               value={clarifyReply}
               onChange={(e) => setClarifyReply(e.target.value)}
               disabled={isParsing}
@@ -327,27 +340,25 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               {isParsing ? (
                 <>
                   <span className="spinner" aria-hidden="true"></span>
-                  <span>Gönderiliyor...</span>
+                  <span>Submitting...</span>
                 </>
               ) : (
-                'Cevapla ve Tekrar Ayrıştır'
+                'Submit and Parse Again'
               )}
             </button>
           </div>
         </section>
       )}
 
-      {/* Adım 2B: Unsupported Kartı (Desteklenmeyen İstek Uyarısı) */}
+      {/* Step 2B: Unsupported request notice */}
       {parsedPlan && parsedPlan.intent === 'unsupported' && (
         <section className="card unsupported-card" id="unsupported-card">
           <div className="unsupported-header">
-            <span className="alert-icon">🚫</span>
-            <h3 className="unsupported-title">Plan Algılanamadı (Unsupported)</h3>
+            <Ban className="alert-icon" aria-hidden="true" />
+            <h3 className="unsupported-title">Plan not recognized</h3>
           </div>
           <div className="unsupported-body">
-            Girdiğiniz metin bir hedef, aktivite veya eylem planı olarak yorumlanamadı. Sistem
-            desteklenmeyen bu girdiyi plana dönüştürmez ve veritabanına kaydetmez. Lütfen yapmak
-            istediğiniz eylemi belirterek tekrar deneyin.
+            Your text could not be interpreted as a goal, activity, or action plan. Unsupported requests are not saved. Describe the action you want to plan and try again.
           </div>
           <div className="action-row">
             <button
@@ -358,67 +369,66 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
                 setParsedPlan(null);
               }}
             >
-              Farklı Bir Metin Yaz
+              Try Different Text
             </button>
           </div>
         </section>
       )}
 
-      {/* Adım 2C: Onay Kartı (create_plan Sonucu & POST /plans) */}
+      {/* Step 2C: Confirm plan and save */}
       {parsedPlan && parsedPlan.intent === 'create_plan' && (
         <section className="card confirmation-card" id="plan-confirmation-card">
           <div className="card-header">
-            <h2>Plan Onay Ekranı</h2>
-            <span className="status-pill pill-active">Hazır</span>
+            <h2>Review Plan</h2>
+            <span className="status-pill pill-active">Ready</span>
           </div>
 
           <p className="card-desc">
-            Ayrıştırılan plan detaylarını inceleyin. Bilgileri onayladığınızda planınız backend'e
-            kaydedilecektir.
+            Review the parsed plan details. Your plan will be saved when you confirm.
           </p>
 
           {!isEditing ? (
             <div className="parsed-fields-grid" id="parsed-fields-view">
               <div className="parsed-field-item">
-                <span className="parsed-field-label">Başlık</span>
+                <span className="parsed-field-label">Title</span>
                 <span className="parsed-field-value" id="field-title">{parsedPlan.title}</span>
               </div>
 
               <div className="parsed-field-item">
-                <span className="parsed-field-label">Kategori</span>
+                <span className="parsed-field-label">Category</span>
                 <span className={`category-tag category-${parsedPlan.category || 'other'}`} id="field-category">
-                  {parsedPlan.category || 'Belirtilmedi'}
+                  {parsedPlan.category || 'Not specified'}
                 </span>
               </div>
 
               <div className="parsed-field-item">
-                <span className="parsed-field-label">Tarih</span>
+                <span className="parsed-field-label">Date</span>
                 <span className="parsed-field-value" id="field-date">{parsedPlan.date}</span>
               </div>
 
               <div className="parsed-field-item">
-                <span className="parsed-field-label">Saat</span>
+                <span className="parsed-field-label">Time</span>
                 <span className="parsed-field-value" id="field-time">{parsedPlan.time}</span>
               </div>
 
               <div className="parsed-field-item">
-                <span className="parsed-field-label">Süre</span>
+                <span className="parsed-field-label">Duration</span>
                 <span className="parsed-field-value" id="field-duration">
-                  {parsedPlan.duration_minutes ? `${parsedPlan.duration_minutes} dk` : '60 dk (Varsayılan)'}
+                  {parsedPlan.duration_minutes ? `${parsedPlan.duration_minutes} min` : '60 min (default)'}
                 </span>
               </div>
 
               <div className="parsed-field-item">
-                <span className="parsed-field-label">Hava Durumu Kontrolü</span>
+                <span className="parsed-field-label">Weather check</span>
                 <span className="parsed-field-value" id="field-weather">
-                  {parsedPlan.needs_weather_check ? 'Açık (Açık Alan)' : 'Kapalı (Kapalı Alan)'}
+                  {parsedPlan.needs_weather_check ? 'On (outdoor)' : 'Off (indoor)'}
                 </span>
               </div>
             </div>
           ) : (
             <div className="edit-form-grid" id="parsed-fields-edit-grid">
               <div className="parsed-field-item">
-                <label className="parsed-field-label" htmlFor="edit-title">Başlık</label>
+                <label className="parsed-field-label" htmlFor="edit-title">Title</label>
                 <input
                   id="edit-title"
                   type="text"
@@ -429,7 +439,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               </div>
 
               <div className="parsed-field-item">
-                <label className="parsed-field-label" htmlFor="edit-category">Kategori</label>
+                <label className="parsed-field-label" htmlFor="edit-category">Category</label>
                 <select
                   id="edit-category"
                   className="edit-input"
@@ -448,7 +458,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               </div>
 
               <div className="parsed-field-item">
-                <label className="parsed-field-label" htmlFor="edit-date">Tarih</label>
+                <label className="parsed-field-label" htmlFor="edit-date">Date</label>
                 <input
                   id="edit-date"
                   type="date"
@@ -459,7 +469,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               </div>
 
               <div className="parsed-field-item">
-                <label className="parsed-field-label" htmlFor="edit-time">Saat</label>
+                <label className="parsed-field-label" htmlFor="edit-time">Time</label>
                 <input
                   id="edit-time"
                   type="time"
@@ -470,7 +480,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               </div>
 
               <div className="parsed-field-item">
-                <label className="parsed-field-label" htmlFor="edit-duration">Süre (dakika)</label>
+                <label className="parsed-field-label" htmlFor="edit-duration">Duration (minutes)</label>
                 <input
                   id="edit-duration"
                   type="number"
@@ -489,7 +499,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
             </div>
           )}
 
-          {/* Idempotency Key Bilgi Çubuğu */}
+          {/* Idempotency key details */}
           <div className="idempotency-box">
             <span>Idempotency-Key (UUID v4):</span>
             <code className="idempotency-key-code" id="active-idempotency-key">
@@ -508,10 +518,10 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               {isSaving ? (
                 <>
                   <span className="spinner" aria-hidden="true"></span>
-                  <span>Kaydediliyor...</span>
+                  <span>Saving...</span>
                 </>
               ) : (
-                '✓ Planı Onayla ve Kaydet'
+                'Confirm and Save Plan'
               )}
             </button>
 
@@ -522,7 +532,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               onClick={() => setIsEditing(!isEditing)}
               disabled={isSaving}
             >
-              {isEditing ? 'Düzenlemeyi Bitir' : 'Alanları Düzenle'}
+              {isEditing ? 'Done Editing' : 'Edit Details'}
             </button>
 
             <button
@@ -532,23 +542,22 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               onClick={() => setParsedPlan(null)}
               disabled={isSaving}
             >
-              Vazgeç
+              Cancel
             </button>
           </div>
         </section>
       )}
 
-      {/* Adım 3: Kayıt Başarı Kartı */}
+      {/* Step 3: Saved plan confirmation */}
       {savedPlan && (
         <section className="card saved-success-card" id="plan-saved-card">
           <div className="success-header">
-            <span className="success-icon">🎉</span>
-            <h2 className="success-title">Plan Başarıyla Kaydedildi!</h2>
+            <Check className="success-icon" aria-hidden="true" />
+            <h2 className="success-title">Plan Saved Successfully</h2>
           </div>
 
           <p className="card-desc">
-            Planınız veritabanına başarıyla eklendi. Hatırlatıcılar ve hava durumu analizleri bu plan
-            üzerinden takip edilecektir.
+            Your plan has been saved. Reminders and weather insights will be based on this plan.
           </p>
 
           <div className="plan-details-table">
@@ -557,19 +566,19 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               <span className="val" id="saved-plan-id"><code>{savedPlan.id}</code></span>
             </div>
             <div className="plan-detail-row">
-              <span className="label">Başlık:</span>
+              <span className="label">Title:</span>
               <span className="val" id="saved-plan-title">{savedPlan.title}</span>
             </div>
             <div className="plan-detail-row">
-              <span className="label">Başlangıç Zamanı:</span>
-              <span className="val" id="saved-plan-start">{new Date(savedPlan.planned_start).toLocaleString('tr-TR')}</span>
+              <span className="label">Start time:</span>
+              <span className="val" id="saved-plan-start">{new Date(savedPlan.planned_start).toLocaleString('en-US')}</span>
             </div>
             <div className="plan-detail-row">
-              <span className="label">Bitiş Zamanı:</span>
-              <span className="val" id="saved-plan-end">{new Date(savedPlan.planned_end).toLocaleString('tr-TR')}</span>
+              <span className="label">End time:</span>
+              <span className="val" id="saved-plan-end">{new Date(savedPlan.planned_end).toLocaleString('en-US')}</span>
             </div>
             <div className="plan-detail-row">
-              <span className="label">Kayıt Kaynağı:</span>
+              <span className="label">Source:</span>
               <span className="val" id="saved-plan-source">{savedPlan.source}</span>
             </div>
           </div>
@@ -581,7 +590,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               className="btn btn-primary"
               onClick={handleResetFlow}
             >
-              + Yeni Bir Plan Oluştur
+              <Pencil size={16} aria-hidden="true" /> Create Another Plan
             </button>
           </div>
         </section>

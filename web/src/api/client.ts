@@ -1,4 +1,10 @@
-import { getStoredToken } from '../utils/auth.ts';
+import {
+  AUTH_SESSION_INVALID_EVENT,
+  clearStoredToken,
+  getStoredToken,
+} from '../utils/auth.ts';
+
+export { AUTH_SESSION_INVALID_EVENT };
 
 /**
  * Base API URL read from environment; defaults to Vite dev proxy '/api'.
@@ -73,6 +79,11 @@ export async function apiFetch<T>(
 
   // Parse HTTP error status codes:
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      clearStoredToken();
+      window.dispatchEvent(new Event(AUTH_SESSION_INVALID_EVENT));
+    }
+
     let errorMessage = `HTTP ${response.status}: ${response.statusText || 'Unknown error'}`;
     let errorType = 'http_error';
 

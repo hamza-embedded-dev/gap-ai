@@ -1,4 +1,5 @@
 import React from 'react';
+import { BarChart3, RotateCcw } from 'lucide-react';
 
 export interface EmptyInsightsProps {
   periodLabel?: string;
@@ -17,7 +18,7 @@ export const EmptyInsights: React.FC<EmptyInsightsProps> = ({
       aria-labelledby="empty-insights-title"
     >
       <div className="empty-insights-icon" aria-hidden="true">
-        📊
+        <BarChart3 size={28} aria-hidden="true" />
       </div>
       <h3 className="empty-insights-title" id="empty-insights-title">
         Not enough data
@@ -36,7 +37,7 @@ export const EmptyInsights: React.FC<EmptyInsightsProps> = ({
           className="btn btn-secondary empty-refresh-btn"
           onClick={onRefresh}
         >
-          <span aria-hidden="true">↻</span>
+          <RotateCcw size={16} aria-hidden="true" />
           <span>Check Again</span>
         </button>
       )}

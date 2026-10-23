@@ -299,3 +299,36 @@
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   padding-top: 16px;
 }
+
+@media (max-width: 480px) {
+  .plan-list-header {
+    align-items: flex-start;
+  }
+
+  .plan-list-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .plan-card {
+    padding: 18px 14px;
+  }
+
+  .plan-card-title-row,
+  .plan-badges,
+  .plan-details-grid {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .plan-details-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .detail-value,
+  .plan-title {
+    overflow-wrap: anywhere;
+  }
+}
