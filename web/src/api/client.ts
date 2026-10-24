@@ -88,14 +88,35 @@ export async function apiFetch<T>(
     let errorType = 'http_error';
 
     try {
-      const errorJson = (await response.json()) as ApiErrorPayload;
-      if (errorJson.message) {
-        errorMessage = errorJson.message;
-      } else if (errorJson.detail) {
-        errorMessage = errorJson.detail;
+      const errorJson = (await response.json()) as Record<string, unknown>;
+      if (typeof errorJson.message === 'string' && errorJson.message.trim()) {
+        errorMessage = errorJson.message.trim();
+      } else if (errorJson.detail !== undefined && errorJson.detail !== null) {
+        if (typeof errorJson.detail === 'string') {
+          errorMessage = errorJson.detail.trim();
+        } else if (Array.isArray(errorJson.detail)) {
+          // Format FastAPI / Pydantic validation error objects: [{ loc, msg, type }]
+          const formatted = errorJson.detail
+            .map((item: unknown) => {
+              if (typeof item === 'string') return item;
+              if (item && typeof item === 'object') {
+                const rec = item as Record<string, unknown>;
+                const loc = Array.isArray(rec.loc)
+                  ? rec.loc.filter((l) => l !== 'body').join('.')
+                  : '';
+                const msg = rec.msg ? String(rec.msg) : JSON.stringify(rec);
+                return loc ? `${loc}: ${msg}` : msg;
+              }
+              return String(item);
+            })
+            .join('; ');
+          if (formatted) errorMessage = formatted;
+        } else if (typeof errorJson.detail === 'object') {
+          errorMessage = JSON.stringify(errorJson.detail);
+        }
       }
-      if (errorJson.error) {
-        errorType = errorJson.error;
+      if (typeof errorJson.error === 'string' && errorJson.error.trim()) {
+        errorType = errorJson.error.trim();
       }
     } catch {
       // If response body is not JSON, default to status text.

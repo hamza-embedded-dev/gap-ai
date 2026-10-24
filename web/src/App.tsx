@@ -175,6 +175,7 @@ function App() {
             <CreatePlan
               token={token}
               onRequireToken={() => setActiveTab('demo')}
+              onNavigatePlans={() => setActiveTab('plans')}
             />
           )}
 

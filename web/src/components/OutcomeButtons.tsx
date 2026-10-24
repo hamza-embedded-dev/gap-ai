@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, Clock3, SkipForward, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { reportPlanOutcome } from '../api/plans';
+import { formatOutcomeTime, reportPlanOutcome } from '../api/plans';
 import type { OutcomeStatus, PlanOutcome } from '../types/plan';
 import './OutcomeButtons.css';
 
@@ -69,12 +69,7 @@ export function OutcomeButtons({
     }
 
     const { status, reported_at } = latestOutcome;
-    const formattedDate = reported_at
-      ? new Date(reported_at).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      : '';
+    const formattedDate = formatOutcomeTime(reported_at);
 
     switch (status) {
       case 'done':
@@ -134,7 +129,7 @@ export function OutcomeButtons({
               {isSubmittingThis ? (
                 <>
                   <span className="outcome-spinner" aria-hidden="true" />
-                  <span>Kaydediliyor...</span>
+                  <span>Saving...</span>
                 </>
               ) : (
                 <>

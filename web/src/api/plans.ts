@@ -22,6 +22,20 @@ export function getLocalCurrentDate(baseDate: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Safely formats an ISO timestamp to local time for outcome badges.
+ * Never throws or produces "Invalid Date".
+ */
+export function formatOutcomeTime(reportedAt: string | null | undefined): string {
+  if (!reportedAt) return '';
+  const d = new Date(reportedAt);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export interface ParsePlanOptions {
   language?: 'tr' | 'en';
   mockMode?: boolean;
@@ -352,6 +366,43 @@ export async function parseNaturalLanguagePlan(
 }
 
 /**
+ * Validates a confirmed plan before submitting to POST /plans.
+ * Returns null if valid, or a descriptive error string if invalid.
+ */
+export function validatePlanForCreation(parsedPlan: ParsedPlan): string | null {
+  if (parsedPlan.intent !== 'create_plan') {
+    return 'Only create_plan intents can be saved.';
+  }
+
+  const trimmedTitle = parsedPlan.title?.trim() || '';
+  if (!trimmedTitle) {
+    return 'Plan title cannot be empty.';
+  }
+
+  const trimmedDate = parsedPlan.date?.trim() || '';
+  if (!trimmedDate || !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+    return 'A valid plan date (YYYY-MM-DD) is required.';
+  }
+
+  const trimmedTime = parsedPlan.time?.trim() || '';
+  if (!trimmedTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(trimmedTime)) {
+    return 'A valid plan time (HH:MM in 24-hour format) is required.';
+  }
+
+  if (
+    parsedPlan.duration_minutes !== null &&
+    parsedPlan.duration_minutes !== undefined &&
+    (parsedPlan.duration_minutes < 5 ||
+      parsedPlan.duration_minutes > 1440 ||
+      Number.isNaN(parsedPlan.duration_minutes))
+  ) {
+    return 'Duration must be between 5 and 1440 minutes, or left empty for default 60 minutes.';
+  }
+
+  return null;
+}
+
+/**
  * Saves a confirmed plan via POST /plans with an Idempotency-Key header.
  *
  * @throws {ApiError} when validation fails or backend rejects the request.
@@ -361,12 +412,9 @@ export async function createPlan(
   idempotencyKey: string,
   options?: SavePlanOptions
 ): Promise<Plan> {
-  if (parsedPlan.intent !== 'create_plan') {
-    throw new ApiError(
-      'Only create_plan intents can be saved.',
-      422,
-      'validation_error'
-    );
+  const validationError = validatePlanForCreation(parsedPlan);
+  if (validationError) {
+    throw new ApiError(validationError, 422, 'validation_error');
   }
 
   if (!isValidUUID(idempotencyKey)) {
@@ -549,7 +597,7 @@ export async function reportPlanOutcome(
     status,
     reported_via: 'web',
     ...(options?.actual_start !== undefined ? { actual_start: options.actual_start } : { actual_start: null }),
-    ...(options?.postponed_to !== undefined ? { postponed_to: options.postponed_to } : { postponed_to: null }),
+    postponed_to: status === 'postponed' && options?.postponed_to !== undefined ? options.postponed_to : null,
     ...(options?.note !== undefined ? { note: options.note } : { note: null }),
   };
 

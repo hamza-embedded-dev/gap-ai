@@ -6,10 +6,11 @@ import {
   BookOpen,
   Check,
   CircleHelp,
+  ClipboardList,
   MessageCircleQuestion,
   Pencil,
 } from 'lucide-react';
-import { createPlan, parseNaturalLanguagePlan } from '../api/plans';
+import { createPlan, parseNaturalLanguagePlan, validatePlanForCreation } from '../api/plans';
 import type { ParsedPlan, Plan, PlanCategory } from '../types/plan';
 import { generateIdempotencyKey } from '../utils/idempotency';
 import './CreatePlan.css';
@@ -17,9 +18,10 @@ import './CreatePlan.css';
 interface CreatePlanProps {
   token: string | null;
   onRequireToken?: () => void;
+  onNavigatePlans?: () => void;
 }
 
-export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
+export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePlanProps) {
   // Input and flow states
   const [inputText, setInputText] = useState<string>('');
   const [clarifyReply, setClarifyReply] = useState<string>('');
@@ -52,9 +54,11 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
   };
 
   /**
-   * Gönderim: Metni /parse uç noktasına ilet.
+   * Submit: Send input text to the /parse endpoint.
    */
   const handleParse = async (textToParse?: string) => {
+    if (isParsing || isSaving) return;
+
     const text = (textToParse ?? inputText).trim();
     if (!text) {
       setErrorMessage('Enter a description of the plan you want to create.');
@@ -81,7 +85,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
       setIsEditing(false);
 
       if (result.intent === 'create_plan') {
-        // Yeni bir onay oturumu için tekil UUID Idempotency-Key üret:
+        // Generate a fresh UUID idempotency key for this confirmation session:
         setIdempotencyKey(generateIdempotencyKey());
       } else {
         setIdempotencyKey(null);
@@ -96,16 +100,18 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
   };
 
   /**
-   * Clarify akışı: Kullanıcının cevabını orijinal metinle birleştirerek tekrar /parse çağır.
+   * Clarify flow: Combine the user's answer with the original input and re-parse.
    */
   const handleClarifySubmit = async () => {
+    if (isParsing || isSaving) return;
+
     const reply = clarifyReply.trim();
     if (!reply) {
       setErrorMessage('Enter an answer to the clarification question.');
       return;
     }
 
-    // Sözleşme kuralı: Orijinal girdi ile açıklama cevabını birleştir
+    // Contract rule: Combine original input with clarification answer
     const combinedText = `${inputText.trim()}. ${reply}`;
     setInputText(combinedText);
     setClarifyReply('');
@@ -113,9 +119,11 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
   };
 
   /**
-   * Planı onayla ve POST /plans ile kaydet.
+   * Confirm and save the plan via POST /plans.
    */
   const handleSavePlan = async () => {
+    if (isSaving || isParsing) return;
+
     if (!parsedPlan || parsedPlan.intent !== 'create_plan') {
       setErrorMessage('No valid plan is available to save.');
       return;
@@ -132,25 +140,32 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
       return;
     }
 
+    // Client-side validations for required schema fields
+    const validationError = validatePlanForCreation(parsedPlan);
+    if (validationError) {
+      setErrorMessage(validationError);
+      return;
+    }
+
     setIsSaving(true);
     setErrorMessage(null);
 
     try {
-      // Idempotency-Key aynı işlem denemesinde korunur:
+      // Idempotency key is preserved across retries of the exact same plan request:
       const planResult = await createPlan(parsedPlan, idempotencyKey, { mockMode });
       setSavedPlan(planResult);
       setParsedPlan(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'An error occurred while saving the plan.';
       setErrorMessage(msg);
-      // Hata durumunda idempotencyKey korunur; kullanıcı tekrar "Dene" derse aynı anahtarla yineler.
+      // In case of error, idempotencyKey is preserved so the user can retry idempotently
     } finally {
       setIsSaving(false);
     }
   };
 
   /**
-   * Düzenleme modunda alan güncellendiğinde idempotency anahtarını yenile.
+   * Regenerate idempotency key whenever plan content fields are edited.
    */
   const handleFieldChange = (field: keyof ParsedPlan, value: unknown) => {
     if (!parsedPlan) return;
@@ -158,7 +173,7 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
       ...parsedPlan,
       [field]: value,
     });
-    // Plan içeriği değiştiğinde mantıksal olarak yeni bir işlem oluşur:
+    // Editing plan details represents a distinct request payload:
     setIdempotencyKey(generateIdempotencyKey());
   };
 
@@ -539,7 +554,12 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
               id="cancel-plan-btn"
               type="button"
               className="btn btn-secondary"
-              onClick={() => setParsedPlan(null)}
+              onClick={() => {
+                setParsedPlan(null);
+                setIsEditing(false);
+                setIdempotencyKey(null);
+                setErrorMessage(null);
+              }}
               disabled={isSaving}
             >
               Cancel
@@ -592,6 +612,20 @@ export function CreatePlan({ token, onRequireToken }: CreatePlanProps) {
             >
               <Pencil size={16} aria-hidden="true" /> Create Another Plan
             </button>
+
+            {onNavigatePlans && (
+              <button
+                id="view-in-my-plans-btn"
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  handleResetFlow();
+                  onNavigatePlans();
+                }}
+              >
+                <ClipboardList size={16} aria-hidden="true" /> View in My Plans
+              </button>
+            )}
           </div>
         </section>
       )}
