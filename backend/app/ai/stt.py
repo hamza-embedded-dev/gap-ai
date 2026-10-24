@@ -4,6 +4,7 @@ import io
 import json
 import logging
 from pathlib import Path
+import struct
 from typing import Any, BinaryIO
 import wave
 
@@ -49,6 +50,13 @@ class STTUnavailableError(STTError):
     """
 
 
+class STTTimeoutError(STTUnavailableError):
+    """Raised specifically when a request to Groq STT times out.
+
+    Inherits from STTUnavailableError for backward compatibility.
+    """
+
+
 class STTResponseError(STTError):
     """Raised when Groq returns a non-2xx client error (e.g. HTTP 400, 401, 429)."""
 
@@ -63,6 +71,167 @@ class STTParseError(STTError):
 
     Corresponds to contract HTTP 502 parse_failed at the API layer.
     """
+
+
+# -----------------------------------------------------------------------------
+# Audio Header Repair & PCM Conversion Helpers
+# -----------------------------------------------------------------------------
+
+
+def safe_repair_wav_header(
+    audio_bytes: bytes,
+    max_seconds: float = MAX_AUDIO_SECONDS_DEFAULT,
+) -> bytes:
+    """Validates and safely repairs RIFF/WAVE audio data without assuming a fixed 44-byte header.
+
+    Iterates through RIFF chunk structure, locates 'fmt ' and 'data' chunks, validates
+    contract constraints (mono, 16 kHz, 16-bit PCM), and safely repairs zero (0)
+    or streaming max (0xFFFFFFFF) data_size values if the physical payload permits.
+
+    Rejects truncated files, corrupt chunks, missing chunks, and parameter violations
+    by raising STTValidationError.
+    """
+    if not audio_bytes:
+        raise STTValidationError("Audio data is empty.")
+
+    total_len = len(audio_bytes)
+    if total_len < 12:
+        raise STTValidationError("Invalid or corrupted WAV file: file too short.")
+
+    if audio_bytes[:4] != b"RIFF":
+        raise STTValidationError("Invalid or corrupted WAV file: missing RIFF header.")
+    if audio_bytes[8:12] != b"WAVE":
+        raise STTValidationError("Invalid or corrupted WAV file: missing WAVE tag.")
+
+    pos = 12
+    fmt_found = False
+    data_found = False
+    data_offset = -1
+    declared_data_size = -1
+
+    while pos + 8 <= total_len:
+        chunk_id = audio_bytes[pos : pos + 4]
+        chunk_size = struct.unpack("<I", audio_bytes[pos + 4 : pos + 8])[0]
+        chunk_data_start = pos + 8
+
+        if chunk_id == b"fmt ":
+            fmt_found = True
+            if chunk_size < 16 or chunk_data_start + 16 > total_len:
+                raise STTValidationError("Invalid or corrupted WAV file: corrupt 'fmt ' chunk.")
+            audio_format = struct.unpack("<H", audio_bytes[chunk_data_start : chunk_data_start + 2])[0]
+            if audio_format != 1:
+                raise STTValidationError(f"Audio format must be PCM (1), got {audio_format}.")
+            channels = struct.unpack("<H", audio_bytes[chunk_data_start + 2 : chunk_data_start + 4])[0]
+            sample_rate = struct.unpack("<I", audio_bytes[chunk_data_start + 4 : chunk_data_start + 8])[0]
+            sample_width = struct.unpack("<H", audio_bytes[chunk_data_start + 14 : chunk_data_start + 16])[0] // 8
+
+            if channels != SUPPORTED_CHANNELS:
+                raise STTValidationError(f"Audio must be mono (1 channel), got {channels} channels.")
+            if sample_rate != SUPPORTED_SAMPLE_RATE:
+                raise STTValidationError(
+                    f"Audio sample rate must be {SUPPORTED_SAMPLE_RATE} Hz (16 kHz), got {sample_rate} Hz."
+                )
+            if sample_width != SUPPORTED_SAMPLE_WIDTH:
+                raise STTValidationError(
+                    f"Audio bit depth must be 16-bit PCM (2 bytes), got {sample_width * 8}-bit."
+                )
+
+        elif chunk_id == b"data":
+            data_found = True
+            data_offset = chunk_data_start
+            declared_data_size = chunk_size
+            break
+
+        chunk_step = 8 + chunk_size + (chunk_size % 2)
+        if chunk_data_start + chunk_size > total_len:
+            raise STTValidationError("Invalid or corrupted WAV file: chunk extends beyond file length.")
+        pos += chunk_step
+
+    if not fmt_found:
+        raise STTValidationError("Invalid or corrupted WAV file: missing 'fmt ' chunk.")
+    if not data_found or data_offset < 0:
+        raise STTValidationError("Invalid or corrupted WAV file: missing 'data' chunk.")
+
+    actual_data_len = total_len - data_offset
+
+    # Zero or 0xFFFFFFFF data size repair (streaming WAV from I2S)
+    if declared_data_size in (0, 0xFFFFFFFF):
+        if actual_data_len <= 0:
+            raise STTValidationError("Audio data is empty.")
+        if actual_data_len % SUPPORTED_SAMPLE_WIDTH != 0:
+            raise STTValidationError("Invalid or truncated WAV file: data chunk not aligned to sample width.")
+
+        duration = actual_data_len / (SUPPORTED_SAMPLE_RATE * SUPPORTED_SAMPLE_WIDTH * SUPPORTED_CHANNELS)
+        if duration > max_seconds:
+            raise STTValidationError(
+                f"Audio duration ({duration:.2f}s) exceeds maximum allowed {max_seconds} seconds."
+            )
+
+        repaired = bytearray(audio_bytes)
+        repaired[data_offset - 4 : data_offset] = struct.pack("<I", actual_data_len)
+        repaired[4:8] = struct.pack("<I", len(repaired) - 8)
+        return bytes(repaired)
+
+    # When data size is explicitly declared
+    if actual_data_len < declared_data_size:
+        raise STTValidationError("Invalid or truncated WAV file: data chunk incomplete.")
+
+    if declared_data_size <= 0:
+        raise STTValidationError("Audio data is empty.")
+    if declared_data_size % SUPPORTED_SAMPLE_WIDTH != 0:
+        raise STTValidationError("Invalid or truncated WAV file: data chunk not aligned to sample width.")
+
+    duration = declared_data_size / (SUPPORTED_SAMPLE_RATE * SUPPORTED_SAMPLE_WIDTH * SUPPORTED_CHANNELS)
+    if duration > max_seconds:
+        raise STTValidationError(
+            f"Audio duration ({duration:.2f}s) exceeds maximum allowed {max_seconds} seconds."
+        )
+
+    return audio_bytes
+
+
+def pcm_to_wav(
+    pcm_bytes: bytes,
+    max_seconds: float = MAX_AUDIO_SECONDS_DEFAULT,
+) -> bytes:
+    """Wraps raw mono, 16 kHz, 16-bit PCM bytes in a standard 44-byte RIFF/WAVE header.
+
+    Validates:
+    - Non-empty payload
+    - Even byte length (16-bit sample alignment)
+    - Duration <= max_seconds (at 32,000 B/s, max_seconds=10.0 -> max 320,000 bytes)
+    """
+    if not pcm_bytes:
+        raise STTValidationError("Audio data is empty.")
+    if len(pcm_bytes) % SUPPORTED_SAMPLE_WIDTH != 0:
+        raise STTValidationError("Invalid raw PCM data: odd number of bytes for 16-bit audio.")
+
+    max_pcm_bytes = int(max_seconds * SUPPORTED_SAMPLE_RATE * SUPPORTED_SAMPLE_WIDTH * SUPPORTED_CHANNELS)
+    if len(pcm_bytes) > max_pcm_bytes:
+        duration = len(pcm_bytes) / (SUPPORTED_SAMPLE_RATE * SUPPORTED_SAMPLE_WIDTH * SUPPORTED_CHANNELS)
+        raise STTValidationError(
+            f"Audio duration ({duration:.2f}s) exceeds maximum allowed {max_seconds} seconds."
+        )
+
+    byte_rate = SUPPORTED_SAMPLE_RATE * SUPPORTED_CHANNELS * SUPPORTED_SAMPLE_WIDTH
+    block_align = SUPPORTED_CHANNELS * SUPPORTED_SAMPLE_WIDTH
+
+    header = bytearray(44)
+    header[0:4] = b"RIFF"
+    header[4:8] = struct.pack("<I", 36 + len(pcm_bytes))
+    header[8:12] = b"WAVE"
+    header[12:16] = b"fmt "
+    header[16:20] = struct.pack("<I", 16)
+    header[20:22] = struct.pack("<H", 1)  # PCM
+    header[22:24] = struct.pack("<H", SUPPORTED_CHANNELS)
+    header[24:28] = struct.pack("<I", SUPPORTED_SAMPLE_RATE)
+    header[28:32] = struct.pack("<I", byte_rate)
+    header[32:34] = struct.pack("<H", block_align)
+    header[34:36] = struct.pack("<H", SUPPORTED_SAMPLE_WIDTH * 8)
+    header[36:40] = b"data"
+    header[40:44] = struct.pack("<I", len(pcm_bytes))
+
+    return bytes(header) + pcm_bytes
 
 
 # -----------------------------------------------------------------------------
@@ -173,16 +342,17 @@ class GroqWhisperClient:
     def validate_wav_audio(
         audio_bytes: bytes,
         max_seconds: float = MAX_AUDIO_SECONDS_DEFAULT,
-    ) -> None:
+    ) -> bytes:
         """Validates that audio_bytes represents a valid mono, 16 kHz, 16-bit WAV file within max_seconds.
 
+        Safely repairs zero or 0xFFFFFFFF streaming data chunk sizes if physical payload permits.
+        Returns the validated (and repaired if applicable) WAV bytes.
         Raises STTValidationError if the audio violates contract constraints.
         """
-        if not audio_bytes:
-            raise STTValidationError("Audio data is empty.")
+        repaired_bytes = safe_repair_wav_header(audio_bytes, max_seconds=max_seconds)
 
         try:
-            with wave.open(io.BytesIO(audio_bytes), "rb") as wav:
+            with wave.open(io.BytesIO(repaired_bytes), "rb") as wav:
                 channels = wav.getnchannels()
                 sample_width = wav.getsampwidth()
                 frame_rate = wav.getframerate()
@@ -211,6 +381,8 @@ class GroqWhisperClient:
                 raise STTValidationError(
                     f"Audio duration ({duration_seconds:.2f}s) exceeds maximum allowed {max_seconds} seconds."
                 )
+
+        return repaired_bytes
 
     def _resolve_audio_bytes(self, audio: bytes | BinaryIO | str | Path) -> bytes:
         """Coerces supported audio input types into raw bytes."""
@@ -262,7 +434,7 @@ class GroqWhisperClient:
             validate_audio if validate_audio is not None else self._validate_audio
         )
         if should_validate:
-            self.validate_wav_audio(audio_bytes, max_seconds=self._max_audio_seconds)
+            audio_bytes = self.validate_wav_audio(audio_bytes, max_seconds=self._max_audio_seconds)
 
         url = self._transcriptions_url()
         headers = self._build_headers()
@@ -283,6 +455,7 @@ class GroqWhisperClient:
         }
 
         call_timeout = timeout if timeout is not None else self._default_timeout
+        http_timeout = httpx.Timeout(call_timeout, connect=min(call_timeout, 5.0))
 
         try:
             response = self._client.post(
@@ -290,11 +463,11 @@ class GroqWhisperClient:
                 data=form_data,
                 files=files,
                 headers=headers,
-                timeout=call_timeout,
+                timeout=http_timeout,
             )
         except (httpx.TimeoutException, TimeoutError) as exc:
             logger.warning("Groq STT call timed out after %s seconds", call_timeout)
-            raise STTUnavailableError(
+            raise STTTimeoutError(
                 f"STT request timed out after {call_timeout}s"
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
