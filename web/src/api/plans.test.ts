@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
+import { apiFetch, ApiError } from './client.ts';
 import {
   createPlan,
   getLocalCurrentDate,
@@ -10,6 +11,8 @@ import {
   mockSavePlan,
   parseNaturalLanguagePlan,
   reportPlanOutcome,
+  validatePlanForCreation,
+  formatOutcomeTime,
 } from './plans.ts';
 import type { ParsedPlan, Plan, PlanOutcome } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
@@ -870,6 +873,262 @@ describe('GAP-AI W1-3: Plan Listing and Outcome Reporting Tests', () => {
         'Postponed due to meeting conflict'
       );
       assert.ok(isValidUUID(outcome.id));
+    });
+  });
+
+  describe('4. Pydantic Error Normalization and Outcome Contract Invariants', () => {
+    const originalFetch = globalThis.fetch;
+
+    it('4.1 normalizes Pydantic array-format detail errors into clean string without React crash', async () => {
+      globalThis.fetch = (async () => {
+        return new Response(
+          JSON.stringify({
+            detail: [
+              { loc: ['body', 'parsed_plan', 'title'], msg: 'Field required', type: 'missing' },
+              { loc: ['body', 'parsed_plan', 'date'], msg: 'Invalid date format', type: 'value_error' },
+            ],
+          }),
+          { status: 422, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await assert.rejects(
+          async () => {
+            await apiFetch('/plans', { method: 'POST', body: '{}' });
+          },
+          (err: unknown) => {
+            assert.ok(err instanceof ApiError);
+            assert.strictEqual(typeof err.message, 'string');
+            assert.ok(err.message.includes('parsed_plan.title: Field required'));
+            assert.ok(err.message.includes('parsed_plan.date: Invalid date format'));
+            return true;
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('4.2 forces postponed_to to null when reporting "done" status even if provided', async () => {
+      let capturedBody: Record<string, unknown> = {};
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse((init?.body as string) || '{}');
+        return new Response(
+          JSON.stringify({
+            id: 'outcome-uuid-1',
+            plan_id: 'plan-uuid-1',
+            status: 'done',
+            actual_start: null,
+            postponed_to: null,
+            note: null,
+            reported_via: 'web',
+            reported_at: '2026-10-24T12:00:00+03:00',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await reportPlanOutcome('plan-uuid-1', 'done', {
+          postponed_to: '2026-10-25T10:00:00+03:00',
+        });
+
+        assert.strictEqual(capturedBody.status, 'done');
+        assert.strictEqual(capturedBody.reported_via, 'web');
+        assert.strictEqual(capturedBody.postponed_to, null);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('4.3 forces postponed_to to null when reporting "skipped" status even if provided', async () => {
+      let capturedBody: Record<string, unknown> = {};
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse((init?.body as string) || '{}');
+        return new Response(
+          JSON.stringify({
+            id: 'outcome-uuid-2',
+            plan_id: 'plan-uuid-2',
+            status: 'skipped',
+            actual_start: null,
+            postponed_to: null,
+            note: null,
+            reported_via: 'web',
+            reported_at: '2026-10-24T12:00:00+03:00',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await reportPlanOutcome('plan-uuid-2', 'skipped', {
+          postponed_to: '2026-10-25T10:00:00+03:00',
+        });
+
+        assert.strictEqual(capturedBody.status, 'skipped');
+        assert.strictEqual(capturedBody.reported_via, 'web');
+        assert.strictEqual(capturedBody.postponed_to, null);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('4.4 preserves postponed_to when reporting "postponed" status', async () => {
+      let capturedBody: Record<string, unknown> = {};
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse((init?.body as string) || '{}');
+        return new Response(
+          JSON.stringify({
+            id: 'outcome-uuid-3',
+            plan_id: 'plan-uuid-3',
+            status: 'postponed',
+            actual_start: null,
+            postponed_to: '2026-10-25T10:00:00+03:00',
+            note: null,
+            reported_via: 'web',
+            reported_at: '2026-10-24T12:00:00+03:00',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await reportPlanOutcome('plan-uuid-3', 'postponed', {
+          postponed_to: '2026-10-25T10:00:00+03:00',
+        });
+
+        assert.strictEqual(capturedBody.status, 'postponed');
+        assert.strictEqual(capturedBody.reported_via, 'web');
+        assert.strictEqual(capturedBody.postponed_to, '2026-10-25T10:00:00+03:00');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('4.5 normalizes Pydantic object-format detail errors into JSON string', async () => {
+      globalThis.fetch = (async () => {
+        return new Response(
+          JSON.stringify({
+            detail: { error_code: 'RATE_LIMIT', retry_after: 30 },
+          }),
+          { status: 429, headers: { 'Content-Type': 'application/json' } }
+        );
+      }) as typeof fetch;
+
+      try {
+        await assert.rejects(
+          async () => {
+            await apiFetch('/plans', { method: 'GET' });
+          },
+          (err: unknown) => {
+            assert.ok(err instanceof ApiError);
+            assert.strictEqual(typeof err.message, 'string');
+            assert.ok(err.message.includes('RATE_LIMIT'));
+            return true;
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe('5. Form Validation & UI State Integrity Tests', () => {
+    const validPlan: ParsedPlan = {
+      intent: 'create_plan',
+      title: 'Kitap Okuma',
+      category: 'personal',
+      date: '2026-10-25',
+      time: '19:30',
+      duration_minutes: 45,
+      recurrence: null,
+      language: 'tr',
+      needs_weather_check: false,
+      clarification_question: null,
+      confidence: 0.95,
+    };
+
+    it('5.1 validatePlanForCreation accepts fully valid plan', () => {
+      assert.strictEqual(validatePlanForCreation(validPlan), null);
+    });
+
+    it('5.2 validatePlanForCreation rejects non-create_plan intent', () => {
+      const clarifyPlan: ParsedPlan = { ...validPlan, intent: 'clarify' };
+      assert.strictEqual(
+        validatePlanForCreation(clarifyPlan),
+        'Only create_plan intents can be saved.'
+      );
+    });
+
+    it('5.3 validatePlanForCreation rejects empty or whitespace-only title', () => {
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, title: '' }),
+        'Plan title cannot be empty.'
+      );
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, title: '   ' }),
+        'Plan title cannot be empty.'
+      );
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, title: null }),
+        'Plan title cannot be empty.'
+      );
+    });
+
+    it('5.4 validatePlanForCreation rejects invalid date format', () => {
+      const invalidDates = ['', '2026-1-1', '26-10-2026', '2026/10/25', 'invalid'];
+      for (const d of invalidDates) {
+        assert.strictEqual(
+          validatePlanForCreation({ ...validPlan, date: d }),
+          'A valid plan date (YYYY-MM-DD) is required.'
+        );
+      }
+    });
+
+    it('5.5 validatePlanForCreation rejects invalid time format', () => {
+      const invalidTimes = ['', '9:00', '25:00', '18:60', '18:0', 'invalid'];
+      for (const t of invalidTimes) {
+        assert.strictEqual(
+          validatePlanForCreation({ ...validPlan, time: t }),
+          'A valid plan time (HH:MM in 24-hour format) is required.'
+        );
+      }
+    });
+
+    it('5.6 validatePlanForCreation rejects duration outside 5-1440 minutes', () => {
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, duration_minutes: 4 }),
+        'Duration must be between 5 and 1440 minutes, or left empty for default 60 minutes.'
+      );
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, duration_minutes: 1441 }),
+        'Duration must be between 5 and 1440 minutes, or left empty for default 60 minutes.'
+      );
+    });
+
+    it('5.7 validatePlanForCreation accepts duration_minutes null or undefined', () => {
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, duration_minutes: null }),
+        null
+      );
+      assert.strictEqual(
+        validatePlanForCreation({ ...validPlan, duration_minutes: undefined as unknown as null }),
+        null
+      );
+    });
+
+    it('5.8 formatOutcomeTime safely formats timestamps without throwing or returning Invalid Date', () => {
+      assert.strictEqual(formatOutcomeTime(null), '');
+      assert.strictEqual(formatOutcomeTime(undefined), '');
+      assert.strictEqual(formatOutcomeTime('not-a-valid-date'), '');
+
+      const validResult = formatOutcomeTime('2026-10-24T18:30:00+03:00');
+      assert.ok(validResult.length > 0);
+      assert.strictEqual(validResult.includes('Invalid Date'), false);
     });
   });
 });
