@@ -103,6 +103,7 @@ Bu belge API arayüz sözleşmesidir; tek başına her endpoint'in uygulanmış 
 | `POST /parse` | Uygulandı |
 | `POST /voice` | Uygulandı; ESP32 firmware'ine yükleme entegrasyonu yapılmamış |
 | `POST /plans`, `GET /plans` | Uygulandı |
+| `PUT /plans/{id}`, `DELETE /plans/{id}` | Uygulandı |
 | `GET /plans/{id}/suggestion` | Uygulandı |
 | `POST /plans/{id}/outcome` | Uygulandı |
 | `GET /insights` | Uygulandı |
@@ -229,6 +230,25 @@ Yanıt:
     "...Plan nesneleri"
   ]
 }
+
+"PUT /plans/{id}"
+
+Giriş yapan kullanıcının sahip olduğu planın desteklenen alanlarını günceller. İstek tüm düzenlenebilir alanları içerir; başlık boş olamaz, kategori mevcut kategori listesinden olmalı, zaman damgaları saat dilimi içermeli ve bitiş başlangıçtan sonra olmalıdır. Başka kullanıcıya ait veya bulunamayan plan için "404 not_found" döner.
+
+İstek:
+
+{
+  "title": "Akşam koşusu",
+  "category": "sport",
+  "planned_start": "2026-10-18T18:30:00+03:00",
+  "planned_end": "2026-10-18T19:30:00+03:00"
+}
+
+Yanıt güncellenmiş "Plan" nesnesidir. Planın outcome geçmişi korunur.
+
+"DELETE /plans/{id}"
+
+Giriş yapan kullanıcının sahip olduğu planı kalıcı olarak siler. Başka kullanıcıya ait veya bulunamayan plan için "404 not_found" döner; başarılı silme "204 No Content" döndürür. Mevcut veritabanı foreign key kuralları gereği outcome ve ilişkili öneriler silinir; idempotency isteği kaydı korunur ve plan bağlantısı NULL yapılır. Bu işlem geri alınamaz.
 
 "GET /plans/{id}/suggestion" — Backend'de uygulanmıştır.
 
