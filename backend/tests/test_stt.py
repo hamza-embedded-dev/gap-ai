@@ -15,9 +15,12 @@ from app.ai.stt import (
     STTError,
     STTParseError,
     STTResponseError,
+    STTTimeoutError,
     STTUnavailableError,
     STTValidationError,
     get_stt_client,
+    pcm_to_wav,
+    safe_repair_wav_header,
 )
 from app.config import Settings
 
@@ -445,3 +448,119 @@ def test_get_stt_client_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(client, GroqWhisperClient)
     assert client.default_model == "whisper-large-v3"
     client.close()
+
+
+# -----------------------------------------------------------------------------
+# B5-3 Audio Repair, PCM Conversion, and Timeout Error Tests
+# -----------------------------------------------------------------------------
+
+
+def test_repair_wav_header_streaming_zero_and_max_data_size() -> None:
+    # 0.5s of mono 16 kHz 16-bit PCM = 16,000 bytes
+    valid_wav = _make_wav_bytes(duration_seconds=0.5)
+    pcm_len = 16000
+
+    # 1. Zero data size in header (typical streaming recording)
+    zero_header = bytearray(valid_wav)
+    # data chunk is at offset 36, data size at 40..44
+    zero_header[40:44] = b"\x00\x00\x00\x00"
+    repaired_zero = safe_repair_wav_header(bytes(zero_header))
+    assert repaired_zero[40:44] == pcm_len.to_bytes(4, "little")
+    # Must pass validation
+    GroqWhisperClient.validate_wav_audio(repaired_zero)
+
+    # 2. 0xFFFFFFFF data size in header
+    max_header = bytearray(valid_wav)
+    max_header[40:44] = b"\xff\xff\xff\xff"
+    repaired_max = safe_repair_wav_header(bytes(max_header))
+    assert repaired_max[40:44] == pcm_len.to_bytes(4, "little")
+    GroqWhisperClient.validate_wav_audio(repaired_max)
+
+
+def test_repair_wav_header_truncated_payload_rejected() -> None:
+    # Header claims 10,000 bytes, but we truncate the file so only 500 bytes are present
+    valid_wav = _make_wav_bytes(duration_seconds=1.0)
+    truncated = valid_wav[: 44 + 500]
+    with pytest.raises(STTValidationError, match="data chunk incomplete"):
+        safe_repair_wav_header(truncated)
+
+
+def test_repair_wav_header_corrupted_chunks_rejected() -> None:
+    # 1. Missing RIFF magic
+    with pytest.raises(STTValidationError, match="missing RIFF header"):
+        safe_repair_wav_header(b"NOT_A_RIFF_FILE_DATA")
+
+    # 2. Too short
+    with pytest.raises(STTValidationError, match="file too short"):
+        safe_repair_wav_header(b"RIFF123")
+
+    # 3. Missing WAVE tag
+    with pytest.raises(STTValidationError, match="missing WAVE tag"):
+        safe_repair_wav_header(b"RIFF\x24\x00\x00\x00AVI fmt \x10\x00\x00\x00")
+
+    # 4. Missing data chunk
+    no_data = b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00"
+    with pytest.raises(STTValidationError, match="missing 'data' chunk"):
+        safe_repair_wav_header(no_data)
+
+
+def test_pcm_to_wav_conversion_success() -> None:
+    # 0.1s of mono 16 kHz 16-bit PCM = 3200 bytes
+    pcm_bytes = b"\x01\x00" * 1600
+    assert len(pcm_bytes) == 3200
+
+    wav_bytes = pcm_to_wav(pcm_bytes)
+    assert len(wav_bytes) == 44 + 3200
+    assert wav_bytes[:4] == b"RIFF"
+    assert wav_bytes[8:12] == b"WAVE"
+    assert wav_bytes[40:44] == (3200).to_bytes(4, "little")
+
+    # Converted WAV must pass validate_wav_audio
+    validated = GroqWhisperClient.validate_wav_audio(wav_bytes)
+    assert validated == wav_bytes
+
+
+def test_pcm_to_wav_rejects_odd_bytes() -> None:
+    odd_pcm = b"\x00" * 3201
+    with pytest.raises(STTValidationError, match="odd number of bytes"):
+        pcm_to_wav(odd_pcm)
+
+
+def test_pcm_to_wav_rejects_empty_bytes() -> None:
+    with pytest.raises(STTValidationError, match="Audio data is empty"):
+        pcm_to_wav(b"")
+
+
+def test_pcm_to_wav_rejects_exceeding_10s() -> None:
+    # 10s is 320,000 bytes. 320,002 bytes exceeds 10.0 seconds
+    oversized_pcm = b"\x00" * 320002
+    with pytest.raises(STTValidationError, match="exceeds maximum allowed 10.0 seconds"):
+        pcm_to_wav(oversized_pcm, max_seconds=10.0)
+
+
+def test_stt_timeout_error_inherits_unavailable() -> None:
+    assert issubclass(STTTimeoutError, STTUnavailableError)
+    assert issubclass(STTTimeoutError, STTError)
+
+    caught_as_unavailable = False
+    try:
+        raise STTTimeoutError("timeout occurred")
+    except STTUnavailableError:
+        caught_as_unavailable = True
+
+    assert caught_as_unavailable is True
+
+
+def test_groq_timeout_raises_stt_timeout_error() -> None:
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("Connection timed out after 30s")
+
+    audio = _make_wav_bytes()
+    transport = httpx.MockTransport(mock_handler)
+    with httpx.Client(transport=transport) as http_client:
+        client = GroqWhisperClient(
+            api_key=TEST_API_KEY,
+            http_client=http_client,
+        )
+        with pytest.raises(STTTimeoutError, match="timed out after"):
+            client.transcribe(audio)

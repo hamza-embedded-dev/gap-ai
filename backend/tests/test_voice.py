@@ -22,6 +22,7 @@ from app.ai.stt import (
     STTConfigurationError,
     STTParseError,
     STTResponseError,
+    STTTimeoutError,
     STTUnavailableError,
     get_stt_client,
 )
@@ -143,9 +144,9 @@ class FakeSTTClient:
         self.exception = exception
         self.calls: list[dict[str, Any]] = []
 
-    def validate_wav_audio(self, audio_bytes: bytes, max_seconds: float = 10.0) -> None:
+    def validate_wav_audio(self, audio_bytes: bytes, max_seconds: float = 10.0) -> bytes:
         # Re-use real validation logic from GroqWhisperClient to ensure real WAV checking
-        GroqWhisperClient.validate_wav_audio(audio_bytes, max_seconds=max_seconds)
+        return GroqWhisperClient.validate_wav_audio(audio_bytes, max_seconds=max_seconds)
 
     def transcribe(
         self,
@@ -544,3 +545,211 @@ def test_voice_llm_unavailable_returns_503(client: TestClient) -> None:
     )
     assert response.status_code == 503
     assert response.json()["error"] == "llm_unavailable"
+
+
+# =============================================================================
+# 8. B5-3 Edge Case Tests: Header Repair, Raw PCM, Timeouts, and Resource Cleanup
+# =============================================================================
+
+
+def test_voice_accepts_wav_with_zero_data_size_header(client: TestClient, fake_store: FakePlanStore) -> None:
+    # Simulates ESP32 streaming recording where data_size was left as 0 in header
+    wav = bytearray(_make_wav_bytes(duration_seconds=1.0))
+    wav[40:44] = b"\x00\x00\x00\x00"
+
+    stt = FakeSTTClient(transcript="Yarın 18'de koşuya çıkacağım.")
+    llm = FakeLLMClient([_valid_create_plan()])
+    app.dependency_overrides[get_stt_client] = lambda: stt
+    app.dependency_overrides[get_llm_client] = lambda: llm
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("stream.wav", bytes(wav), "audio/wav")},
+    )
+    assert response.status_code == 201
+    assert response.json()["plan"]["source"] == "voice"
+    assert len(fake_store.created_plans) == 1
+
+
+def test_voice_accepts_wav_with_max_data_size_header(client: TestClient, fake_store: FakePlanStore) -> None:
+    # Simulates streaming recording with 0xFFFFFFFF chunk size
+    wav = bytearray(_make_wav_bytes(duration_seconds=1.0))
+    wav[40:44] = b"\xff\xff\xff\xff"
+
+    stt = FakeSTTClient(transcript="Yarın 18'de koşuya çıkacağım.")
+    llm = FakeLLMClient([_valid_create_plan()])
+    app.dependency_overrides[get_stt_client] = lambda: stt
+    app.dependency_overrides[get_llm_client] = lambda: llm
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("stream.wav", bytes(wav), "audio/wav")},
+    )
+    assert response.status_code == 201
+    assert response.json()["plan"]["source"] == "voice"
+    assert len(fake_store.created_plans) == 1
+
+
+def test_voice_accepts_raw_pcm_upload_with_content_type(client: TestClient, fake_store: FakePlanStore) -> None:
+    # 0.5s of 16 kHz 16-bit mono PCM = 16,000 bytes (no WAV header)
+    pcm_bytes = b"\x00\x00" * 8000
+
+    stt = FakeSTTClient(transcript="Yarın 18'de koşuya çıkacağım.")
+    llm = FakeLLMClient([_valid_create_plan()])
+    app.dependency_overrides[get_stt_client] = lambda: stt
+    app.dependency_overrides[get_llm_client] = lambda: llm
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("sample", pcm_bytes, "audio/pcm")},
+    )
+    assert response.status_code == 201
+    assert response.json()["plan"]["source"] == "voice"
+    assert len(fake_store.created_plans) == 1
+
+
+def test_voice_accepts_raw_pcm_upload_with_filename(client: TestClient, fake_store: FakePlanStore) -> None:
+    # 0.2s of raw PCM = 6,400 bytes with filename ending in .raw
+    pcm_bytes = b"\x00\x00" * 3200
+
+    stt = FakeSTTClient(transcript="Yarın 18'de koşuya çıkacağım.")
+    llm = FakeLLMClient([_valid_create_plan()])
+    app.dependency_overrides[get_stt_client] = lambda: stt
+    app.dependency_overrides[get_llm_client] = lambda: llm
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("recording.raw", pcm_bytes, "application/octet-stream")},
+    )
+    assert response.status_code == 201
+    assert response.json()["plan"]["source"] == "voice"
+    assert len(fake_store.created_plans) == 1
+
+
+def test_voice_rejects_truncated_wav(client: TestClient) -> None:
+    # Header says 32,000 bytes, but only 200 bytes supplied
+    wav = _make_wav_bytes(duration_seconds=1.0)
+    truncated = wav[: 44 + 200]
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("truncated.wav", truncated, "audio/wav")},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"] == "validation_error"
+
+
+def test_voice_rejects_odd_raw_pcm(client: TestClient) -> None:
+    # Odd byte count raw PCM
+    odd_pcm = b"\x00" * 3201
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("audio.pcm", odd_pcm, "audio/pcm")},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"] == "validation_error"
+
+
+def test_voice_rejects_raw_pcm_exceeding_10s(client: TestClient) -> None:
+    # 320,002 bytes exceeds 10.0 seconds limit
+    long_pcm = b"\x00" * 320002
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("long.raw", long_pcm, "audio/raw")},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"] == "validation_error"
+    assert "exceeds maximum allowed 10.0 seconds" in response.json()["message"]
+
+
+def test_voice_rejects_non_wav_magic_bytes(client: TestClient) -> None:
+    # Non-WAV file (e.g. MP3) sent with WAV content type must be rejected
+    mp3_like = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 200
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("sample.wav", mp3_like, "audio/wav")},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"] == "validation_error"
+
+
+def test_voice_stt_timeout_returns_503_and_saves_no_plan(client: TestClient, fake_store: FakePlanStore) -> None:
+    stt = FakeSTTClient(exception=STTTimeoutError("Groq STT request timed out after 30s"))
+    app.dependency_overrides[get_stt_client] = lambda: stt
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == "llm_unavailable"
+    assert "timed out" in response.json()["message"].lower()
+    # Critical: verify NO plan was created in store
+    assert len(fake_store.created_plans) == 0
+
+
+def test_voice_stt_connect_error_returns_503_and_saves_no_plan(client: TestClient, fake_store: FakePlanStore) -> None:
+    stt = FakeSTTClient(exception=STTUnavailableError("Failed to connect to Groq STT"))
+    app.dependency_overrides[get_stt_client] = lambda: stt
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == "llm_unavailable"
+    assert len(fake_store.created_plans) == 0
+
+
+def test_voice_uploadfile_closed_on_success_and_error(client: TestClient) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    stt = FakeSTTClient(transcript="Yarın 18'de koşuya çıkacağım.")
+    llm = FakeLLMClient([_valid_create_plan()])
+    app.dependency_overrides[get_stt_client] = lambda: stt
+    app.dependency_overrides[get_llm_client] = lambda: llm
+
+    # 1. Success path
+    with patch("starlette.datastructures.UploadFile.close", new_callable=AsyncMock) as mock_close:
+        response = client.post(
+            "/voice",
+            headers=_auth_headers(),
+            files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+        )
+        assert response.status_code == 201
+        assert mock_close.await_count >= 1
+
+    # 2. Validation error path (empty file)
+    with patch("starlette.datastructures.UploadFile.close", new_callable=AsyncMock) as mock_close:
+        response = client.post(
+            "/voice",
+            headers=_auth_headers(),
+            files={"audio": ("sample.wav", b"", "audio/wav")},
+        )
+        assert response.status_code == 422
+        assert mock_close.await_count >= 1
+
+    # 3. STT error path
+    stt_err = FakeSTTClient(exception=STTTimeoutError("STT timeout"))
+    app.dependency_overrides[get_stt_client] = lambda: stt_err
+    with patch("starlette.datastructures.UploadFile.close", new_callable=AsyncMock) as mock_close:
+        response = client.post(
+            "/voice",
+            headers=_auth_headers(),
+            files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+        )
+        assert response.status_code == 503
+        assert mock_close.await_count >= 1
