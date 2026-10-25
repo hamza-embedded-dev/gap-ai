@@ -332,3 +332,15 @@
     overflow-wrap: anywhere;
   }
 }
+
+.suggestion-card {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #c8d9ff;
+  border-radius: 12px;
+  background: #f3f7ff;
+  color: #203b68;
+}
+
+.suggestion-card p { margin: 6px 0; }
+.suggestion-card small { color: #536987; }

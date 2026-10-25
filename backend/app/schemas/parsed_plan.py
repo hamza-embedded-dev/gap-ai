@@ -42,5 +42,9 @@ class ParsedPlan(RootModel[dict[str, Any]]):
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
-        # Keep generated OpenAPI/schema output aligned with the same source document.
-        return _schema()
+        # ParsedPlan is the root document; auxiliary endpoint schemas in $defs
+        # are consumed by API documentation but must not become part of this
+        # standalone model's generated JSON Schema.
+        schema = dict(_schema())
+        schema.pop("$defs", None)
+        return schema

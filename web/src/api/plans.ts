@@ -45,6 +45,22 @@ export interface SavePlanOptions {
   mockMode?: boolean;
 }
 
+export interface PlanSuggestion {
+  plan_id: string;
+  reason: 'weather' | 'pattern';
+  message: string;
+  proposed_start: string;
+  proposed_end: string;
+  evidence: { forecast?: string | null; adherence_pct?: number | null; outcome_count?: number | null };
+}
+
+export async function fetchPlanSuggestion(planId: string): Promise<PlanSuggestion | null> {
+  const result = await apiFetch<{ suggestion: PlanSuggestion | null }>(
+    `/plans/${encodeURIComponent(planId)}/suggestion`, { method: 'GET' }
+  );
+  return result.suggestion;
+}
+
 /**
  * Deterministic mock implementation for B2-2 independent testing and offline development.
  * Never used silently in production flow.
