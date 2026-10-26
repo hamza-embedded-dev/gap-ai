@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ClipboardList, Pencil, RotateCcw, Repeat } from 'lucide-react';
+import { AlertTriangle, ClipboardList, Pencil, RotateCcw, Repeat, Search, X } from 'lucide-react';
 import { listPlans } from '../api/plans';
 import { OutcomeButtons } from '../components/OutcomeButtons';
 import type { Plan, PlanOutcome } from '../types/plan';
+import {
+  countActivePlanFilters,
+  DEFAULT_PLAN_FILTERS,
+  getPlanCategories,
+  sortAndFilterPlans,
+  type PlanFilters,
+  type PlanSort,
+} from '../utils/planFilters';
 import './PlanList.css';
 
 export interface PlanListProps {
@@ -18,6 +26,30 @@ const MOCK_PLAN_TITLES: Record<string, string> = {
   'Akşam Yürüyüşü': 'Evening Walk',
 };
 
+const STATUS_OPTIONS: Array<{ value: PlanFilters['status']; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'done', label: 'Completed' },
+  { value: 'postponed', label: 'Postponed' },
+  { value: 'skipped', label: 'Skipped' },
+];
+
+const TIME_OPTIONS: Array<{ value: PlanFilters['time']; label: string }> = [
+  { value: 'all', label: 'Any time' },
+  { value: 'today', label: 'Today' },
+  { value: 'tomorrow', label: 'Tomorrow' },
+  { value: 'this_week', label: 'This week' },
+  { value: 'past', label: 'Past' },
+  { value: 'future', label: 'Future' },
+];
+
+const SORT_OPTIONS: Array<{ value: PlanSort; label: string }> = [
+  { value: 'created_newest', label: 'Newest created' },
+  { value: 'created_oldest', label: 'Oldest created' },
+  { value: 'start_nearest', label: 'Plan date: nearest' },
+  { value: 'start_farthest', label: 'Plan date: farthest' },
+];
+
 export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListProps) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -27,6 +59,20 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
   const [mockMode, setMockMode] = useState<boolean>(false);
 
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
+  const [sort, setSort] = useState<PlanSort>('created_newest');
+  const [filters, setFilters] = useState<PlanFilters>(DEFAULT_PLAN_FILTERS);
+
+  const filteredPlans = sortAndFilterPlans(plans, filters, sort);
+  const activeFilterCount = countActivePlanFilters(filters);
+  const categories = getPlanCategories(plans);
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_PLAN_FILTERS);
+    setSort('created_newest');
+  };
+
+  const statusLabel = STATUS_OPTIONS.find((option) => option.value === filters.status)?.label ?? filters.status;
+  const timeLabel = TIME_OPTIONS.find((option) => option.value === filters.time)?.label ?? filters.time;
 
   const loadPlans = useCallback(() => {
     setIsLoading(true);
@@ -136,6 +182,91 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
         </button>
       </div>
 
+      {!isLoading && !errorMessage && plans.length > 0 && (
+        <section className="plan-discovery" aria-label="Search, sort and filter plans">
+          <div className="plan-discovery-topline">
+            <label className="plan-search-field">
+              <Search size={17} aria-hidden="true" />
+              <span className="visually-hidden">Search plans</span>
+              <input
+                type="search"
+                value={filters.search}
+                onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+                placeholder="Search plans…"
+                aria-label="Search plans by title or description"
+              />
+            </label>
+            <label className="plan-sort-field">
+              <span>Sort by</span>
+              <select value={sort} onChange={(event) => setSort(event.target.value as PlanSort)}>
+                {SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="plan-filter-panel">
+            <div className="plan-filter-heading">
+              <div>
+                <h3>Filters</h3>
+                <p>{activeFilterCount} active {activeFilterCount === 1 ? 'filter' : 'filters'}</p>
+              </div>
+              <button type="button" className="plan-filter-clear" onClick={clearFilters} disabled={activeFilterCount === 0 && sort === 'created_newest'}>
+                Clear filters
+              </button>
+            </div>
+            <div className="plan-filter-controls">
+              <label>
+                <span>Status</span>
+                <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value as PlanFilters['status'] }))}>
+                  {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Time</span>
+                <select value={filters.time} onChange={(event) => setFilters((current) => ({ ...current, time: event.target.value as PlanFilters['time'] }))}>
+                  {TIME_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Category</span>
+                <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
+                  <option value="all">All categories</option>
+                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {activeFilterCount > 0 && (
+              <div className="plan-active-filters" aria-label="Active filters">
+                {filters.search.trim() && (
+                  <button type="button" className="plan-filter-chip" onClick={() => setFilters((current) => ({ ...current, search: '' }))} aria-label="Remove search filter">
+                    Search: {filters.search.trim()} <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+                {filters.status !== 'all' && (
+                  <button type="button" className="plan-filter-chip" onClick={() => setFilters((current) => ({ ...current, status: 'all' }))} aria-label={`Remove status filter ${statusLabel}`}>
+                    Status: {statusLabel} <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+                {filters.time !== 'all' && (
+                  <button type="button" className="plan-filter-chip" onClick={() => setFilters((current) => ({ ...current, time: 'all' }))} aria-label={`Remove time filter ${timeLabel}`}>
+                    Time: {timeLabel} <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+                {filters.category !== 'all' && (
+                  <button type="button" className="plan-filter-chip" onClick={() => setFilters((current) => ({ ...current, category: 'all' }))} aria-label={`Remove category filter ${filters.category}`}>
+                    Category: {filters.category} <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          <p className="plan-result-count" role="status" aria-live="polite">
+            Showing {filteredPlans.length} of {plans.length} {plans.length === 1 ? 'plan' : 'plans'}
+          </p>
+        </section>
+      )}
+
       {/* Header and Actions */}
       <div className="plan-list-header">
         <div className="plan-list-title-group">
@@ -234,9 +365,17 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
       )}
 
       {/* Plan Card Stack */}
-      {!isLoading && !errorMessage && plans.length > 0 && (
+      {!isLoading && !errorMessage && plans.length > 0 && filteredPlans.length === 0 && (
+        <div className="plan-filter-empty" role="status">
+          <h3>No plans match these filters</h3>
+          <p>Try adjusting your search or filters to see more plans.</p>
+          <button type="button" className="btn btn-primary" onClick={clearFilters}>Clear filters</button>
+        </div>
+      )}
+
+      {!isLoading && !errorMessage && filteredPlans.length > 0 && (
         <div className="plan-cards-stack" id="plan-cards-list">
-          {plans.map((plan) => {
+          {filteredPlans.map((plan) => {
             const categoryClass = plan.category
               ? `category-${plan.category}`
               : 'category-other';
