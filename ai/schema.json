@@ -157,14 +157,14 @@
     }
   ],
   "$defs": {
-    "BehaviorRecommendation": {
+    "RecommendationCard": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "title", "message", "why", "evidence", "confidence", "next_step", "source", "label", "dedup_key", "duration_minutes"],
       "properties": {
         "id": {"type":"string"}, "title":{"type":"string"}, "message":{"type":"string"},
         "why":{"type":"string"}, "evidence":{"type":"object", "additionalProperties":{"type":["string","number"]}},
         "confidence":{"enum":["moderate","none"]}, "next_step":{"type":"string"},
-        "source":{"enum":["behavior","discovery"]}, "label":{"type":["string","null"]},
+        "source":{"enum":["behavior","discovery","contextual"]}, "label":{"type":["string","null"]},
         "dedup_key":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$"},
         "duration_minutes":{"type":["integer","null"],"minimum":5,"maximum":1440}
       }
@@ -177,7 +177,7 @@
     },
     "InsightsResponse": {
       "type":"object", "required":["recommendations"],
-      "properties":{"recommendations":{"type":"array","maxItems":3,"items":{"$ref":"#/$defs/BehaviorRecommendation"}}}
+      "properties":{"recommendations":{"type":"array","maxItems":3,"items":{"$ref":"#/$defs/RecommendationCard"}}}
     },
     "VoicePlanResponse": {
       "description": "POST /voice response for a create_plan intent. Recommendation text is sourced from the same saved plan suggestion returned by GET /plans/{plan_id}/suggestion.",
