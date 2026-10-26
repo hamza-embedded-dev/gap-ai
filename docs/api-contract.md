@@ -179,7 +179,7 @@ Geçerli bir "Authorization: Bearer <token>" gerektirir. Doğal dildeki metni do
 
 Yanıt, "ai/schema.json" dosyasındaki "ParsedPlan" biçimindedir. "intent" değeri "clarify" ise istemci "clarification_question" alanını gösterir ve plan oluşturmaz.
 
-"POST /voice" — Backend'de uygulanmıştır; ESP32'ye bağlanmamıştır.
+"POST /voice" — Backend'de uygulanmıştır; ESP32 firmware'inde yükleme/TTS entegrasyonu yoktur.
 
 Kimlik doğrulaması gerekir. Backend bu endpoint'te yüklenen sesi işler. Mevcut ESP32 firmware'i `/health` kontrolü yapar; kaydı `/voice` endpoint'ine yüklemez.
 
@@ -187,7 +187,7 @@ Kimlik doğrulaması gerekir. Backend bu endpoint'te yüklenen sesi işler. Mevc
 
 Ses biçimi mono PCM/WAV, 16 kHz, 16-bit olmalı ve en fazla 10 saniye (yaklaşık 320 KB) sürmelidir.
 
-Ses metne çevrilir ve sonuç "ai/schema.json" dosyasına göre doğrulanır. "intent" değeri "create_plan" ise backend planı kaydeder. Yanıtta metinsel sonuç zorunludur; TTS/sesli yanıt zorunlu değildir.
+Ses metne çevrilir ve sonuç "ai/schema.json" dosyasına göre doğrulanır. "intent" değeri "create_plan" ise backend planı kaydeder. Plan yanıtı, yeterli geçmiş varsa aynı öneri kaydından "spoken_recommendation" metni de içerir; bu alan boş geçmişte veya öneri üretilemediğinde "null" olur. Firmware tarafında bu alanı konuşmaya dönüştüren bir hoparlör/TTS akışı henüz uygulanmamıştır.
 
 Plan oluşturulduğunda yanıt, transkriptin ve "ParsedPlan" sonucunun yanında kaydedilmiş planı da içerir:
 
@@ -230,9 +230,9 @@ Yanıt:
   ]
 }
 
-"GET /plans/{id}/suggestion" — Backend'de uygulanmıştır.
+"GET /plans/{id}/suggestion" — Backend'de uygulanmıştır. Kişiselleştirilmiş bir öneri üretmek için geçmişi olan en az 3 planın sonuç olayı gerekir; bu eşik yoksa cevapta "suggestion": null döner. Öneri mesajı Nebius modelinden alınır, tek satır ve 240 karakterle sınırlanır; modelin boş/uygunsuz yanıtı kısa deterministik mesaja düşer. Öneri yalnızca ilgili kullanıcının planı için üretilir ve kaydedilir. Bir planın herhangi bir son bildirilen sonucu öneri kaydından daha yeniyse kayıt eski kabul edilir ve yeterli veri varsa yenilenir.
 
-Kayıtlı öneriyi döndürür. Henüz kayıtlı öneri yoksa ilk istekte, yeterli veri ve uygun koşullar bulunduğunda hava durumu ve geçmiş verilere göre bir öneri oluşturulur ve veritabanına kaydedilir. Öneri üretilemiyorsa "suggestion" değeri "null" döndürülür. Sonraki isteklerde kayıtlı öneri döndürülür; MVP kapsamında otomatik güncelleme yapılmaz.
+Kayıtlı öneriyi döndürür. Henüz kayıtlı öneri yoksa ilk istekte, yeterli veri ve uygun koşullar bulunduğunda hava durumu ve geçmiş verilere göre bir öneri oluşturulur ve veritabanına kaydedilir. Öneri üretilemiyorsa "suggestion" değeri "null" döndürülür. Sonraki isteklerde kayıtlı öneri döndürülür. Yeni bir outcome bildirildiğinde sonraki istek öneriyi yeniden değerlendirir ve geçerliyse kaydı günceller.
 
 Yanıt:
 

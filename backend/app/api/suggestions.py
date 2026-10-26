@@ -7,7 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.ai.llm import LLMError, NebiusLLMClient, get_llm_client
 from app.api.errors import APIError
@@ -25,6 +25,7 @@ class SuggestionEvidence(BaseModel):
 
     forecast: str | None = None
     adherence_pct: float | None = None
+    outcome_count: int | None = None
 
 
 class SuggestionDetails(BaseModel):
@@ -32,10 +33,25 @@ class SuggestionDetails(BaseModel):
 
     plan_id: str
     reason: Literal["weather", "pattern"]
-    message: str
+    message: str = Field(min_length=1, max_length=240)
     proposed_start: datetime
     proposed_end: datetime
     evidence: SuggestionEvidence | dict[str, Any]
+
+    @field_validator("message")
+    @classmethod
+    def message_must_be_single_line(cls, value: str) -> str:
+        if "\n" in value or "\r" in value:
+            raise ValueError("suggestion message must be a single line")
+        return value
+
+    @field_serializer("evidence")
+    def serialize_evidence(
+        self, evidence: SuggestionEvidence | dict[str, Any]
+    ) -> dict[str, Any]:
+        if isinstance(evidence, SuggestionEvidence):
+            return evidence.model_dump(exclude_none=True)
+        return evidence
 
 
 class SuggestionResponse(BaseModel):
@@ -86,6 +102,16 @@ def _calculate_adherence_pct(plans: list[dict[str, Any]], now: datetime) -> floa
         return None
 
     return round((done_count / reported_count) * 100.0, 1)
+
+
+def _reported_plan_count(plans: list[dict[str, Any]], now: datetime) -> int:
+    return sum(
+        1
+        for plan in plans
+        if _parse_iso(plan["planned_end"]) <= now
+        and (plan.get("latest_outcome") or {}).get("status")
+        in ("done", "postponed", "skipped")
+    )
 
 
 def _generate_suggestion_message(
@@ -146,7 +172,7 @@ def _generate_suggestion_message(
     try:
         content = llm.complete(messages, temperature=0.2)
         message = content.strip().strip('"').strip("'")
-        if message:
+        if message and len(message) <= 240 and "\n" not in message:
             return message
     except LLMError as exc:
         logger.warning("Nebius LLM call failed for suggestion message: %s", exc)
@@ -173,15 +199,32 @@ def get_suggestion_for_plan(
     if plan is None:
         raise _plan_not_found()
 
-    # If a suggestion already exists, return it unmodified
+    # A new reported outcome makes the saved recommendation stale. Return the
+    # stored record unchanged until an outcome newer than it exists.
     existing = store.get_suggestion(user_id=user.id, plan_id=plan_id)
-    if existing is not None:
+    existing_created = existing.get("created_at") if existing else None
+    if existing is not None and existing_created is None:
         return {"suggestion": existing}
+    if existing is not None:
+        newer_outcome = False
+        for historical in store.list_plans(user_id=user.id):
+            outcome = historical.get("latest_outcome") or {}
+            reported_at = outcome.get("reported_at")
+            if reported_at and _parse_iso(reported_at) > _parse_iso(existing_created):
+                newer_outcome = True
+                break
+        if not newer_outcome:
+            return {"suggestion": {k: v for k, v in existing.items() if k != "created_at"}}
 
     now = datetime.now(timezone.utc)
     plan_start = _parse_iso(plan["planned_start"])
     plan_end = _parse_iso(plan["planned_end"])
     duration = plan_end - plan_start
+    all_plans = store.list_plans(user_id=user.id)
+    adherence_pct = _calculate_adherence_pct(all_plans, now)
+    outcome_count = _reported_plan_count(all_plans, now)
+    if outcome_count < 3:
+        return {"suggestion": None}
 
     # Check weather using MVP Üsküdar–Bağlarbaşı coordinates
     is_rainy = False
@@ -201,25 +244,23 @@ def get_suggestion_for_plan(
         logger.warning("Weather check exception: %s", exc)
         is_rainy = False
 
-    # Check historical adherence
-    all_plans = store.list_plans(user_id=user.id)
-    adherence_pct = _calculate_adherence_pct(all_plans, now)
-
     reason: Literal["weather", "pattern"] | None = None
     evidence: dict[str, Any] = {}
 
-    if is_rainy:
+    if is_rainy and outcome_count >= 3:
         reason = "weather"
         evidence["forecast"] = "rain"
         if adherence_pct is not None:
             evidence["adherence_pct"] = adherence_pct
-    elif adherence_pct is not None and adherence_pct < 70.0:
+    elif adherence_pct is not None and adherence_pct < 70.0 and outcome_count >= 3:
         # Pattern-based suggestion when adherence is low
         reason = "pattern"
         evidence["adherence_pct"] = adherence_pct
+        evidence["outcome_count"] = outcome_count
 
     if reason is None:
         return {"suggestion": None}
+    evidence["outcome_count"] = outcome_count
 
     # Deterministic time proposal: preserve the time-of-day and duration,
     # but ensure the proposed start is strictly in the future in the user's timezone.
@@ -264,9 +305,14 @@ def get_suggestion_for_plan(
         "evidence": evidence,
     }
 
-    saved = store.save_suggestion(
-        user_id=user.id,
-        plan_id=plan_id,
-        suggestion_data=suggestion_payload,
-    )
+    if existing is not None:
+        refresh = getattr(store, "refresh_suggestion", None)
+        saved = (
+            refresh(user.id, plan_id, suggestion_payload)
+            if refresh
+            else store.save_suggestion(user.id, plan_id, suggestion_payload)
+        )
+    else:
+        saved = store.save_suggestion(user.id, plan_id, suggestion_payload)
+    saved = {k: v for k, v in saved.items() if k != "created_at"}
     return {"suggestion": saved}

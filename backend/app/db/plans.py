@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Protocol
 from urllib.parse import urljoin
@@ -69,6 +69,10 @@ class PlanStore(Protocol):
     def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
 
     def save_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    def refresh_suggestion(
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]: ...
 
@@ -357,6 +361,23 @@ class SupabasePlanStore:
         rows = response.json()
         return rows[0] if rows else None
 
+    def refresh_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        refreshed_row = _suggestion_row(user_id, plan_id, suggestion_data)
+        refreshed_row["created_at"] = datetime.now(timezone.utc).isoformat()
+        response = self._client.patch(
+            urljoin(self._rest_url, "suggestions"),
+            params={"select": SUGGESTION_FIELDS, "user_id": f"eq.{user_id}", "plan_id": f"eq.{plan_id}"},
+            headers={"Prefer": "return=representation"},
+            json={k: v for k, v in refreshed_row.items() if k not in ("user_id", "plan_id")},
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if not rows:
+            return self.save_suggestion(user_id, plan_id, suggestion_data)
+        return rows[0]
+
     def save_suggestion(
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]:
@@ -381,7 +402,7 @@ class SupabasePlanStore:
         return existing
 
 
-SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence"
+SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence,created_at"
 OUTCOME_FIELDS = "id,plan_id,user_id,status,actual_start,postponed_to,note,reported_via,reported_at"
 LATEST_OUTCOME_FIELDS = "id,status,actual_start,postponed_to,note,reported_via,reported_at"
 PLAN_LIST_FIELDS = (
@@ -526,6 +547,11 @@ class LazyPlanStore:
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]:
         return _build_plan_store().save_suggestion(user_id, plan_id, suggestion_data)
+
+    def refresh_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _build_plan_store().refresh_suggestion(user_id, plan_id, suggestion_data)
 
 
 @lru_cache(maxsize=1)

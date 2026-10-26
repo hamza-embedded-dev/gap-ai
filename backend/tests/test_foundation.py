@@ -46,7 +46,13 @@ def _valid_plan(**overrides: object) -> dict[str, object]:
 
 def test_schema_path_points_to_shared_ai_schema() -> None:
     assert SCHEMA_PATH == Path(__file__).resolve().parents[2] / "ai" / "schema.json"
-    assert ParsedPlan.model_json_schema() == json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    endpoint_definitions = schema.pop("$defs", {})
+    assert ParsedPlan.model_json_schema() == schema
+    assert endpoint_definitions["VoicePlanResponse"]["properties"]["spoken_recommendation"] == {
+        "type": ["string", "null"],
+        "maxLength": 240,
+    }
 
 
 @pytest.mark.parametrize(

@@ -6,7 +6,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.llm import NebiusLLMClient, get_llm_client
 from app.ai.stt import (
@@ -24,6 +24,7 @@ from app.ai.stt import (
 from app.api.errors import APIError
 from app.api.parse import parse_text
 from app.api.plans import PlanResponse, current_user
+from app.api.suggestions import get_suggestion_for_plan
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.schemas.parsed_plan import ParsedPlan
 
@@ -54,6 +55,7 @@ class VoicePlanResponse(BaseModel):
     transcript: str
     parsed_plan: ParsedPlan
     plan: PlanResponse
+    spoken_recommendation: str | None = Field(default=None, max_length=240)
 
 
 class VoiceClarifyResponse(BaseModel):
@@ -232,11 +234,26 @@ async def handle_voice_endpoint(
         if intent == "create_plan":
             plan_record = _build_plan_record(parsed_plan, user)
             created_plan_dict = store.create_plan(plan_record)
+            try:
+                recommendation = get_suggestion_for_plan(
+                    plan_id=str(created_plan_dict["id"]),
+                    user=user,
+                    store=store,
+                    llm=llm_client,
+                )["suggestion"]
+            except Exception:
+                logger.exception("Could not retrieve recommendation for newly created voice plan")
+                recommendation = None
+            spoken_text = recommendation["message"] if recommendation else None
+            if spoken_text and (len(spoken_text) > 240 or "\n" in spoken_text or "\r" in spoken_text):
+                logger.warning("Saved recommendation is not suitable for spoken playback")
+                spoken_text = None
             response.status_code = status.HTTP_201_CREATED
             return VoicePlanResponse(
                 transcript=transcript,
                 parsed_plan=parsed_plan,
                 plan=PlanResponse.model_validate(created_plan_dict),
+                spoken_recommendation=spoken_text,
             )
 
         # 8. Clarify / Unsupported -> do NOT persist + 200 OK

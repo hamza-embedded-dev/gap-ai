@@ -73,8 +73,12 @@ class FakeSuggestionStore:
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]:
         key = f"{user_id}:{plan_id}"
-        self.suggestions[key] = suggestion_data
-        return suggestion_data
+        stored = {**suggestion_data, "created_at": datetime.now(timezone.utc).isoformat()}
+        self.suggestions[key] = stored
+        return stored
+
+    def refresh_suggestion(self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]):
+        return self.save_suggestion(user_id, plan_id, suggestion_data)
 
 
 @pytest.fixture
@@ -169,12 +173,76 @@ def test_existing_suggestion_returned_unmodified(test_setup):
     mock_llm.complete.assert_not_called()
 
 
+def test_insufficient_outcome_history_returns_null_without_model_call(test_setup):
+    client, fake_store, mock_llm = test_setup
+    headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
+    plan_id = fake_store.add_plan("user-one")
+    response = client.get(f"/plans/{plan_id}/suggestion", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"suggestion": None}
+    mock_llm.complete.assert_not_called()
+
+
+def test_suggestion_refreshes_after_a_newer_outcome(test_setup, monkeypatch: pytest.MonkeyPatch):
+    client, fake_store, mock_llm = test_setup
+    headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
+    now = datetime.now(timezone.utc)
+    for days in (3, 4, 5):
+        fake_store.add_plan(
+            "user-one",
+            planned_start=(now - timedelta(days=days, hours=2)).isoformat(),
+            planned_end=(now - timedelta(days=days, hours=1)).isoformat(),
+            latest_outcome={"status": "skipped", "reported_at": "2026-01-01T00:00:00+00:00"},
+        )
+    target_id = fake_store.add_plan("user-one")
+    monkeypatch.setattr(
+        "app.services.weather.WeatherService.get_forecast",
+        lambda *args, **kwargs: None,
+    )
+    first = client.get(f"/plans/{target_id}/suggestion", headers=headers).json()["suggestion"]
+    assert first is not None
+    saved = fake_store.suggestions[f"user-one:{target_id}"]
+    saved["created_at"] = "2025-12-01T00:00:00+00:00"
+    fake_store.plans[next(iter(fake_store.plans))]["latest_outcome"]["reported_at"] = "2026-01-01T00:00:00+00:00"
+    mock_llm.complete.return_value = "Yeni sonuçlarına göre daha gerçekçi bir saat seçebilirsin."
+
+    refreshed = client.get(f"/plans/{target_id}/suggestion", headers=headers).json()["suggestion"]
+    assert refreshed is not None
+    assert refreshed["message"] == mock_llm.complete.return_value
+    assert refreshed != first
+    assert mock_llm.complete.call_count == 2
+
+
+@pytest.mark.parametrize("invalid_message", ["", "two lines\nnot allowed", "x" * 241])
+def test_invalid_model_message_uses_validated_fallback(test_setup, monkeypatch, invalid_message):
+    client, fake_store, mock_llm = test_setup
+    headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
+    mock_llm.complete.return_value = invalid_message
+    now = datetime.now(timezone.utc)
+    for days in (2, 3, 4):
+        fake_store.add_plan(
+            "user-one",
+            planned_start=(now - timedelta(days=days, hours=2)).isoformat(),
+            planned_end=(now - timedelta(days=days, hours=1)).isoformat(),
+            latest_outcome={"status": "skipped"},
+        )
+    target_id = fake_store.add_plan("user-one")
+    monkeypatch.setattr("app.services.weather.WeatherService.get_forecast", lambda *a, **kw: None)
+
+    response = client.get(f"/plans/{target_id}/suggestion", headers=headers)
+    suggestion = response.json()["suggestion"]
+    assert response.status_code == 200
+    assert suggestion["message"]
+    assert len(suggestion["message"]) <= 240
+    assert "\n" not in suggestion["message"]
+
+
 def test_pattern_suggestion_generated_when_adherence_is_low(test_setup):
     client, fake_store, mock_llm = test_setup
     headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
 
     now = datetime.now(timezone.utc)
-    # Add historical plans with outcomes yielding 50% adherence (1 done, 1 skipped)
+    # Three outcomes are the minimum history needed for personalization.
     fake_store.add_plan(
         "user-one",
         planned_start=(now - timedelta(days=2)).isoformat(),
@@ -185,6 +253,12 @@ def test_pattern_suggestion_generated_when_adherence_is_low(test_setup):
         "user-one",
         planned_start=(now - timedelta(days=1)).isoformat(),
         planned_end=(now - timedelta(days=1, hours=-1)).isoformat(),
+        latest_outcome={"status": "skipped"},
+    )
+    fake_store.add_plan(
+        "user-one",
+        planned_start=(now - timedelta(days=3)).isoformat(),
+        planned_end=(now - timedelta(days=3, hours=-1)).isoformat(),
         latest_outcome={"status": "skipped"},
     )
 
@@ -203,7 +277,8 @@ def test_pattern_suggestion_generated_when_adherence_is_low(test_setup):
     assert suggestion is not None
     assert suggestion["plan_id"] == target_plan_id
     assert suggestion["reason"] == "pattern"
-    assert suggestion["evidence"]["adherence_pct"] == 50.0
+    assert suggestion["evidence"]["adherence_pct"] == 33.3
+    assert suggestion["evidence"]["outcome_count"] == 3
     assert suggestion["evidence"].get("forecast") is None
     mock_llm.complete.assert_called_once()
 
@@ -275,6 +350,14 @@ def test_weather_suggestion_generated_saved_and_retrieved_on_second_request(
         mock_rainy_forecast,
     )
 
+    for days_ago, outcome_status in ((1, "done"), (2, "skipped"), (3, "done")):
+        fake_store.add_plan(
+            "user-one",
+            planned_start=(target_time_dt - timedelta(days=days_ago, hours=2)).isoformat(),
+            planned_end=(target_time_dt - timedelta(days=days_ago, hours=1)).isoformat(),
+            latest_outcome={"status": outcome_status},
+        )
+
     target_plan_id = fake_store.add_plan(
         "user-one",
         title="Açık Hava Koşusu",
@@ -333,13 +416,14 @@ def test_proposed_start_is_strictly_in_the_future_for_past_plans(test_setup):
     headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
 
     now = datetime.now(timezone.utc)
-    # Low adherence to force pattern suggestion
-    fake_store.add_plan(
-        "user-one",
-        planned_start=(now - timedelta(days=10)).isoformat(),
-        planned_end=(now - timedelta(days=10, hours=-1)).isoformat(),
-        latest_outcome={"status": "skipped"},
-    )
+    # Three skipped outcomes meet the minimum history and trigger a pattern suggestion.
+    for days in (10, 11, 12):
+        fake_store.add_plan(
+            "user-one",
+            planned_start=(now - timedelta(days=days)).isoformat(),
+            planned_end=(now - timedelta(days=days, hours=-1)).isoformat(),
+            latest_outcome={"status": "skipped"},
+        )
 
     # An old plan from 5 days ago
     past_plan_id = fake_store.add_plan(
