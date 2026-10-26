@@ -19,6 +19,13 @@ import {
 } from './plans.ts';
 import type { ParsedPlan, Plan, PlanOutcome } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
+import {
+  countActivePlanFilters,
+  DEFAULT_PLAN_FILTERS,
+  getPlanCategories,
+  sortAndFilterPlans,
+  type PlanFilters,
+} from '../utils/planFilters.ts';
 
 
 describe('GAP-AI W1-2: Plan Flow & API Tests', () => {
@@ -416,6 +423,108 @@ describe('GAP-AI W1-2: Plan Flow & API Tests', () => {
         globalThis.fetch = originalFetch;
       }
     });
+  });
+});
+
+describe('Plan sorting and filtering', () => {
+  const atLocalTime = (year: number, month: number, day: number, hour = 12) =>
+    new Date(year, month, day, hour, 0, 0).toISOString();
+
+  function makePlan(id: string, changes: Partial<Plan> & { description?: string } = {}): Plan {
+    const { description, ...planChanges } = changes;
+    return {
+      id,
+      title: id,
+      category: 'work',
+      planned_start: atLocalTime(2026, 9, 26, 18),
+      planned_end: atLocalTime(2026, 9, 26, 19),
+      recurrence_rule: null,
+      source: 'text',
+      created_at: atLocalTime(2026, 9, 25),
+      latest_outcome: null,
+      ...planChanges,
+      ...(description ? { description } : {}),
+    } as Plan;
+  }
+
+  const ids = (items: Plan[]) => items.map((item) => item.id);
+  const now = new Date(2026, 9, 26, 12, 0, 0);
+
+  it('sorts newest and oldest creation dates in the requested directions', () => {
+    const items = [
+      makePlan('middle', { created_at: atLocalTime(2026, 9, 24) }),
+      makePlan('newest', { created_at: atLocalTime(2026, 9, 26) }),
+      makePlan('oldest', { created_at: atLocalTime(2026, 9, 22) }),
+    ];
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, DEFAULT_PLAN_FILTERS, 'created_newest', now)), ['newest', 'middle', 'oldest']);
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, DEFAULT_PLAN_FILTERS, 'created_oldest', now)), ['oldest', 'middle', 'newest']);
+  });
+
+  it('sorts plan dates both ways, keeps undated plans last and breaks ties by newest creation', () => {
+    const items = [
+      makePlan('undated', { planned_start: null as unknown as string }),
+      makePlan('far', { planned_start: atLocalTime(2026, 10, 2) }),
+      makePlan('tie-old', { planned_start: atLocalTime(2026, 9, 27), created_at: atLocalTime(2026, 9, 20) }),
+      makePlan('near', { planned_start: atLocalTime(2026, 9, 26, 13) }),
+      makePlan('tie-new', { planned_start: atLocalTime(2026, 9, 27), created_at: atLocalTime(2026, 9, 25) }),
+    ];
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, DEFAULT_PLAN_FILTERS, 'start_nearest', now)), ['near', 'tie-new', 'tie-old', 'far', 'undated']);
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, DEFAULT_PLAN_FILTERS, 'start_farthest', now)), ['far', 'tie-new', 'tie-old', 'near', 'undated']);
+  });
+
+  it('maps pending to no outcome and status filters to persisted outcome statuses', () => {
+    const items = [
+      makePlan('pending'),
+      makePlan('done', { latest_outcome: { id: 'o1', plan_id: 'done', status: 'done', actual_start: null, postponed_to: null, note: null, reported_via: 'web', reported_at: atLocalTime(2026, 9, 26) } }),
+      makePlan('postponed', { latest_outcome: { id: 'o2', plan_id: 'postponed', status: 'postponed', actual_start: null, postponed_to: atLocalTime(2026, 9, 28), note: null, reported_via: 'web', reported_at: atLocalTime(2026, 9, 26) } }),
+      makePlan('skipped', { latest_outcome: { id: 'o3', plan_id: 'skipped', status: 'skipped', actual_start: null, postponed_to: null, note: null, reported_via: 'web', reported_at: atLocalTime(2026, 9, 26) } }),
+    ];
+    for (const [status, id] of [['pending', 'pending'], ['done', 'done'], ['postponed', 'postponed'], ['skipped', 'skipped']] as Array<[PlanFilters['status'], string]>) {
+      assert.deepStrictEqual(ids(sortAndFilterPlans(items, { ...DEFAULT_PLAN_FILTERS, status }, 'created_newest', now)), [id]);
+    }
+  });
+
+  it('uses local day and Monday-based week boundaries for time filters', () => {
+    const items = [
+      makePlan('previous-week', { planned_start: atLocalTime(2026, 9, 25, 23) }),
+      makePlan('today-past', { planned_start: atLocalTime(2026, 9, 26, 10) }),
+      makePlan('today-future', { planned_start: atLocalTime(2026, 9, 26, 15) }),
+      makePlan('tomorrow', { planned_start: atLocalTime(2026, 9, 27, 9) }),
+      makePlan('weekend', { planned_start: atLocalTime(2026, 9, 31, 9) }),
+      makePlan('next-week', { planned_start: atLocalTime(2026, 10, 2, 9) }),
+    ];
+    const filterTime = (time: PlanFilters['time']) => ids(sortAndFilterPlans(items, { ...DEFAULT_PLAN_FILTERS, time }, 'start_nearest', now));
+    assert.deepStrictEqual(filterTime('today'), ['today-past', 'today-future']);
+    assert.deepStrictEqual(filterTime('tomorrow'), ['tomorrow']);
+    assert.deepStrictEqual(filterTime('this_week'), ['today-past', 'today-future', 'tomorrow', 'weekend']);
+    assert.deepStrictEqual(filterTime('past'), ['previous-week', 'today-past']);
+    assert.deepStrictEqual(filterTime('future'), ['today-future', 'tomorrow', 'weekend', 'next-week']);
+  });
+
+  it('uses available categories and searches titles plus any supplied description', () => {
+    const items = [
+      makePlan('Koşu Planı', { category: 'sport' }),
+      makePlan('Desk session', { category: 'work', description: 'Project Aurora planning' }),
+      makePlan('Reading', { category: 'study' }),
+    ];
+    assert.deepStrictEqual(getPlanCategories(items), ['sport', 'study', 'work']);
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, { ...DEFAULT_PLAN_FILTERS, category: 'sport' }, 'created_newest', now)), ['Koşu Planı']);
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, { ...DEFAULT_PLAN_FILTERS, search: 'aurora' }, 'created_newest', now)), ['Desk session']);
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, { ...DEFAULT_PLAN_FILTERS, search: 'koşu' }, 'created_newest', now)), ['Koşu Planı']);
+  });
+
+  it('combines filters, counts active filters and returns an empty result for no matches', () => {
+    const items = [
+      makePlan('Planning Run', { category: 'sport', planned_start: atLocalTime(2026, 9, 26, 15) }),
+      makePlan('Planning Study', { category: 'study', planned_start: atLocalTime(2026, 9, 26, 15) }),
+      makePlan('Past Planning Run', { category: 'sport', planned_start: atLocalTime(2026, 9, 26, 10) }),
+      makePlan('Done Planning Run', { category: 'sport', planned_start: atLocalTime(2026, 9, 26, 15), latest_outcome: { id: 'o4', plan_id: 'Done Planning Run', status: 'done', actual_start: null, postponed_to: null, note: null, reported_via: 'web', reported_at: atLocalTime(2026, 9, 26) } }),
+    ];
+    const combined: PlanFilters = { status: 'pending', time: 'future', category: 'sport', search: 'planning' };
+    assert.deepStrictEqual(ids(sortAndFilterPlans(items, combined, 'created_newest', now)), ['Planning Run']);
+    assert.strictEqual(countActivePlanFilters(combined), 4);
+    assert.strictEqual(countActivePlanFilters(DEFAULT_PLAN_FILTERS), 0);
+    assert.deepStrictEqual(sortAndFilterPlans(items, { ...combined, search: 'no such plan' }, 'created_newest', now), []);
   });
 });
 

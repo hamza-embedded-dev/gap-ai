@@ -139,4 +139,28 @@ describe('GAP-AI W1-4 Web Integration Bug Fixes Verification Tests', () => {
       );
     });
   });
+
+  describe('6. Plan sorting and filtering controls', () => {
+    const planListContent = fs.readFileSync(path.join(webSrcDir, 'pages/PlanList.tsx'), 'utf-8');
+    const planFiltersContent = fs.readFileSync(path.join(webSrcDir, 'utils/planFilters.ts'), 'utf-8');
+
+    it('renders accessible search, sort, filter controls, active chips, counts and clear actions', () => {
+      assert.ok(planListContent.includes('aria-label="Search plans by title or description"'));
+      assert.ok(planListContent.includes('Newest created'));
+      assert.ok(planListContent.includes('Oldest created'));
+      assert.ok(planListContent.includes('Plan date: nearest'));
+      assert.ok(planListContent.includes('Plan date: farthest'));
+      assert.ok(planListContent.includes('Showing {filteredPlans.length} of {plans.length}'));
+      assert.ok(planListContent.includes('aria-label="Active filters"'));
+      assert.ok(planListContent.includes('onClick={clearFilters}'));
+      assert.ok(planListContent.includes('No plans match these filters'));
+    });
+
+    it('keeps the search and filter defaults transient and maps pending to no outcome', () => {
+      assert.ok(planListContent.includes("useState<PlanSort>('created_newest')"));
+      assert.ok(planListContent.includes('useState<PlanFilters>(DEFAULT_PLAN_FILTERS)'));
+      assert.ok(planFiltersContent.includes("plan.latest_outcome?.status ?? 'pending'"));
+      assert.ok(planFiltersContent.includes("case 'this_week':"));
+    });
+  });
 });
