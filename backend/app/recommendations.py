@@ -31,6 +31,7 @@ def apply_policy(behavior: list[dict[str, Any]], feedback: list[dict[str, Any]],
         behavior_slots = 2
     discovery_slots = 3 - behavior_slots
     hidden: set[str] = set()
+    expired_dismissals: set[str] = set()
     useful = set()
     not_useful = set()
     for entry in feedback:
@@ -42,14 +43,16 @@ def apply_policy(behavior: list[dict[str, Any]], feedback: list[dict[str, Any]],
                 continue
             if created > now - timedelta(days=DISMISSAL_DAYS):
                 hidden.add(rid)
+            else:
+                expired_dismissals.add(rid)
         if entry.get("rating") == "useful":
             useful.add(rid)
         elif entry.get("rating") == "not_useful":
             not_useful.add(rid)
     behavior = [dict(r, source="behavior", label=None) for r in behavior if r["id"] not in hidden]
-    discovery = [dict(i, source="discovery", label="Not based on your history", why="Starter idea; not based on your history.", confidence="none", next_step=i["message"]) for i in DISCOVERY_IDEAS if i["id"] not in hidden]
+    discovery = [dict(i, source="discovery", label="Not based on your history", why="Starter idea; not based on your history.", confidence="none", evidence={}, next_step=i["message"]) for i in DISCOVERY_IDEAS if i["id"] not in hidden]
     # Persisted useful feedback affects selection: positively rated ideas are prioritized.
-    rank = lambda r: (r["id"] not in useful, r["id"] in not_useful, r["id"])
+    rank = lambda r: (r["id"] not in useful, r["id"] not in expired_dismissals, r["id"] in not_useful, r["id"])
     behavior.sort(key=rank)
     discovery.sort(key=rank)
     chosen = behavior[:behavior_slots]

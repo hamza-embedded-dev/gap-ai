@@ -36,5 +36,6 @@ def create_feedback(payload: FeedbackRequest, user: AuthenticatedUser = Depends(
     if save is None:
         raise APIError(503, "unavailable", "Recommendation feedback storage is unavailable.")
     row = save(user.id, payload.model_dump())
-    row.pop("user_id", None)
-    return row
+    # Stores can return a view of the inserted row; never mutate that object.
+    # Database reads remain scoped with the authenticated user_id in the store.
+    return {key: value for key, value in row.items() if key != "user_id"}

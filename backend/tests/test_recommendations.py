@@ -8,6 +8,7 @@ def test_discovery_works_without_history_and_is_labeled():
     assert len(cards) == 3
     assert all(c["source"] == "discovery" and c["label"] == "Not based on your history" for c in cards)
     assert all(c["confidence"] == "none" for c in cards)
+    assert all(c["evidence"] == {} for c in cards)
 
 
 def test_policy_caps_and_deduplicates_and_recent_dismissal_hides():
@@ -27,5 +28,7 @@ def test_useful_feedback_changes_selection_order():
 
 def test_dismissal_window_expires():
     old = datetime.now(timezone.utc)-timedelta(days=31)
-    assert "discovery-walk" in [c["id"] for c in apply_policy([], [{"recommendation_id":"discovery-walk", "action":"dismissed", "created_at":old.isoformat()}])]
+    cards = apply_policy([], [{"recommendation_id":"discovery-walk", "action":"dismissed", "created_at":old.isoformat()}])
+    assert "discovery-walk" in [c["id"] for c in cards]
+    assert len(cards) <= 3
 
