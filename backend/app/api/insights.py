@@ -13,6 +13,7 @@ from app.api.errors import APIError
 from app.api.plans import current_user
 from app.api.upcoming import get_system_time
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
+from app.recommendations import apply_policy
 
 router = APIRouter()
 
@@ -61,8 +62,12 @@ class BehaviorRecommendation(BaseModel):
     message: str
     why: str
     evidence: dict[str, str | int | float]
-    confidence: Literal["moderate"]
+    confidence: Literal["moderate", "none"]
     next_step: str
+    source: Literal["behavior", "discovery"] = "behavior"
+    label: str | None = None
+    dedup_key: str | None = None
+    duration_minutes: int | None = Field(default=None, ge=5, le=1440)
 
 
 class InsightsResponse(BaseModel):
@@ -140,5 +145,9 @@ def get_insights(
     )
     history_fn = getattr(store, "list_plans")
     history = history_fn(user_id=user.id)
-    result["recommendations"] = calculate_recommendations(history, outcomes, user_timezone=user.timezone)
+    feedback_fn = getattr(store, "list_recommendation_feedback", None)
+    feedback = feedback_fn(user.id) if feedback_fn else []
+    result["recommendations"] = apply_policy(
+        calculate_recommendations(history, outcomes, user_timezone=user.timezone), feedback
+    )
     return result
