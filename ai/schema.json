@@ -157,6 +157,19 @@
     }
   ],
   "$defs": {
+    "BehaviorRecommendation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "title", "message", "why", "evidence", "confidence", "next_step"],
+      "properties": {
+        "id": {"type":"string"}, "title":{"type":"string"}, "message":{"type":"string"},
+        "why":{"type":"string"}, "evidence":{"type":"object", "additionalProperties":{"type":["string","number"]}},
+        "confidence":{"enum":["moderate"]}, "next_step":{"type":"string"}
+      }
+    },
+    "InsightsResponse": {
+      "type":"object", "required":["recommendations"],
+      "properties":{"recommendations":{"type":"array","maxItems":3,"items":{"$ref":"#/$defs/BehaviorRecommendation"}}}
+    },
     "VoicePlanResponse": {
       "description": "POST /voice response for a create_plan intent. Recommendation text is sourced from the same saved plan suggestion returned by GET /plans/{plan_id}/suggestion.",
       "type": "object",

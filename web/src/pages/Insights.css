@@ -16,6 +16,11 @@
   max-width: 100%;
 }
 
+.coach-section { width: 100%; padding: 20px; border: 1px solid var(--color-border-subtle, #e2e8f0); border-radius: 16px; background: var(--color-bg-surface, #fff); }
+.coach-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.coach-card { min-width: 0; padding: 16px; border: 1px solid var(--color-border-subtle, #e2e8f0); border-radius: 12px; overflow-wrap: anywhere; }
+.coach-card small { display: block; color: var(--color-text-muted, #64748b); margin: 8px 0; }
+
 /* ==========================================================================
    Header & Action Bar
    ========================================================================== */

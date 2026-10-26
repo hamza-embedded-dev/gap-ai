@@ -33,6 +33,12 @@ export interface TrendVsPrev {
   adherence_pct_delta?: number | null;
 }
 
+export interface BehaviorRecommendation {
+  id: string; title: string; message: string; why: string;
+  evidence: Record<string, string | number>;
+  confidence: 'moderate'; next_step: string;
+}
+
 export interface InsightsResponse {
   period: InsightsPeriod;
   planned: number;
@@ -50,6 +56,7 @@ export interface InsightsResponse {
   narrative?: string | null;
   is_demo?: boolean;
   data_label?: 'real' | 'demo' | string;
+  recommendations?: BehaviorRecommendation[];
 }
 
 /**
@@ -63,7 +70,13 @@ export async function fetchInsights(
   period: InsightsPeriod = 'week'
 ): Promise<InsightsResponse> {
   const query = encodeURIComponent(period);
-  return apiFetch<InsightsResponse>(`/insights?period=${query}`, {
-    method: 'GET',
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    return await apiFetch<InsightsResponse>(`/insights?period=${query}`, {
+      method: 'GET', signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

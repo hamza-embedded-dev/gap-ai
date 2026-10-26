@@ -6,9 +6,9 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.analytics.insights import calculate_insights, get_period_window
+from app.analytics.insights import calculate_insights, calculate_recommendations, get_period_window
 from app.api.errors import APIError
 from app.api.plans import current_user
 from app.api.upcoming import get_system_time
@@ -53,6 +53,18 @@ class TrendInsight(BaseModel):
     adherence_pct_delta: float | None = None
 
 
+class BehaviorRecommendation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    message: str
+    why: str
+    evidence: dict[str, str | int | float]
+    confidence: Literal["moderate"]
+    next_step: str
+
+
 class InsightsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -72,6 +84,7 @@ class InsightsResponse(BaseModel):
     narrative: str | None
     is_demo: bool
     data_label: Literal["real", "demo"]
+    recommendations: list[BehaviorRecommendation] = Field(default_factory=list)
 
 
 @router.get("/insights", response_model=InsightsResponse)
@@ -117,7 +130,7 @@ def get_insights(
     else:
         outcomes = list_outcomes_fn(user.id)
 
-    return calculate_insights(
+    result = calculate_insights(
         plans=plans,
         outcomes=outcomes,
         period=period,
@@ -125,3 +138,7 @@ def get_insights(
         user_timezone=user.timezone,
         is_demo=user.is_demo,
     )
+    history_fn = getattr(store, "list_plans")
+    history = history_fn(user_id=user.id)
+    result["recommendations"] = calculate_recommendations(history, outcomes, user_timezone=user.timezone)
+    return result

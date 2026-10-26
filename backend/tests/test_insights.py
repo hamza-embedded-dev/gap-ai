@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.analytics.insights import (
+    calculate_recommendations,
     calculate_insights,
     get_period_window,
     parse_timestamp,
@@ -22,6 +23,21 @@ from app.api.insights import InsightsResponse, get_insights
 from app.api.upcoming import get_system_time
 from app.db.plans import AuthenticatedUser, get_plan_store
 from app.main import app
+
+
+def test_behavior_recommendations_require_three_distinct_reported_plans_and_include_evidence():
+    plans = []
+    outcomes = []
+    for index in range(3):
+        pid = f"p{index}"
+        plans.append({"id": pid, "category": "sport", "planned_start": f"2026-10-0{index + 1}T18:00:00+03:00"})
+        outcomes.append({"id": f"o{index}", "plan_id": pid, "status": "skipped", "reported_at": f"2026-10-0{index + 1}T19:00:00+03:00"})
+    recommendations = calculate_recommendations(plans, outcomes, user_timezone="Europe/Istanbul")
+    assert recommendations[0]["id"] == "missed-category"
+    assert recommendations[0]["evidence"]["count"] == 3
+    assert recommendations[0]["evidence"]["sample_size"] == 3
+    assert len(calculate_recommendations(plans[:2], outcomes[:2], user_timezone="Europe/Istanbul")) == 0
+    assert calculate_recommendations([], [], user_timezone="Europe/Istanbul") == []
 
 PEPPER = "p" * 32
 TOKEN_USER_A = "token-user-a"
