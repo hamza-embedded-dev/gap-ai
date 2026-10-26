@@ -259,9 +259,17 @@ def test_provider_failure_uses_deterministic_suggestion_fallback(test_setup, mon
     assert "uygun görünüyor" in response.json()["suggestion"]["message"]
 
 
-def test_pattern_suggestion_generated_when_adherence_is_low(test_setup):
+def test_pattern_suggestion_generated_when_adherence_is_low(
+    test_setup, monkeypatch: pytest.MonkeyPatch
+):
     client, fake_store, mock_llm = test_setup
     headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
+
+    # Keep this pattern-focused test independent of the live weather service.
+    monkeypatch.setattr(
+        "app.services.weather.WeatherService.get_forecast",
+        lambda *args, **kwargs: None,
+    )
 
     now = datetime.now(timezone.utc)
     # Three outcomes are the minimum history needed for personalization.
