@@ -91,6 +91,12 @@ jobs:
         run: |
           psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -f database/migrations/20261018_002_suggestions.sql
 
+      - name: Apply Suggestions Refresh Migration
+        env:
+          PGPASSWORD: test_password
+        run: |
+          psql -h localhost -p 5432 -U postgres -d gap_ai_test -v ON_ERROR_STOP=1 -f database/migrations/20261026_003_refresh_suggestions.sql
+
       - name: Verify Suggestions Table
         env:
           PGPASSWORD: test_password

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Protocol
 from urllib.parse import urljoin
@@ -41,6 +41,12 @@ class PlanStore(Protocol):
 
     def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
 
+    def update_plan(
+        self, *, user_id: str, plan_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool: ...
+
     def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]: ...
 
     def create_outcome(
@@ -69,6 +75,10 @@ class PlanStore(Protocol):
     def get_suggestion(self, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
 
     def save_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    def refresh_suggestion(
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]: ...
 
@@ -193,6 +203,36 @@ class SupabasePlanStore:
         response.raise_for_status()
         rows = response.json()
         return rows[0] if rows else None
+
+    def update_plan(
+        self, *, user_id: str, plan_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        response = self._client.patch(
+            urljoin(self._rest_url, "plans"),
+            params={
+                "select": PLAN_LIST_FIELDS,
+                "id": f"eq.{plan_id}",
+                "user_id": f"eq.{user_id}",
+            },
+            headers={"Prefer": "return=representation"},
+            json=changes,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return _plan_list_response(rows[0]) if rows else None
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool:
+        response = self._client.delete(
+            urljoin(self._rest_url, "plans"),
+            params={
+                "select": "id",
+                "id": f"eq.{plan_id}",
+                "user_id": f"eq.{user_id}",
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        response.raise_for_status()
+        return bool(response.json())
 
     def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]:
         response = self._client.get(
@@ -357,6 +397,23 @@ class SupabasePlanStore:
         rows = response.json()
         return rows[0] if rows else None
 
+    def refresh_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        refreshed_row = _suggestion_row(user_id, plan_id, suggestion_data)
+        refreshed_row["created_at"] = datetime.now(timezone.utc).isoformat()
+        response = self._client.patch(
+            urljoin(self._rest_url, "suggestions"),
+            params={"select": SUGGESTION_FIELDS, "user_id": f"eq.{user_id}", "plan_id": f"eq.{plan_id}"},
+            headers={"Prefer": "return=representation"},
+            json={k: v for k, v in refreshed_row.items() if k not in ("user_id", "plan_id")},
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if not rows:
+            return self.save_suggestion(user_id, plan_id, suggestion_data)
+        return rows[0]
+
     def save_suggestion(
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]:
@@ -381,7 +438,7 @@ class SupabasePlanStore:
         return existing
 
 
-SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence"
+SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence,created_at"
 OUTCOME_FIELDS = "id,plan_id,user_id,status,actual_start,postponed_to,note,reported_via,reported_at"
 LATEST_OUTCOME_FIELDS = "id,status,actual_start,postponed_to,note,reported_via,reported_at"
 PLAN_LIST_FIELDS = (
@@ -478,6 +535,16 @@ class LazyPlanStore:
     def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None:
         return _build_plan_store().get_plan(user_id=user_id, plan_id=plan_id)
 
+    def update_plan(
+        self, *, user_id: str, plan_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return _build_plan_store().update_plan(
+            user_id=user_id, plan_id=plan_id, changes=changes
+        )
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool:
+        return _build_plan_store().delete_plan(user_id=user_id, plan_id=plan_id)
+
     def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]:
         return _build_plan_store().list_outcomes(user_id=user_id)
 
@@ -526,6 +593,11 @@ class LazyPlanStore:
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]:
         return _build_plan_store().save_suggestion(user_id, plan_id, suggestion_data)
+
+    def refresh_suggestion(
+        self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _build_plan_store().refresh_suggestion(user_id, plan_id, suggestion_data)
 
 
 @lru_cache(maxsize=1)

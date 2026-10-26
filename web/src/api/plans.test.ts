@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { apiFetch, ApiError } from './client.ts';
 import {
   createPlan,
+  deletePlan,
   getLocalCurrentDate,
   listPlans,
   mockListPlans,
@@ -12,7 +13,9 @@ import {
   parseNaturalLanguagePlan,
   reportPlanOutcome,
   validatePlanForCreation,
+  validatePlanForUpdate,
   formatOutcomeTime,
+  updatePlan,
 } from './plans.ts';
 import type { ParsedPlan, Plan, PlanOutcome } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
@@ -522,6 +525,67 @@ describe('Plan sorting and filtering', () => {
     assert.strictEqual(countActivePlanFilters(combined), 4);
     assert.strictEqual(countActivePlanFilters(DEFAULT_PLAN_FILTERS), 0);
     assert.deepStrictEqual(sortAndFilterPlans(items, { ...combined, search: 'no such plan' }, 'created_newest', now), []);
+  });
+});
+
+describe('Plan editing and deletion API', () => {
+  const originalFetch = globalThis.fetch;
+  const editable = {
+    title: 'Updated Run',
+    category: 'sport' as const,
+    planned_start: '2026-10-18T18:30:00+03:00',
+    planned_end: '2026-10-18T19:30:00+03:00',
+  };
+
+  it('validates supported plan fields and rejects invalid times', () => {
+    assert.strictEqual(validatePlanForUpdate(editable), null);
+    assert.match(validatePlanForUpdate({ ...editable, title: '  ' }) || '', /title/i);
+    assert.match(validatePlanForUpdate({ ...editable, planned_end: editable.planned_start }) || '', /after/i);
+  });
+
+  it('updates the specified plan with the authenticated API client', async () => {
+    let requestUrl = '';
+    let requestMethod = '';
+    let requestBody: Record<string, unknown> = {};
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      requestUrl = url;
+      requestMethod = init?.method || '';
+      requestBody = JSON.parse(String(init?.body || '{}'));
+      return new Response(JSON.stringify({
+        id: 'plan-1', ...editable, recurrence_rule: null, source: 'text',
+        created_at: '2026-10-17T12:00:00+03:00', latest_outcome: null,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const plan = await updatePlan('plan-1', { ...editable, title: ' Updated Run ' });
+      assert.ok(requestUrl.endsWith('/plans/plan-1'));
+      assert.strictEqual(requestMethod, 'PUT');
+      assert.strictEqual(requestBody.title, 'Updated Run');
+      assert.strictEqual(plan.id, 'plan-1');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('sends DELETE for the selected plan and propagates backend errors', async () => {
+    let requestUrl = '';
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      requestUrl = url;
+      assert.strictEqual(init?.method, 'DELETE');
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    try {
+      await deletePlan('plan-2');
+      assert.ok(requestUrl.endsWith('/plans/plan-2'));
+
+      globalThis.fetch = (async () => new Response(
+        JSON.stringify({ error: 'not_found', message: 'Plan not found.' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      )) as typeof fetch;
+      await assert.rejects(() => deletePlan('plan-2'), { name: 'ApiError', status: 404 });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

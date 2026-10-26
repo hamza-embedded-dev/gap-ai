@@ -1,6 +1,6 @@
 -- database/tests/verify_suggestions.sql
--- Verification for database/migrations/20261018_002_suggestions.sql.
--- Run with psql -v ON_ERROR_STOP=1 after both migrations. Everything is rolled back.
+-- Verification for the suggestion and refresh migrations.
+-- Run with psql -v ON_ERROR_STOP=1 after all migrations. Everything is rolled back.
 
 \set ON_ERROR_STOP on
 
@@ -29,7 +29,15 @@ BEGIN
     RAISE EXCEPTION 'service_role must read and insert suggestions';
   END IF;
   IF has_table_privilege('service_role', 'public.suggestions', 'UPDATE') THEN
-    RAISE EXCEPTION 'saved suggestions must not be updated (no refresh in MVP)';
+    RAISE EXCEPTION 'service_role must not have unrestricted table UPDATE';
+  END IF;
+  IF NOT has_column_privilege('service_role', 'public.suggestions', 'message', 'UPDATE')
+     OR NOT has_column_privilege('service_role', 'public.suggestions', 'created_at', 'UPDATE') THEN
+    RAISE EXCEPTION 'service_role must be able to refresh recommendation content and freshness';
+  END IF;
+  IF has_column_privilege('service_role', 'public.suggestions', 'user_id', 'UPDATE')
+     OR has_column_privilege('service_role', 'public.suggestions', 'plan_id', 'UPDATE') THEN
+    RAISE EXCEPTION 'refresh must not change suggestion ownership';
   END IF;
 
   -- Fixtures

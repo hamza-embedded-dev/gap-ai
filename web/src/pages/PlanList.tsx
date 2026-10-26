@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ClipboardList, Pencil, RotateCcw, Repeat, Search, X } from 'lucide-react';
-import { listPlans } from '../api/plans';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { AlertTriangle, ClipboardList, Pencil, RotateCcw, Repeat, Save, Search, Trash2, X } from 'lucide-react';
+import { deletePlan, fetchPlanSuggestion, listPlans, updatePlan } from '../api/plans';
+import type { PlanSuggestion } from '../api/plans';
 import { OutcomeButtons } from '../components/OutcomeButtons';
-import type { Plan, PlanOutcome } from '../types/plan';
+import type { Plan, PlanOutcome, PlanUpdateRequest } from '../types/plan';
 import {
   countActivePlanFilters,
   DEFAULT_PLAN_FILTERS,
@@ -50,6 +51,66 @@ const SORT_OPTIONS: Array<{ value: PlanSort; label: string }> = [
   { value: 'start_farthest', label: 'Plan date: farthest' },
 ];
 
+const PLAN_CATEGORIES: PlanUpdateRequest['category'][] = [
+  'sport', 'study', 'work', 'meeting', 'health', 'social', 'personal', 'other',
+];
+
+function toLocalDateTimeInput(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function planEditFormValues(plan: Plan): PlanUpdateRequest {
+  return {
+    title: plan.title,
+    category: plan.category as PlanUpdateRequest['category'],
+    planned_start: toLocalDateTimeInput(plan.planned_start),
+    planned_end: toLocalDateTimeInput(plan.planned_end),
+  };
+}
+
+function SuggestionCard({ planId, planTitle, refreshKey, enabled }: {
+  planId: string;
+  planTitle: string;
+  refreshKey: string;
+  enabled: boolean;
+}) {
+  const [suggestion, setSuggestion] = useState<PlanSuggestion | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    if (!enabled) {
+      setLoading(false);
+      return () => { active = false; };
+    }
+    setLoading(true);
+    setError(false);
+    void fetchPlanSuggestion(planId)
+      .then((value) => { if (active) setSuggestion(value); })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [planId, refreshKey, retry, enabled]);
+
+  if (loading) return <div className="suggestion-card" aria-live="polite">Loading your personalized recommendation…</div>;
+  if (error) return <div className="suggestion-card" role="alert">
+    Recommendation could not be loaded. <button type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>
+  </div>;
+  if (!suggestion) return null;
+  return <aside className="suggestion-card" aria-label="Personalized recommendation">
+    <strong>{planTitle} · Personalized recommendation</strong>
+    <p>{suggestion.message}</p>
+    {suggestion.evidence.adherence_pct != null && <small>
+      Based on {suggestion.evidence.outcome_count ?? ''} outcomes, completion rate: {suggestion.evidence.adherence_pct}%
+    </small>}
+  </aside>;
+}
+
 export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListProps) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -73,6 +134,12 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
 
   const statusLabel = STATUS_OPTIONS.find((option) => option.value === filters.status)?.label ?? filters.status;
   const timeLabel = TIME_OPTIONS.find((option) => option.value === filters.time)?.label ?? filters.time;
+  const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+  const [editForm, setEditForm] = useState<PlanUpdateRequest | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [activeMutationId, setActiveMutationId] = useState<string | null>(null);
 
   const loadPlans = useCallback(() => {
     setIsLoading(true);
@@ -125,6 +192,92 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
     setPlans((prev) =>
       prev.map((plan) => (plan.id === planId ? { ...plan, latest_outcome: outcome } : plan))
     );
+  };
+
+  const openEditDialog = (plan: Plan) => {
+    setEditingPlan(plan);
+    setEditForm(planEditFormValues(plan));
+    setEditError(null);
+    setActionError(null);
+    setActionNotice(null);
+  };
+
+  const closeEditDialog = () => {
+    if (activeMutationId) return;
+    setEditingPlan(null);
+    setEditForm(null);
+    setEditError(null);
+  };
+
+  const reloadPlansAfterMutation = async () => {
+    const refreshed = await listPlans();
+    setPlans(refreshed);
+  };
+
+  const handleEditSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingPlan || !editForm) return;
+
+    const start = new Date(editForm.planned_start);
+    const end = new Date(editForm.planned_end);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+      setEditError('Enter a valid start and end date and time.');
+      return;
+    }
+    if (end <= start) {
+      setEditError('End date and time must be after the start.');
+      return;
+    }
+
+    setEditError(null);
+    setActionError(null);
+    setActionNotice(null);
+    setActiveMutationId(editingPlan.id);
+    try {
+      const updated = await updatePlan(editingPlan.id, {
+        ...editForm,
+        title: editForm.title.trim(),
+        planned_start: start.toISOString(),
+        planned_end: end.toISOString(),
+      });
+      setPlans((current) => current.map((plan) => plan.id === updated.id ? updated : plan));
+      setEditingPlan(null);
+      setEditForm(null);
+      setActionNotice('Plan updated.');
+      try {
+        await reloadPlansAfterMutation();
+      } catch {
+        setActionError('The plan was updated, but the list could not be refreshed. Use Refresh to reload it.');
+      }
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Unable to update this plan. Try again.');
+    } finally {
+      setActiveMutationId(null);
+    }
+  };
+
+  const handleDelete = async (plan: Plan) => {
+    if (!window.confirm(
+      `Delete “${plan.title}”? Its outcome history and related recommendations will also be permanently deleted. This cannot be undone.`
+    )) return;
+
+    setActionError(null);
+    setActionNotice(null);
+    setActiveMutationId(plan.id);
+    try {
+      await deletePlan(plan.id);
+      setPlans((current) => current.filter((item) => item.id !== plan.id));
+      setActionNotice(`“${plan.title}” was deleted.`);
+      try {
+        await reloadPlansAfterMutation();
+      } catch {
+        setActionError('The plan was deleted, but the list could not be refreshed. Use Refresh to reload it.');
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to delete this plan. Try again.');
+    } finally {
+      setActiveMutationId(null);
+    }
   };
 
   const formatDateTime = (isoString: string) => {
@@ -305,6 +458,9 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
         </div>
       </div>
 
+      {actionError && <p className="plan-action-error" role="alert">{actionError}</p>}
+      {actionNotice && <p className="plan-action-notice" role="status">{actionNotice}</p>}
+
       {/* Loading State */}
       {isLoading && (
         <div className="plan-list-loading" id="plan-list-loading-state">
@@ -407,6 +563,30 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                       )}
                     </div>
                   </div>
+                  <div className="plan-card-actions" aria-label={`Actions for ${plan.title}`}>
+                    <button
+                      type="button"
+                      className="plan-action-button"
+                      aria-label={`Edit ${plan.title}`}
+                      onClick={() => openEditDialog(plan)}
+                      disabled={!token || mockMode || activeMutationId !== null}
+                      title={mockMode ? 'Editing requires the live backend.' : 'Edit plan'}
+                    >
+                      <Pencil size={15} aria-hidden="true" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="plan-action-button plan-delete-button"
+                      aria-label={`Delete ${plan.title}`}
+                      onClick={() => void handleDelete(plan)}
+                      disabled={!token || mockMode || activeMutationId !== null}
+                      title={mockMode ? 'Deletion requires the live backend.' : 'Delete plan'}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Details Grid */}
@@ -421,6 +601,13 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                   </div>
                 </div>
 
+                <SuggestionCard
+                  planId={plan.id}
+                  planTitle={plan.title}
+                  enabled={!mockMode && Boolean(token)}
+                  refreshKey={plan.latest_outcome?.reported_at ?? ''}
+                />
+
                 {/* Outcome Reporting Section */}
                 <div className="plan-outcome-section">
                   <OutcomeButtons
@@ -434,6 +621,82 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
               </article>
             );
           })}
+        </div>
+      )}
+
+      {editingPlan && editForm && (
+        <div className="plan-edit-backdrop">
+          <section
+            className="plan-edit-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plan-edit-title"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') closeEditDialog();
+            }}
+          >
+            <div className="plan-edit-heading">
+              <div>
+                <h3 id="plan-edit-title">Edit plan</h3>
+                <p>Update the saved plan details.</p>
+              </div>
+              <button
+                type="button"
+                className="plan-dialog-close"
+                aria-label="Close edit dialog"
+                onClick={closeEditDialog}
+                disabled={activeMutationId !== null}
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <form className="plan-edit-form" onSubmit={(event) => void handleEditSubmit(event)}>
+              <label>
+                Plan title
+                <input
+                  autoFocus
+                  required
+                  value={editForm.title}
+                  onChange={(event) => setEditForm({ ...editForm, title: event.target.value })}
+                />
+              </label>
+              <label>
+                Category
+                <select
+                  value={editForm.category}
+                  onChange={(event) => setEditForm({ ...editForm, category: event.target.value as PlanUpdateRequest['category'] })}
+                >
+                  {PLAN_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </label>
+              <label>
+                Start date and time
+                <input
+                  type="datetime-local"
+                  required
+                  value={editForm.planned_start}
+                  onChange={(event) => setEditForm({ ...editForm, planned_start: event.target.value })}
+                />
+              </label>
+              <label>
+                End date and time
+                <input
+                  type="datetime-local"
+                  required
+                  value={editForm.planned_end}
+                  onChange={(event) => setEditForm({ ...editForm, planned_end: event.target.value })}
+                />
+              </label>
+              {editError && <p className="plan-edit-error" role="alert">{editError}</p>}
+              <div className="plan-edit-actions">
+                <button type="button" className="btn btn-secondary" onClick={closeEditDialog} disabled={activeMutationId !== null}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={activeMutationId !== null}>
+                  <Save size={16} aria-hidden="true" />
+                  {activeMutationId === editingPlan.id ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </section>
         </div>
       )}
     </div>

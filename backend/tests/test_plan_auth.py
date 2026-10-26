@@ -48,6 +48,8 @@ class TokenStore:
         self.lookups: list[str] = []
         self.created: list[dict[str, object]] = []
         self.requests: dict[tuple[str, str], tuple[str, dict[str, object]]] = {}
+        self.plans: dict[str, dict[str, object]] = {}
+        self.plan_owners: dict[str, str] = {}
 
     def get_user_for_token_hash(self, token_hash: str):
         self.lookups.append(token_hash)
@@ -63,7 +65,22 @@ class TokenStore:
             return snapshot, saved_hash != request_hash
         snapshot = self._snapshot(plan)
         self.requests[key] = (request_hash, snapshot)
+        self.plans[str(snapshot["id"])] = snapshot
+        self.plan_owners[str(snapshot["id"])] = user_id
         return snapshot, False
+
+    def update_plan(self, *, user_id: str, plan_id: str, changes: dict[str, object]):
+        if self.plan_owners.get(plan_id) != user_id:
+            return None
+        self.plans[plan_id].update(changes)
+        return self.plans[plan_id]
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool:
+        if self.plan_owners.get(plan_id) != user_id:
+            return False
+        self.plans.pop(plan_id, None)
+        self.plan_owners.pop(plan_id, None)
+        return True
 
     def create_demo_session(
         self, *, token_hash: str, created_at: datetime, expires_at: datetime
@@ -243,9 +260,34 @@ def _get(
     return trio.run(request)
 
 
+def _put(path: str, body: dict[str, object], token: str = TOKEN) -> httpx.Response:
+    async def request() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api_app), base_url="http://test"
+        ) as client:
+            return await client.put(path, json=body, headers={"Authorization": f"Bearer {token}"})
+
+    return trio.run(request)
+
+
+def _delete(path: str, token: str = TOKEN) -> httpx.Response:
+    async def request() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api_app), base_url="http://test"
+        ) as client:
+            return await client.delete(path, headers={"Authorization": f"Bearer {token}"})
+
+    return trio.run(request)
+
+
 @pytest.fixture
 def store():
-    token_store = TokenStore({TOKEN_HASH: (_user(), None)})
+    other_token = "other-user-token"
+    other_hash = hashlib.sha256((other_token + PEPPER).encode("utf-8")).hexdigest()
+    token_store = TokenStore({
+        TOKEN_HASH: (_user(), None),
+        other_hash: (_user(id="user-two"), None),
+    })
     api_app.dependency_overrides[get_plan_store] = lambda: token_store
     yield token_store
     api_app.dependency_overrides.clear()
@@ -253,6 +295,50 @@ def store():
 
 def _auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
+
+
+def _create_owned_plan(store: TokenStore) -> dict[str, object]:
+    plan, replayed = store.create_plan_idempotently(
+        user_id="user-one",
+        idempotency_key=str(uuid4()),
+        request_hash="hash",
+        plan={
+            "title": "Run", "category": "sport",
+            "planned_start": "2026-10-15T18:30:00+03:00",
+            "planned_end": "2026-10-15T19:30:00+03:00",
+            "recurrence_rule": None, "source": "text",
+        },
+    )
+    assert not replayed
+    return plan
+
+
+@_skip_windows
+def test_plan_mutation_routes_require_owner_and_persist_changes(store: TokenStore) -> None:
+    plan = _create_owned_plan(store)
+    plan_id = str(plan["id"])
+    body = {
+        "title": "Updated Run", "category": "health",
+        "planned_start": "2026-10-15T20:00:00+03:00",
+        "planned_end": "2026-10-15T21:00:00+03:00",
+    }
+
+    updated = _put(f"/plans/{plan_id}", body)
+    assert updated.status_code == 200
+    assert updated.json()["title"] == "Updated Run"
+    assert store.plans[plan_id]["category"] == "health"
+
+    wrong_owner_token = "other-user-token"
+    denied_update = _put(f"/plans/{plan_id}", {**body, "title": "Intrusion"}, wrong_owner_token)
+    denied_delete = _delete(f"/plans/{plan_id}", wrong_owner_token)
+    assert denied_update.status_code == 404
+    assert denied_delete.status_code == 404
+    assert store.plans[plan_id]["title"] == "Updated Run"
+
+    deleted = _delete(f"/plans/{plan_id}")
+    assert deleted.status_code == 204
+    assert plan_id not in store.plans
+    assert _delete(f"/plans/{plan_id}").status_code == 404
 
 
 @_skip_windows

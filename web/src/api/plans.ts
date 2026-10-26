@@ -8,6 +8,7 @@ import type {
   PlanCreateRequest,
   PlanListResponse,
   PlanOutcome,
+  PlanUpdateRequest,
 } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
 
@@ -43,6 +44,22 @@ export interface ParsePlanOptions {
 
 export interface SavePlanOptions {
   mockMode?: boolean;
+}
+
+export interface PlanSuggestion {
+  plan_id: string;
+  reason: 'weather' | 'pattern';
+  message: string;
+  proposed_start: string;
+  proposed_end: string;
+  evidence: { forecast?: string | null; adherence_pct?: number | null; outcome_count?: number | null };
+}
+
+export async function fetchPlanSuggestion(planId: string): Promise<PlanSuggestion | null> {
+  const result = await apiFetch<{ suggestion: PlanSuggestion | null }>(
+    `/plans/${encodeURIComponent(planId)}/suggestion`, { method: 'GET' }
+  );
+  return result.suggestion;
 }
 
 /**
@@ -561,6 +578,67 @@ export async function listPlans(options?: ListPlansOptions): Promise<Plan[]> {
   });
 
   return Array.isArray(response?.items) ? response.items : [];
+}
+
+const EDITABLE_PLAN_CATEGORIES = [
+  'sport',
+  'study',
+  'work',
+  'meeting',
+  'health',
+  'social',
+  'personal',
+  'other',
+] as const;
+
+/** Validates the complete editable plan payload before sending it to the API. */
+export function validatePlanForUpdate(plan: PlanUpdateRequest): string | null {
+  if (!plan.title.trim()) return 'Plan title cannot be empty.';
+  if (!EDITABLE_PLAN_CATEGORIES.includes(plan.category)) {
+    return 'Choose a valid plan category.';
+  }
+  for (const [field, value] of [
+    ['start', plan.planned_start],
+    ['end', plan.planned_end],
+  ] as const) {
+    if (!Number.isFinite(Date.parse(value)) || !/(Z|[+-]\d{2}:\d{2})$/i.test(value)) {
+      return `Enter a valid ${field} date and time.`;
+    }
+  }
+  if (Date.parse(plan.planned_end) <= Date.parse(plan.planned_start)) {
+    return 'End date and time must be after the start.';
+  }
+  return null;
+}
+
+/** Persist supported editable fields through the authenticated API. */
+export async function updatePlan(
+  planId: string,
+  changes: PlanUpdateRequest
+): Promise<Plan> {
+  const trimmedId = planId?.trim();
+  if (!trimmedId) throw new ApiError('Plan ID cannot be empty.', 422, 'validation_error');
+
+  const validationError = validatePlanForUpdate(changes);
+  if (validationError) throw new ApiError(validationError, 422, 'validation_error');
+
+  return apiFetch<Plan>(`/plans/${encodeURIComponent(trimmedId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...changes,
+      title: changes.title.trim(),
+    }),
+  });
+}
+
+/** Permanently deletes an owned plan. The backend applies the database FK rules. */
+export async function deletePlan(planId: string): Promise<void> {
+  const trimmedId = planId?.trim();
+  if (!trimmedId) throw new ApiError('Plan ID cannot be empty.', 422, 'validation_error');
+
+  await apiFetch<void>(`/plans/${encodeURIComponent(trimmedId)}`, {
+    method: 'DELETE',
+  });
 }
 
 /**

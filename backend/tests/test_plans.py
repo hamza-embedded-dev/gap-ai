@@ -16,9 +16,12 @@ from app.api.errors import APIError
 from app.api.plans import (
     PlanCreateRequest,
     PlanListResponse,
+    PlanUpdateRequest,
     canonical_request_hash,
     create_plan,
+    delete_plan,
     list_plans,
+    update_plan,
 )
 import app.db.plans as db_plans
 from app.db.plans import AuthenticatedUser, SupabasePlanStore
@@ -118,11 +121,21 @@ class FakePlanStore:
             )
             return matching
 
-    def delete_plan(self, user_id: str, idempotency_key: str) -> None:
-        record = self.requests[(user_id, idempotency_key)]
-        self.plans.pop(record["plan_id"], None)
-        self.plan_owners.pop(record["plan_id"], None)
-        record["plan_id"] = None
+    def update_plan(self, *, user_id: str, plan_id: str, changes: dict[str, object]):
+        if self.plan_owners.get(plan_id) != user_id:
+            return None
+        self.plans[plan_id].update(changes)
+        return self.plans[plan_id]
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool:
+        if self.plan_owners.get(plan_id) != user_id:
+            return False
+        self.plans.pop(plan_id, None)
+        self.plan_owners.pop(plan_id, None)
+        for record in self.requests.values():
+            if record["plan_id"] == plan_id:
+                record["plan_id"] = None
+        return True
 
     def _snapshot(self, plan: dict[str, object]) -> dict[str, object]:
         return {
@@ -197,6 +210,99 @@ def test_request_hash_uses_canonical_utf8_json_and_sha256() -> None:
     ).encode("utf-8")
 
     assert canonical_request_hash(request) == hashlib.sha256(canonical).hexdigest()
+
+
+def _valid_update(**changes: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "title": "Updated Run",
+        "category": "sport",
+        "planned_start": "2026-10-18T18:30:00+03:00",
+        "planned_end": "2026-10-18T19:30:00+03:00",
+    }
+    values.update(changes)
+    return values
+
+
+def test_update_plan_persists_supported_fields_for_the_authenticated_owner(store_and_users) -> None:
+    store, user, _ = store_and_users
+    original = _call(store, user, {"parsed_plan": _valid_plan(), "source": "text"})
+
+    updated = update_plan(
+        str(original["id"]), PlanUpdateRequest.model_validate(_valid_update()), user, store
+    )
+
+    assert updated["title"] == "Updated Run"
+    assert updated["category"] == "sport"
+    assert updated["planned_start"] == "2026-10-18T18:30:00+03:00"
+    assert updated["planned_end"] == "2026-10-18T19:30:00+03:00"
+    assert updated["source"] == "text"
+
+
+def test_update_plan_does_not_allow_another_user_to_change_it(store_and_users) -> None:
+    store, owner, other_user = store_and_users
+    original = _call(store, owner, {"parsed_plan": _valid_plan(), "source": "text"})
+
+    with pytest.raises(APIError) as error:
+        update_plan(
+            str(original["id"]), PlanUpdateRequest.model_validate(_valid_update()), other_user, store
+        )
+
+    assert error.value.status_code == 404
+    assert store.plans[str(original["id"])]["title"] == original["title"]
+
+
+def test_update_plan_rejects_invalid_or_missing_plan_ids(store_and_users) -> None:
+    store, user, _ = store_and_users
+
+    with pytest.raises(APIError) as error:
+        update_plan("not-a-uuid", PlanUpdateRequest.model_validate(_valid_update()), user, store)
+
+    assert error.value.status_code == 404
+    with pytest.raises(APIError) as error:
+        update_plan(str(uuid4()), PlanUpdateRequest.model_validate(_valid_update()), user, store)
+    assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"title": "  "},
+        {"category": "invalid"},
+        {"planned_start": "2026-10-18T18:30:00"},
+        {"planned_end": "2026-10-18T18:00:00+03:00"},
+        {"description": "not a stored plan field"},
+    ],
+)
+def test_plan_update_validation_rejects_unsupported_or_invalid_fields(changes) -> None:
+    with pytest.raises(ValidationError):
+        PlanUpdateRequest.model_validate(_valid_update(**changes))
+
+
+def test_delete_plan_removes_only_owned_plan_and_preserves_idempotency_record(store_and_users) -> None:
+    store, owner, other_user = store_and_users
+    original = _call(
+        store, owner, {"parsed_plan": _valid_plan(), "source": "text"}, "keep-replay"
+    )
+    unrelated = _call(store, other_user, {"parsed_plan": _valid_plan(), "source": "text"})
+
+    with pytest.raises(APIError) as forbidden:
+        delete_plan(str(original["id"]), other_user, store)
+    assert forbidden.value.status_code == 404
+    assert str(original["id"]) in store.plans
+
+    response = delete_plan(str(original["id"]), owner, store)
+    assert response.status_code == 204
+    assert str(original["id"]) not in store.plans
+    assert str(unrelated["id"]) in store.plans
+    assert store.requests[(owner.id, "keep-replay")]["plan_id"] is None
+
+
+def test_delete_plan_returns_not_found_for_invalid_or_missing_plan(store_and_users) -> None:
+    store, user, _ = store_and_users
+    for plan_id in ("not-a-uuid", str(uuid4())):
+        with pytest.raises(APIError) as error:
+            delete_plan(plan_id, user, store)
+        assert error.value.status_code == 404
 
 
 def test_unknown_request_field_is_rejected_before_idempotency_hashing() -> None:
@@ -311,11 +417,110 @@ def test_supabase_rpc_retries_transaction_conflict_then_uses_snapshot() -> None:
     assert conflict is False
 
 
+class PlanMutationAPI:
+    def __init__(self, row: dict[str, object]) -> None:
+        self.rows = {str(row["id"]): row}
+        self.requests: list[httpx.Request] = []
+        self.fail = False
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        assert request.url.path == "/rest/v1/plans"
+        if self.fail:
+            return httpx.Response(503, json={"message": "database unavailable"}, request=request)
+        plan_id = request.url.params["id"].removeprefix("eq.")
+        owner_id = request.url.params["user_id"].removeprefix("eq.")
+        row = self.rows.get(plan_id)
+        if row is None or row["user_id"] != owner_id:
+            return httpx.Response(200, json=[], request=request)
+        if request.method == "PATCH":
+            row.update(json.loads(request.content))
+            return httpx.Response(200, json=[row], request=request)
+        if request.method == "DELETE":
+            del self.rows[plan_id]
+            return httpx.Response(200, json=[{"id": plan_id}], request=request)
+        raise AssertionError(f"Unexpected method {request.method}")
+
+
+def _plan_mutation_store(api: PlanMutationAPI) -> SupabasePlanStore:
+    store = SupabasePlanStore("https://example.invalid", "test-service-key")
+    store._client.close()
+    store._client = httpx.Client(
+        base_url="https://example.invalid", transport=httpx.MockTransport(api)
+    )
+    return store
+
+
+def _stored_plan_row() -> dict[str, object]:
+    return {
+        "id": PLAN_ID,
+        "user_id": "user-one",
+        "title": "Morning Run",
+        "category": "sport",
+        "planned_start": "2026-10-18T15:30:00+00:00",
+        "planned_end": "2026-10-18T16:30:00+00:00",
+        "recurrence_rule": None,
+        "source": "text",
+        "created_at": "2026-10-10T10:00:00+00:00",
+        "outcomes": [{
+            "id": str(uuid4()),
+            "status": "done",
+            "actual_start": None,
+            "postponed_to": None,
+            "note": None,
+            "reported_via": "web",
+            "reported_at": "2026-10-18T16:00:00+00:00",
+        }],
+    }
+
+
+def test_supabase_update_and_delete_filter_by_plan_and_authenticated_owner() -> None:
+    api = PlanMutationAPI(_stored_plan_row())
+    store = _plan_mutation_store(api)
+    try:
+        updated = store.update_plan(
+            user_id="user-one",
+            plan_id=PLAN_ID,
+            changes={"title": "Lunch Run", "category": "sport"},
+        )
+        assert updated is not None
+        assert updated["title"] == "Lunch Run"
+        assert updated["latest_outcome"]["status"] == "done"
+        assert api.requests[0].method == "PATCH"
+        assert api.requests[0].url.params["id"] == f"eq.{PLAN_ID}"
+        assert api.requests[0].url.params["user_id"] == "eq.user-one"
+
+        assert store.delete_plan(user_id="user-two", plan_id=PLAN_ID) is False
+        assert PLAN_ID in api.rows
+        delete_request = api.requests[-1]
+        assert delete_request.method == "DELETE"
+        assert delete_request.url.params["id"] == f"eq.{PLAN_ID}"
+        assert delete_request.url.params["user_id"] == "eq.user-two"
+
+        assert store.delete_plan(user_id="user-one", plan_id=PLAN_ID) is True
+        assert PLAN_ID not in api.rows
+        assert api.requests[-1].headers["Prefer"] == "return=representation"
+        assert store.delete_plan(user_id="user-one", plan_id=PLAN_ID) is False
+    finally:
+        store._client.close()
+
+
+def test_supabase_delete_does_not_report_success_when_database_errors() -> None:
+    api = PlanMutationAPI(_stored_plan_row())
+    api.fail = True
+    store = _plan_mutation_store(api)
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            store.delete_plan(user_id="user-one", plan_id=PLAN_ID)
+    finally:
+        store._client.close()
+
+
 def test_replay_after_plan_deletion_keeps_original_snapshot(store_and_users) -> None:
     store, user, _ = store_and_users
     payload = {"parsed_plan": _valid_plan(), "source": "text"}
     first = _call(store, user, payload, "deleted-plan")
-    store.delete_plan(user.id, "deleted-plan")
+    store.delete_plan(user_id=user.id, plan_id=str(first["id"]))
 
     replay = _call(store, user, payload, "deleted-plan")
 
@@ -479,6 +684,13 @@ class SuggestionAPI:
             rows = [s for s in self.stored if s["user_id"] == user and s["plan_id"] == plan]
             return httpx.Response(200, json=[_public(s) for s in rows[:1]], request=request)
         row = json.loads(request.content)
+        if request.method == "PATCH":
+            user = request.url.params["user_id"].removeprefix("eq.")
+            plan = request.url.params["plan_id"].removeprefix("eq.")
+            rows = [s for s in self.stored if s["user_id"] == user and s["plan_id"] == plan]
+            for existing in rows:
+                existing.update(row)
+            return httpx.Response(200, json=[_public(s) for s in rows], request=request)
         if any(s["plan_id"] == row["plan_id"] for s in self.stored):
             return httpx.Response(201, json=[], request=request)  # ignore-duplicates
         self.stored.append(row)
@@ -512,7 +724,7 @@ def test_get_suggestion_filters_by_user_and_plan() -> None:
     params = api.requests[0].url.params
     assert params["user_id"] == "eq.user-one"
     assert params["plan_id"] == f"eq.{PLAN_ID}"
-    assert params["select"] == "plan_id,reason,message,proposed_start,proposed_end,evidence"
+    assert params["select"] == "plan_id,reason,message,proposed_start,proposed_end,evidence,created_at"
 
 
 def test_get_suggestion_returns_none_when_nothing_saved() -> None:
@@ -540,6 +752,24 @@ def test_save_suggestion_then_read_returns_same_suggestion() -> None:
     assert post.url.params["on_conflict"] == "plan_id"
     assert "resolution=ignore-duplicates" in post.headers["Prefer"]
     assert "return=representation" in post.headers["Prefer"]
+
+
+def test_refresh_suggestion_updates_only_owned_recommendation_and_resets_stale_clock() -> None:
+    api = SuggestionAPI([{**SAVED_SUGGESTION, "user_id": "user-one"}])
+    store = _suggestion_store(api)
+    refreshed = store.refresh_suggestion(
+        "user-one", PLAN_ID, _new_suggestion(message="Updated after a new outcome.")
+    )
+
+    assert refreshed["message"] == "Updated after a new outcome."
+    assert [request.method for request in api.requests] == ["PATCH"]
+    request = api.requests[0]
+    assert request.url.params["user_id"] == "eq.user-one"
+    assert request.url.params["plan_id"] == f"eq.{PLAN_ID}"
+    body = json.loads(request.content)
+    assert body["message"] == "Updated after a new outcome."
+    assert body["created_at"]
+    assert "user_id" not in body and "plan_id" not in body
 
 
 def test_save_suggestion_uses_owner_from_arguments_only() -> None:
@@ -623,12 +853,18 @@ def test_lazy_store_delegates_suggestion_methods(monkeypatch: pytest.MonkeyPatch
             calls.append(("save", args))
             return SAVED_SUGGESTION
 
+        def refresh_suggestion(self, *args):
+            calls.append(("refresh", args))
+            return SAVED_SUGGESTION
+
     monkeypatch.setattr(db_plans, "_build_plan_store", lambda: Recorder())
     lazy = db_plans.LazyPlanStore()
 
     assert lazy.get_suggestion("user-one", PLAN_ID) is None
     assert lazy.save_suggestion("user-one", PLAN_ID, {"reason": "weather"}) == SAVED_SUGGESTION
+    assert lazy.refresh_suggestion("user-one", PLAN_ID, {"reason": "pattern"}) == SAVED_SUGGESTION
     assert calls == [
         ("get", ("user-one", PLAN_ID)),
         ("save", ("user-one", PLAN_ID, {"reason": "weather"})),
+        ("refresh", ("user-one", PLAN_ID, {"reason": "pattern"})),
     ]
