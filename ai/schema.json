@@ -155,5 +155,33 @@
         }
       }
     }
-  ]
+  ],
+  "$defs": {
+    "VoicePlanResponse": {
+      "description": "POST /voice response for a create_plan intent. Recommendation text is sourced from the same saved plan suggestion returned by GET /plans/{plan_id}/suggestion.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transcript", "parsed_plan", "plan", "spoken_recommendation"],
+      "properties": {
+        "transcript": {"type": "string"},
+        "parsed_plan": {"$ref": "#"},
+        "plan": {
+          "type": "object",
+          "required": ["id", "title", "category", "planned_start", "planned_end", "recurrence_rule", "source", "created_at", "latest_outcome"],
+          "properties": {
+            "id": {"type": "string", "format": "uuid"},
+            "title": {"type": "string"},
+            "category": {"type": "string"},
+            "planned_start": {"type": "string", "format": "date-time"},
+            "planned_end": {"type": "string", "format": "date-time"},
+            "recurrence_rule": {"type": ["string", "null"]},
+            "source": {"enum": ["text", "voice", "device"]},
+            "created_at": {"type": "string", "format": "date-time"},
+            "latest_outcome": {"type": ["object", "null"]}
+          }
+        },
+        "spoken_recommendation": {"type": ["string", "null"], "maxLength": 240}
+      }
+    }
+  }
 }

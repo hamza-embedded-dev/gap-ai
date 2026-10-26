@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, ClipboardList, Pencil, RotateCcw, Repeat, Save, Trash2, X } from 'lucide-react';
 import { deletePlan, listPlans, updatePlan } from '../api/plans';
+import { fetchPlanSuggestion } from '../api/plans';
+import type { PlanSuggestion } from '../api/plans';
 import { OutcomeButtons } from '../components/OutcomeButtons';
 import type { Plan, PlanOutcome, PlanUpdateRequest } from '../types/plan';
 import './PlanList.css';
@@ -36,6 +38,46 @@ function planEditFormValues(plan: Plan): PlanUpdateRequest {
     planned_start: toLocalDateTimeInput(plan.planned_start),
     planned_end: toLocalDateTimeInput(plan.planned_end),
   };
+}
+
+function SuggestionCard({ planId, planTitle, refreshKey, enabled }: {
+  planId: string;
+  planTitle: string;
+  refreshKey: string;
+  enabled: boolean;
+}) {
+  const [suggestion, setSuggestion] = useState<PlanSuggestion | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    if (!enabled) {
+      setLoading(false);
+      return () => { active = false; };
+    }
+    setLoading(true);
+    setError(false);
+    void fetchPlanSuggestion(planId)
+      .then((value) => { if (active) setSuggestion(value); })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [planId, refreshKey, retry, enabled]);
+
+  if (loading) return <div className="suggestion-card" aria-live="polite">Loading your personalized recommendation…</div>;
+  if (error) return <div className="suggestion-card" role="alert">
+    Recommendation could not be loaded. <button type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>
+  </div>;
+  if (!suggestion) return null;
+  return <aside className="suggestion-card" aria-label="Personalized recommendation">
+    <strong>{planTitle} · Personalized recommendation</strong>
+    <p>{suggestion.message}</p>
+    {suggestion.evidence.adherence_pct != null && <small>
+      Based on {suggestion.evidence.outcome_count ?? ''} outcomes, completion rate: {suggestion.evidence.adherence_pct}%
+    </small>}
+  </aside>;
 }
 
 export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListProps) {
@@ -420,6 +462,13 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                     <span className="detail-value">{formatTimeOnly(plan.planned_end)}</span>
                   </div>
                 </div>
+
+                <SuggestionCard
+                  planId={plan.id}
+                  planTitle={plan.title}
+                  enabled={!mockMode && Boolean(token)}
+                  refreshKey={plan.latest_outcome?.reported_at ?? ''}
+                />
 
                 {/* Outcome Reporting Section */}
                 <div className="plan-outcome-section">

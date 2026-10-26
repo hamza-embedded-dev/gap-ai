@@ -684,6 +684,13 @@ class SuggestionAPI:
             rows = [s for s in self.stored if s["user_id"] == user and s["plan_id"] == plan]
             return httpx.Response(200, json=[_public(s) for s in rows[:1]], request=request)
         row = json.loads(request.content)
+        if request.method == "PATCH":
+            user = request.url.params["user_id"].removeprefix("eq.")
+            plan = request.url.params["plan_id"].removeprefix("eq.")
+            rows = [s for s in self.stored if s["user_id"] == user and s["plan_id"] == plan]
+            for existing in rows:
+                existing.update(row)
+            return httpx.Response(200, json=[_public(s) for s in rows], request=request)
         if any(s["plan_id"] == row["plan_id"] for s in self.stored):
             return httpx.Response(201, json=[], request=request)  # ignore-duplicates
         self.stored.append(row)
@@ -717,7 +724,7 @@ def test_get_suggestion_filters_by_user_and_plan() -> None:
     params = api.requests[0].url.params
     assert params["user_id"] == "eq.user-one"
     assert params["plan_id"] == f"eq.{PLAN_ID}"
-    assert params["select"] == "plan_id,reason,message,proposed_start,proposed_end,evidence"
+    assert params["select"] == "plan_id,reason,message,proposed_start,proposed_end,evidence,created_at"
 
 
 def test_get_suggestion_returns_none_when_nothing_saved() -> None:
@@ -745,6 +752,24 @@ def test_save_suggestion_then_read_returns_same_suggestion() -> None:
     assert post.url.params["on_conflict"] == "plan_id"
     assert "resolution=ignore-duplicates" in post.headers["Prefer"]
     assert "return=representation" in post.headers["Prefer"]
+
+
+def test_refresh_suggestion_updates_only_owned_recommendation_and_resets_stale_clock() -> None:
+    api = SuggestionAPI([{**SAVED_SUGGESTION, "user_id": "user-one"}])
+    store = _suggestion_store(api)
+    refreshed = store.refresh_suggestion(
+        "user-one", PLAN_ID, _new_suggestion(message="Updated after a new outcome.")
+    )
+
+    assert refreshed["message"] == "Updated after a new outcome."
+    assert [request.method for request in api.requests] == ["PATCH"]
+    request = api.requests[0]
+    assert request.url.params["user_id"] == "eq.user-one"
+    assert request.url.params["plan_id"] == f"eq.{PLAN_ID}"
+    body = json.loads(request.content)
+    assert body["message"] == "Updated after a new outcome."
+    assert body["created_at"]
+    assert "user_id" not in body and "plan_id" not in body
 
 
 def test_save_suggestion_uses_owner_from_arguments_only() -> None:
@@ -828,12 +853,18 @@ def test_lazy_store_delegates_suggestion_methods(monkeypatch: pytest.MonkeyPatch
             calls.append(("save", args))
             return SAVED_SUGGESTION
 
+        def refresh_suggestion(self, *args):
+            calls.append(("refresh", args))
+            return SAVED_SUGGESTION
+
     monkeypatch.setattr(db_plans, "_build_plan_store", lambda: Recorder())
     lazy = db_plans.LazyPlanStore()
 
     assert lazy.get_suggestion("user-one", PLAN_ID) is None
     assert lazy.save_suggestion("user-one", PLAN_ID, {"reason": "weather"}) == SAVED_SUGGESTION
+    assert lazy.refresh_suggestion("user-one", PLAN_ID, {"reason": "pattern"}) == SAVED_SUGGESTION
     assert calls == [
         ("get", ("user-one", PLAN_ID)),
         ("save", ("user-one", PLAN_ID, {"reason": "weather"})),
+        ("refresh", ("user-one", PLAN_ID, {"reason": "pattern"})),
     ]

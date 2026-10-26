@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 from types import SimpleNamespace
@@ -28,6 +28,7 @@ from app.ai.stt import (
 )
 import app.api.plans as plans_api
 from app.db.plans import AuthenticatedUser, get_plan_store
+from app.schemas.parsed_plan import ParsedPlan
 from app.main import app
 
 PEPPER = "p" * 32
@@ -118,6 +119,8 @@ class FakePlanStore:
         )
         self.tokens = {TOKEN_HASH: (user, None)}
         self.created_plans: list[dict[str, Any]] = []
+        self.historical_plans: list[dict[str, Any]] = []
+        self.suggestions: dict[str, dict[str, Any]] = {}
 
     def get_user_for_token_hash(self, token_hash: str) -> tuple[AuthenticatedUser, str | None] | None:
         return self.tokens.get(token_hash)
@@ -136,6 +139,19 @@ class FakePlanStore:
         }
         self.created_plans.append(snapshot)
         return snapshot
+
+    def get_plan(self, *, user_id: str, plan_id: str):
+        return next((p for p in self.created_plans if p["id"] == plan_id), None)
+
+    def list_plans(self, *, user_id: str):
+        return [p for p in self.historical_plans if p.get("user_id") == user_id] + list(self.created_plans)
+
+    def get_suggestion(self, user_id: str, plan_id: str):
+        return self.suggestions.get(f"{user_id}:{plan_id}")
+
+    def save_suggestion(self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]):
+        self.suggestions[f"{user_id}:{plan_id}"] = suggestion_data
+        return suggestion_data
 
 
 class FakeSTTClient:
@@ -380,12 +396,21 @@ def test_voice_rejects_invalid_date(client: TestClient) -> None:
 # =============================================================================
 
 
-def test_voice_create_plan_success_flow(client: TestClient, fake_store: FakePlanStore) -> None:
+def test_voice_create_plan_success_flow(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
     wav = _make_wav_bytes(duration_seconds=2.0)
     stt = FakeSTTClient(transcript="Yarın saat 18:00'de koşuya çıkacağım.")
     llm = FakeLLMClient([_valid_create_plan()])
     app.dependency_overrides[get_stt_client] = lambda: stt
     app.dependency_overrides[get_llm_client] = lambda: llm
+    recommendation_call: dict[str, Any] = {}
+
+    def recommendation_for_created_plan(*, plan_id: str, user: AuthenticatedUser, store, llm):
+        recommendation_call.update(plan_id=plan_id, user=user, store=store, llm=llm)
+        return {"suggestion": {"message": "Yarın koşunu aynı saatte denemek ister misin?"}}
+
+    monkeypatch.setattr("app.api.voice.get_suggestion_for_plan", recommendation_for_created_plan)
 
     response = client.post(
         "/voice",
@@ -403,8 +428,51 @@ def test_voice_create_plan_success_flow(client: TestClient, fake_store: FakePlan
     assert body["plan"]["source"] == "voice"
     assert body["plan"]["title"] == "Koşu"
     assert body["plan"]["category"] == "sport"
+    assert body["spoken_recommendation"] == "Yarın koşunu aynı saatte denemek ister misin?"
+    assert recommendation_call["plan_id"] == body["plan"]["id"]
     assert len(fake_store.created_plans) == 1
     assert fake_store.created_plans[0]["source"] == "voice"
+
+
+def test_voice_spoken_recommendation_matches_saved_plan_recommendation(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime.now(timezone.utc)
+    for days_ago in (4, 5, 6):
+        fake_store.historical_plans.append({
+            "id": str(uuid4()),
+            "user_id": USER_ID,
+            "planned_start": (now - timedelta(days=days_ago, hours=2)).isoformat(),
+            "planned_end": (now - timedelta(days=days_ago, hours=1)).isoformat(),
+            "latest_outcome": {"status": "skipped", "reported_at": (now - timedelta(days=days_ago)).isoformat()},
+        })
+
+    class RecommendationLLM:
+        def complete(self, messages, **kwargs):
+            return "Geçmiş planlarına göre daha erken bir saat deneyebilirsin."
+
+    llm = RecommendationLLM()
+    app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient()
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    monkeypatch.setattr(
+        "app.api.voice.parse_text",
+        lambda **kwargs: ParsedPlan(_valid_create_plan(date=(now + timedelta(days=1)).date().isoformat())),
+    )
+    monkeypatch.setattr("app.api.suggestions.WeatherService.get_forecast", lambda *a, **kw: None)
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        data={"language": "tr", "current_date": now.date().isoformat(), "timezone": USER_TZ},
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    saved = fake_store.get_suggestion(USER_ID, body["plan"]["id"])
+    assert saved is not None
+    assert body["spoken_recommendation"] == saved["message"]
+    assert len(fake_store.suggestions) == 1
 
 
 # =============================================================================
