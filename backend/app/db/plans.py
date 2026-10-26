@@ -29,6 +29,10 @@ class PlanStore(Protocol):
         self, *, user_id: str, changes: dict[str, Any]
     ) -> dict[str, Any] | None: ...
 
+    def get_personalization(self, *, user_id: str) -> dict[str, Any]: ...
+    def update_personalization(self, *, user_id: str, changes: dict[str, Any]) -> dict[str, Any]: ...
+    def reset_personalization(self, *, user_id: str) -> bool: ...
+
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]: ...
 
     def list_plans(
@@ -156,6 +160,22 @@ class SupabasePlanStore:
         response.raise_for_status()
         rows = response.json()
         return rows[0] if rows else None
+
+    def get_personalization(self, *, user_id: str) -> dict[str, Any]:
+        response = self._client.get(urljoin(self._rest_url, "personalization_profiles"), params={"user_id": f"eq.{user_id}", "select": "*", "limit": "1"})
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if rows else {"user_id": user_id}
+
+    def update_personalization(self, *, user_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.post(urljoin(self._rest_url, "personalization_profiles"), params={"on_conflict": "user_id", "select": "*"}, headers={"Prefer": "resolution=merge-duplicates,return=representation"}, json={**changes, "user_id": user_id})
+        response.raise_for_status()
+        return response.json()[0]
+
+    def reset_personalization(self, *, user_id: str) -> bool:
+        response = self._client.delete(urljoin(self._rest_url, "personalization_profiles"), params={"user_id": f"eq.{user_id}"})
+        response.raise_for_status()
+        return True
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         response = self._client.post(
@@ -533,6 +553,15 @@ class LazyPlanStore:
         self, *, user_id: str, changes: dict[str, Any]
     ) -> dict[str, Any] | None:
         return _build_plan_store().update_profile(user_id=user_id, changes=changes)
+
+    def get_personalization(self, *, user_id: str) -> dict[str, Any]:
+        return _build_plan_store().get_personalization(user_id=user_id)
+
+    def update_personalization(self, *, user_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        return _build_plan_store().update_personalization(user_id=user_id, changes=changes)
+
+    def reset_personalization(self, *, user_id: str) -> bool:
+        return _build_plan_store().reset_personalization(user_id=user_id)
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         return _build_plan_store().create_plan(plan)

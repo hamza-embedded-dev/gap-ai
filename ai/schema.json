@@ -204,6 +204,206 @@
         },
         "spoken_recommendation": {"type": ["string", "null"], "maxLength": 240}
       }
+    },
+    "PersonalizationProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "preferred_name",
+        "age_range",
+        "life_context",
+        "field_of_study",
+        "study_year",
+        "deadlines_goals",
+        "work_schedule",
+        "typical_availability",
+        "interests",
+        "skills_to_develop",
+        "planning_preferences",
+        "recommendation_frequency",
+        "onboarding_skipped",
+        "onboarding_completed"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "preferred_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "age_range": {
+          "enum": [
+            "under_18",
+            "18_24",
+            "25_34",
+            "35_44",
+            "45_plus",
+            "prefer_not_to_say",
+            null
+          ]
+        },
+        "life_context": {
+          "enum": [
+            "student",
+            "working",
+            "other",
+            null
+          ]
+        },
+        "field_of_study": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 120
+        },
+        "study_year": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 40
+        },
+        "deadlines_goals": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "deadline",
+              "kind"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "\\S"
+              },
+              "deadline": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "kind": {
+                "enum": [
+                  "goal",
+                  "exam",
+                  "deadline"
+                ]
+              }
+            }
+          }
+        },
+        "work_schedule": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "typical_availability": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "interests": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "skills_to_develop": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "planning_preferences": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "recommendation_frequency": {
+          "enum": [
+            "daily",
+            "weekly",
+            "on_demand",
+            "off",
+            null
+          ]
+        },
+        "onboarding_skipped": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "preferred_name",
+              "age_range",
+              "life_context",
+              "field_of_study",
+              "study_year",
+              "deadlines_goals",
+              "work_schedule",
+              "typical_availability",
+              "interests",
+              "skills_to_develop",
+              "planning_preferences",
+              "recommendation_frequency"
+            ]
+          }
+        },
+        "onboarding_completed": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "preferred_name",
+              "age_range",
+              "life_context",
+              "field_of_study",
+              "study_year",
+              "deadlines_goals",
+              "work_schedule",
+              "typical_availability",
+              "interests",
+              "skills_to_develop",
+              "planning_preferences",
+              "recommendation_frequency"
+            ]
+          }
+        }
+      }
     }
   }
 }

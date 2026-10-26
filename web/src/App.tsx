@@ -20,11 +20,12 @@ import {
   setStoredToken,
 } from './utils/auth';
 import { Insights } from './pages/Insights';
+import { Profile } from './pages/Profile';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AUTH_SESSION_INVALID_EVENT } from './api/client';
 import './App.css';
 
-type ActiveTab = 'insights' | 'plans' | 'create' | 'demo';
+type ActiveTab = 'insights' | 'plans' | 'create' | 'profile' | 'demo';
 
 function App() {
   // Capture ?t= parameter on initial load or read stored token:
@@ -94,6 +95,13 @@ function App() {
 
           {/* Main Navigation Tabs */}
           <nav className="main-nav-tabs" role="tablist" aria-label="Main navigation">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'profile'}
+              className={`nav-tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
+              onClick={() => setActiveTab('profile')}
+            >Profile</button>
             <button
               id="tab-insights-btn"
               type="button"
@@ -178,6 +186,8 @@ function App() {
               onNavigatePlans={() => setActiveTab('plans')}
             />
           )}
+
+          {activeTab === 'profile' && <Profile token={token} />}
 
           {/* Demo & Authentication Tab */}
           {activeTab === 'demo' && (

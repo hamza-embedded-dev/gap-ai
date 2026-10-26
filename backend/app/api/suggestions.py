@@ -201,6 +201,10 @@ def get_suggestion_for_plan(
 
     # A new reported outcome makes the saved recommendation stale. Return the
     # stored record unchanged until an outcome newer than it exists.
+    profile_reader = getattr(store, "get_personalization", None)
+    personalization = profile_reader(user_id=user.id) if profile_reader else {}
+    if personalization.get("recommendation_frequency") == "off":
+        return {"suggestion": None}
     existing = store.get_suggestion(user_id=user.id, plan_id=plan_id)
     existing_created = existing.get("created_at") if existing else None
     if existing is not None and existing_created is None:

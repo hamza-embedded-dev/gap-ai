@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from app.db.plans import AuthenticatedUser, SupabasePlanStore, get_plan_store
+from app.api.me import (
+    PersonalizationPatch,
+    delete_profile_field,
+    get_personalization,
+    patch_personalization,
+    reset_personalization,
+)
 from app.main import app
 
 PEPPER = "p" * 32
@@ -32,6 +40,8 @@ class ProfileStore:
             "user-two": {"id": "user-two", "display_name": "Lin", "timezone": "Europe/Berlin", "is_demo": False},
         }
         self.updates: list[tuple[str, dict[str, object]]] = []
+        self.personalization = {"user-one": {"user_id": "user-one", "interests": ["running"]}, "user-two": {"user_id": "user-two", "interests": ["music"]}}
+        self.keep_data = {"plans": ["plan-a"], "outcomes": ["outcome-a"], "suggestions": ["suggestion-a"], "feedback": ["feedback-a"]}
 
     def get_user_for_token_hash(self, token_hash: str):
         return self.tokens.get(token_hash)
@@ -43,6 +53,18 @@ class ProfileStore:
             return None
         profile.update(changes)
         return dict(profile)
+
+    def get_personalization(self, *, user_id: str):
+        return dict(self.personalization.get(user_id, {"user_id": user_id}))
+
+    def update_personalization(self, *, user_id: str, changes: dict[str, object]):
+        profile = self.personalization.setdefault(user_id, {"user_id": user_id})
+        profile.update(changes)
+        return dict(profile)
+
+    def reset_personalization(self, *, user_id: str):
+        self.personalization.pop(user_id, None)
+        return True
 
 
 @pytest.fixture
@@ -213,3 +235,99 @@ def test_supabase_token_lookup_includes_display_name() -> None:
     assert user_and_expiry is not None
     assert user_and_expiry[0].display_name == "Ada"
     assert requests[1].url.params["select"] == "id,display_name,timezone,is_demo,demo_expires_at"
+
+
+def test_personalization_is_scoped_and_profile_values_persist(store: ProfileStore) -> None:
+    own = patch_personalization(PersonalizationPatch.model_validate({"interests": ["study"], "recommendation_frequency": "weekly"}), AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert own["interests"] == ["study"]
+    assert get_personalization(AuthenticatedUser("user-two", "Europe/Berlin", False, None), store)["interests"] == ["music"]
+    assert store.personalization["user-two"]["interests"] == ["music"]
+
+
+def test_onboarding_progress_is_user_scoped_and_resumable(store: ProfileStore) -> None:
+    saved = patch_personalization(PersonalizationPatch.model_validate({"onboarding_completed": ["interests"], "onboarding_skipped": ["age_range"]}), AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    resumed = get_personalization(AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert resumed["onboarding_completed"] == ["interests"]
+    assert resumed["onboarding_skipped"] == ["age_range"]
+    assert get_personalization(AuthenticatedUser("user-two", "Europe/Berlin", False, None), store)["onboarding_completed"] == []
+
+
+def test_user_cannot_target_another_users_profile(store: ProfileStore) -> None:
+    with pytest.raises(ValidationError):
+        PersonalizationPatch.model_validate({"user_id": "user-two", "interests": ["private"]})
+    response = delete_profile_field("interests", AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert response["user_id"] == "user-one"
+    assert store.personalization["user-two"]["interests"] == ["music"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"age_range": "2000-01-01"}, {"life_context": "retired"},
+    {"recommendation_frequency": "monthly"}, {"interests": [""]},
+    {"interests": None}, {"deadlines_goals": None},
+    {"deadlines_goals": [{"title": "Exam", "deadline": "2026-02-30", "kind": "exam"}]},
+    {"deadlines_goals": [{"title": "Exam", "extra": "no"}]},
+])
+def test_personalization_rejects_invalid_data(store: ProfileStore, payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        PersonalizationPatch.model_validate(payload)
+    assert store.personalization["user-one"].get("recommendation_frequency") is None
+
+
+def test_profile_goal_stores_explicit_date_and_kind(store: ProfileStore) -> None:
+    payload = PersonalizationPatch.model_validate({"deadlines_goals": [{"title": "Exam", "deadline": "2026-11-02", "kind": "exam"}]})
+    response = patch_personalization(payload, AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert response["deadlines_goals"] == [{"title": "Exam", "deadline": "2026-11-02", "kind": "exam"}]
+
+
+def test_shared_schema_defines_the_profile_contract() -> None:
+    schema = json.loads((Path(__file__).resolve().parents[2] / "ai/schema.json").read_text())
+    profile = schema["$defs"]["PersonalizationProfile"]
+    assert set(profile["properties"]) == set(PersonalizationPatch.model_fields) | {"user_id"}
+    assert "birth_date" not in profile["properties"]
+    assert profile["properties"]["age_range"]["enum"][-1] is None
+
+
+def test_delete_one_profile_field_only(store: ProfileStore) -> None:
+    store.personalization["user-one"].update({"skills_to_develop": ["focus"], "interests": ["running"], "onboarding_completed": ["interests"]})
+    response = delete_profile_field("interests", AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert response["interests"] == []
+    assert response["skills_to_develop"] == ["focus"]
+    assert response["onboarding_completed"] == []
+
+
+def test_clearing_one_profile_answer_removes_its_progress_only(store: ProfileStore) -> None:
+    store.personalization["user-one"].update({"preferred_name": "Ada", "interests": ["running"], "onboarding_completed": ["preferred_name", "interests"]})
+    response = patch_personalization(PersonalizationPatch.model_validate({"preferred_name": None}), AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert response["preferred_name"] is None
+    assert response["interests"] == ["running"]
+    assert response["onboarding_completed"] == ["interests"]
+
+
+def test_profile_reset_preserves_account_and_non_profile_data(store: ProfileStore) -> None:
+    before = dict(store.keep_data)
+    response = reset_personalization(AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)
+    assert response == {"deleted": True}
+    assert get_personalization(AuthenticatedUser("user-one", "Europe/Istanbul", False, None), store)["interests"] == []
+    assert store.keep_data == before
+    assert store.get_user_for_token_hash(_hash(TOKEN_ONE)) is not None
+
+
+def test_postgrest_personalization_reads_writes_and_deletes_are_user_filtered() -> None:
+    captured: list[httpx.Request] = []
+    def handle(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET": return httpx.Response(200, json=[{"user_id": "user-one", "interests": ["study"]}], request=request)
+        if request.method == "POST": return httpx.Response(201, json=[{"user_id": "user-one", "interests": ["study"]}], request=request)
+        return httpx.Response(204, request=request)
+    store = SupabasePlanStore("https://example.invalid", "service-key")
+    headers = dict(store._client.headers); store._client.close()
+    store._client = httpx.Client(transport=httpx.MockTransport(handle), headers=headers)
+    try:
+        assert store.get_personalization(user_id="user-one")["interests"] == ["study"]
+        store.update_personalization(user_id="user-one", changes={"user_id": "user-two", "interests": ["study"]})
+        store.reset_personalization(user_id="user-one")
+    finally:
+        store._client.close()
+    assert captured[0].url.params["user_id"] == "eq.user-one"
+    assert captured[2].url.params["user_id"] == "eq.user-one"
+    assert json.loads(captured[1].content)["user_id"] == "user-one"
