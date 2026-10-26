@@ -231,6 +231,25 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
           <PostponedTargetsList targets={insights.postponed_targets} />
         </>
       )}
+      {!isLoading && !errorData && insights && (
+        <section className="coach-section" aria-label="Your Personal AI Coach">
+          <h2>Your Personal AI Coach</h2>
+          {(insights.recommendations ?? []).length === 0 ? (
+            <p>More completed or reported plans are needed for evidence-based suggestions. At least 3 reported outcomes are required.</p>
+          ) : (
+            <div className="coach-grid">{(insights.recommendations ?? []).slice(0, 3).map((item) => (
+              <article className="coach-card" key={item.id}>
+                <h3>{item.title}</h3><p>{item.message}</p><p>{item.why}</p>
+                <small>Evidence: {Object.entries(item.evidence).map(([key, value]) => `${key}: ${value}`).join(' · ')}</small>
+                <small>Confidence: {item.confidence}</small><p><strong>Next step:</strong> {item.next_step}</p>
+              </article>
+            ))}</div>
+          )}
+          <button type="button" onClick={() => loadData(period, true)} disabled={isRetrying}>
+            {isRetrying ? 'Refreshing…' : 'Refresh recommendations'}
+          </button>
+        </section>
+      )}
     </div>
   );
 };

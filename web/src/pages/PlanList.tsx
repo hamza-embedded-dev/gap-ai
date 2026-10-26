@@ -101,7 +101,9 @@ function SuggestionCard({ planId, planTitle, refreshKey, enabled }: {
   if (error) return <div className="suggestion-card" role="alert">
     Recommendation could not be loaded. <button type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>
   </div>;
-  if (!suggestion) return null;
+  if (!suggestion) return <div className="suggestion-card" role="status">
+    More completed or reported plans are needed before a personalized recommendation is available.
+  </div>;
   return <aside className="suggestion-card" aria-label="Personalized recommendation">
     <strong>{planTitle} · Personalized recommendation</strong>
     <p>{suggestion.message}</p>

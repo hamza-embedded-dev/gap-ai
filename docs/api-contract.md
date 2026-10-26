@@ -315,6 +315,10 @@ Kullanıcının onayından sonra yeni plan zamanını uygular. Orijinal zaman, d
 
 Backend tarafından hesaplanan deterministik istatistikleri döndürür. Sorgu parametresi: "period" = "week" (varsayılan) | "last_week" | "all".
 
+Yanıta `recommendations` dizisi eklenmiştir (en fazla 3 öğe). Öneriler yalnızca gerçek plan ve sonuç olaylarından deterministik olarak hesaplanır; en az 3 bildirilen sonuç olayı gerekir. Yetersiz/boş geçmişte dizi boştur. Her öğe `id`, `title`, `message`, `why`, `evidence`, `confidence` ve `next_step` içerir. Öneri adayları tekrar tekrar ertelenen/atlanmış kategoriler (en az 2 olay), tekrar ertelenen gün/saat dilimleri (en az 2 olay), veya en az 2 örnekli başarılı saat dilimleridir. Her öneri kendi sayım ve örnek büyüklüğünü kanıt olarak taşır; minimum eşik karşılanmıyorsa öneri üretilmez. Bu hesap deterministiktir ve AI sağlayıcısı gerektirmez.
+
+`GET /plans/{id}/suggestion` yetersiz geçmişte `{"suggestion": null}` döndürür. Web istemcisi bu durumu daha fazla tamamlanmış/bildirilmiş plan gerektiğini açıklayan boş durum olarak gösterir; istek 10 saniyede zaman aşımına uğrarsa kullanıcı Retry ile yeniden deneyebilir.
+
 Yanıt:
 
 {

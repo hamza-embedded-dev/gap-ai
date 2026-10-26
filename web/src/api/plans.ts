@@ -55,11 +55,30 @@ export interface PlanSuggestion {
   evidence: { forecast?: string | null; adherence_pct?: number | null; outcome_count?: number | null };
 }
 
-export async function fetchPlanSuggestion(planId: string): Promise<PlanSuggestion | null> {
-  const result = await apiFetch<{ suggestion: PlanSuggestion | null }>(
-    `/plans/${encodeURIComponent(planId)}/suggestion`, { method: 'GET' }
-  );
-  return result.suggestion;
+const pendingSuggestions = new Map<string, Promise<PlanSuggestion | null>>();
+
+export function fetchPlanSuggestion(planId: string): Promise<PlanSuggestion | null> {
+  const existing = pendingSuggestions.get(planId);
+  if (existing) return existing;
+  const request = fetchPlanSuggestionOnce(planId);
+  pendingSuggestions.set(planId, request);
+  void request.finally(() => {
+    if (pendingSuggestions.get(planId) === request) pendingSuggestions.delete(planId);
+  }).catch(() => undefined);
+  return request;
+}
+
+async function fetchPlanSuggestionOnce(planId: string): Promise<PlanSuggestion | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const result = await apiFetch<{ suggestion: PlanSuggestion | null }>(
+      `/plans/${encodeURIComponent(planId)}/suggestion`, { method: 'GET', signal: controller.signal }
+    );
+    return result.suggestion ?? null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**

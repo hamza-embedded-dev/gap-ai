@@ -237,6 +237,20 @@ def test_invalid_model_message_uses_validated_fallback(test_setup, monkeypatch, 
     assert "\n" not in suggestion["message"]
 
 
+def test_provider_failure_uses_deterministic_suggestion_fallback(test_setup, monkeypatch):
+    from app.ai.llm import LLMError
+    client, fake_store, mock_llm = test_setup
+    mock_llm.complete.side_effect = LLMError("provider unavailable")
+    now = datetime.now(timezone.utc)
+    for days in (2, 3, 4):
+        fake_store.add_plan("user-one", planned_start=(now - timedelta(days=days, hours=2)).isoformat(), planned_end=(now - timedelta(days=days, hours=1)).isoformat(), latest_outcome={"status": "skipped"})
+    target = fake_store.add_plan("user-one")
+    monkeypatch.setattr("app.services.weather.WeatherService.get_forecast", lambda *a, **kw: None)
+    response = client.get(f"/plans/{target}/suggestion", headers={"Authorization": f"Bearer {TOKEN_USER_ONE}"})
+    assert response.status_code == 200
+    assert "uygun görünüyor" in response.json()["suggestion"]["message"]
+
+
 def test_pattern_suggestion_generated_when_adherence_is_low(test_setup):
     client, fake_store, mock_llm = test_setup
     headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}

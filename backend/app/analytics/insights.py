@@ -6,6 +6,56 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+MIN_RECOMMENDATION_OUTCOMES = 3
+
+
+def calculate_recommendations(
+    plans: list[dict[str, Any]], outcomes: list[dict[str, Any]], *, user_timezone: str
+) -> list[dict[str, Any]]:
+    """Build deterministic, evidence-backed recommendations from reported history."""
+    tz = ZoneInfo(user_timezone)
+    by_plan: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for outcome in outcomes:
+        by_plan[str(outcome.get("plan_id", ""))].append(outcome)
+    latest_by_plan = {
+        pid: max(rows, key=lambda o: str(o.get("reported_at", "")))
+        for pid, rows in by_plan.items() if rows
+    }
+    reported = [o for o in latest_by_plan.values() if o.get("status") in {"done", "postponed", "skipped"}]
+    if len(reported) < MIN_RECOMMENDATION_OUTCOMES:
+        return []
+    plan_map = {str(p.get("id", "")): p for p in plans}
+    missed: dict[str, int] = defaultdict(int)
+    postponed_slots: dict[tuple[str, int], int] = defaultdict(int)
+    successful_slots: dict[tuple[str, int], list[int]] = defaultdict(lambda: [0, 0])
+    for outcome in reported:
+        plan = plan_map.get(str(outcome.get("plan_id", "")))
+        if not plan:
+            continue
+        category = str(plan.get("category", "other"))
+        slot_dt = parse_timestamp(plan["planned_start"], tz)
+        slot = (WEEKDAYS[slot_dt.weekday()], slot_dt.hour)
+        if outcome.get("status") in {"postponed", "skipped"}:
+            missed[category] += 1
+        if outcome.get("status") == "postponed":
+            postponed_slots[slot] += 1
+        successful_slots[slot][1] += 1
+        successful_slots[slot][0] += int(outcome.get("status") == "done")
+    recs: list[dict[str, Any]] = []
+    if missed:
+        category, count = sorted(missed.items(), key=lambda x: (-x[1], x[0]))[0]
+        if count >= 2:
+            recs.append({"id":"missed-category", "title":f"Make {category} plans easier to start", "message":f"Try breaking your {category} plans into a smaller first step.", "why":"This category has been postponed or skipped repeatedly.", "evidence":{"metric":"missed_category", "category":category, "count":count, "sample_size":len(reported), "minimum_evidence":MIN_RECOMMENDATION_OUTCOMES}, "confidence":"moderate", "next_step":f"Choose one {category} plan and reduce its first step to 10 minutes."})
+    repeated = sorted(((slot, n) for slot, n in postponed_slots.items() if n >= 2), key=lambda x: (-x[1], x[0]))
+    if repeated and len(recs) < 3:
+        (day, hour), count = repeated[0]
+        recs.append({"id":"postponed-slot", "title":"Adjust a frequently postponed time", "message":f"Consider moving plans away from {day} at {hour:02d}:00.", "why":"Plans at this time have often been postponed.", "evidence":{"metric":"postponed_slot", "weekday":day, "hour":hour, "count":count, "sample_size":len(reported), "minimum_evidence":MIN_RECOMMENDATION_OUTCOMES}, "confidence":"moderate", "next_step":f"Try the same plan at a different time this week."})
+    slots = [(slot, done, total) for slot, (done, total) in successful_slots.items() if total >= 2]
+    if slots and len(recs) < 3:
+        (day, hour), done, total = sorted(slots, key=lambda x: (-x[1]/x[2], -x[2], x[0]))[0]
+        if done / total >= .75:
+            recs.append({"id":"successful-slot", "title":"Reuse a time that works for you", "message":f"{day} around {hour:02d}:00 has been a reliable time for your plans.", "why":"Plans in this time slot have a strong completion rate.", "evidence":{"metric":"successful_slot", "weekday":day, "hour":hour, "done":done, "sample_size":total, "minimum_evidence":2}, "confidence":"moderate", "next_step":"Schedule a similar plan in this time slot."})
+    return recs[:3]
 
 
 def parse_timestamp(value: str | datetime, tz: ZoneInfo) -> datetime:
