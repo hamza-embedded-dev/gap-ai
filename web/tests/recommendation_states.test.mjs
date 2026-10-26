@@ -27,7 +27,8 @@ describe('recommendation state regression coverage', () => {
     assert.match(insightsPage, /Your Personal AI Coach/);
     assert.match(insightsPage, /\(insights\.recommendations \?\? \[\]\)\.slice\(0, 3\)/);
     assert.match(insightsPage, /Evidence:/);
-    assert.match(insightsPage, /At least 3 reported outcomes are required/);
-    assert.match(insightsPage, /Refresh recommendations/);
+    assert.match(insightsPage, /No ideas are available right now\. Refresh to try again\./);
+    assert.match(insightsPage, /retryText="Retry Connection"/);
+    assert.match(insightsPage, /Show another idea/);
   });
 });

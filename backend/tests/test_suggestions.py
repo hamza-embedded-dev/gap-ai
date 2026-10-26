@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.ai.llm import get_llm_client
+from app.api.suggestions import get_suggestion_for_plan
 from app.db.plans import AuthenticatedUser, get_plan_store
 from app.main import app
 
@@ -29,9 +30,16 @@ class FakeSuggestionStore:
         self.tokens: dict[str, tuple[AuthenticatedUser, str | None]] = {}
         self.plans: dict[str, dict[str, Any]] = {}
         self.suggestions: dict[str, dict[str, Any]] = {}
+        self.personalization: dict[str, dict[str, Any]] = {}
 
     def get_user_for_token_hash(self, token_hash: str):
         return self.tokens.get(token_hash)
+
+    def get_personalization(self, *, user_id: str):
+        return self.personalization.get(user_id, {})
+
+    def reset_personalization(self, *, user_id: str):
+        self.personalization.pop(user_id, None)
 
     def add_plan(
         self,
@@ -337,6 +345,25 @@ def test_no_suggestion_when_conditions_are_good(test_setup, monkeypatch: pytest.
     data = resp.json()
     assert data["suggestion"] is None
     mock_llm.complete.assert_not_called()
+
+
+def test_recommendation_frequency_off_suppresses_new_and_saved_suggestions(test_setup):
+    client, fake_store, _ = test_setup
+    plan_id = fake_store.add_plan("user-one")
+    fake_store.personalization["user-one"] = {"recommendation_frequency": "off"}
+    fake_store.suggestions[f"user-one:{plan_id}"] = {"plan_id": plan_id, "message": "Saved"}
+    result = get_suggestion_for_plan(plan_id, AuthenticatedUser("user-one", "Europe/Istanbul", False, None), fake_store, MagicMock())
+    assert result == {"suggestion": None}
+
+
+def test_reset_profile_removes_frequency_preference_from_recommendation_logic(test_setup):
+    client, fake_store, _ = test_setup
+    plan_id = fake_store.add_plan("user-one")
+    fake_store.personalization["user-one"] = {"recommendation_frequency": "off"}
+    fake_store.suggestions[f"user-one:{plan_id}"] = {"plan_id": plan_id, "message": "Preserved suggestion"}
+    fake_store.reset_personalization(user_id="user-one")
+    result = get_suggestion_for_plan(plan_id, AuthenticatedUser("user-one", "Europe/Istanbul", False, None), fake_store, MagicMock())
+    assert result["suggestion"]["message"] == "Preserved suggestion"
 
 
 def test_weather_suggestion_generated_saved_and_retrieved_on_second_request(

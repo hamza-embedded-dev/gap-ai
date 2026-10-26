@@ -27,6 +27,8 @@ The schema migration is `../database/migrations/20261013_001_gate1_core.sql`. It
 
 Apply `../database/migrations/20261018_002_suggestions.sql` after it. It adds the `suggestions` table that stores the first suggestion generated for each plan (one per plan, never refreshed in the MVP); `../database/tests/verify_suggestions.sql` checks it in CI.
 
+The optional user-scoped personalization profile is defined in `../database/migrations/20261026_003_personalization_profile.sql`; it must be applied after the core migration. `../database/tests/verify_personalization_profile.sql` checks profile constraints and that deleting a profile leaves plans, outcomes, and suggestions intact. This migration has not been applied to production.
+
 After applying the migrations, verify that the five core tables exist and that the backend service role has the required permissions. The idempotent create path calls the `create_plan_idempotently` RPC through Supabase PostgREST.
 
 ## Issue access tokens

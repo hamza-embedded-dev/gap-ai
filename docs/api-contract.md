@@ -111,6 +111,7 @@ Bu belge API arayüz sözleşmesidir; tek başına her endpoint'in uygulanmış 
 | `POST /plans/{id}/reschedule` | **Uygulanmadı** |
 | `GET /me/export` | **Uygulanmadı** |
 | `DELETE /me/data` | **Uygulanmadı** |
+| `GET/PATCH/DELETE /me/profile`, `DELETE /me/profile/fields/{field}` | Uygulandı |
 
 ## Endpoint'ler
 
@@ -162,6 +163,10 @@ Profil bilgilerini günceller.
 }
 
 Her iki alan da isteğe bağlıdır. Yanıt güncellenmiş profildir.
+
+`GET /me/profile` tam profil görünümünü döndürür; henüz satır yoksa boş değerler döndürülür. `PATCH /me/profile` kısmi güncelleme alır. Alanlar: `preferred_name`, `age_range` (doğum tarihi saklanmaz), `life_context` (`student` | `working` | `other`), `field_of_study`, `study_year`, `deadlines_goals` (başlık, isteğe bağlı ISO tarih ve `goal` | `exam` | `deadline` türü), `work_schedule`, `typical_availability`, `interests`, `skills_to_develop`, `planning_preferences`, `recommendation_frequency` (`daily` | `weekly` | `on_demand` | `off`), `onboarding_skipped` ve `onboarding_completed`. Kullanıcı tarafından girilmeyen değerler çıkarılmaz; konuşma dökümü saklanmaz. Yaş için yalnızca aralık kullanılır.
+
+`DELETE /me/profile/fields/{field}` yalnızca belirtilen cevabı temizler ve alanı atlandı olarak işaretlemez; onboarding yeniden sorabilir. `DELETE /me/profile` yalnızca kişiselleştirme satırını siler; planlar, sonuçlar, kayıtlı öneriler ve geri bildirim (varsa) korunur. İstemci önceden silinecek alanları ve korunacak verileri açıkça gösterip onay alır. Öneri sıklığındaki `off` mevcut plan önerisi uç noktasını kapatır. Diğer sıklık değerleri saklanır; bu repository'de günlük/haftalık teslimat zamanlayıcısı yoktur. Var olan plan önerisi hava durumu ve geçmiş plan tamamlama sinyallerine dayanır; ilgi/amaç/müsaitlik girdileriyle discovery seçimi veya öneri içeriği kişiselleştirme sistemi yoktur. Profil sıfırlanınca bu değerler okunmaz ve mevcut öneri politikası çalışır. Hesap ve tüm veri silme endpoint'i mevcut değildir.
 
 "POST /parse"
 
