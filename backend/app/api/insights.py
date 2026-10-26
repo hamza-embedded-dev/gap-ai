@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from datetime import datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -13,9 +14,11 @@ from app.api.errors import APIError
 from app.api.plans import current_user
 from app.api.upcoming import get_system_time
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
-from app.recommendations import apply_policy
+from app.recommendations import apply_policy, build_contextual_recommendations
+from app.services.weather import DEFAULT_LATITUDE, DEFAULT_LONGITUDE, WeatherService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class WeekdayInsight(BaseModel):
@@ -54,7 +57,7 @@ class TrendInsight(BaseModel):
     adherence_pct_delta: float | None = None
 
 
-class BehaviorRecommendation(BaseModel):
+class RecommendationCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -64,7 +67,7 @@ class BehaviorRecommendation(BaseModel):
     evidence: dict[str, str | int | float]
     confidence: Literal["moderate", "none"]
     next_step: str
-    source: Literal["behavior", "discovery"] = "behavior"
+    source: Literal["behavior", "discovery", "contextual"] = "behavior"
     label: str | None = None
     dedup_key: str | None = None
     duration_minutes: int | None = Field(default=None, ge=5, le=1440)
@@ -89,7 +92,7 @@ class InsightsResponse(BaseModel):
     narrative: str | None
     is_demo: bool
     data_label: Literal["real", "demo"]
-    recommendations: list[BehaviorRecommendation] = Field(default_factory=list)
+    recommendations: list[RecommendationCard] = Field(default_factory=list)
 
 
 @router.get("/insights", response_model=InsightsResponse)
@@ -147,7 +150,50 @@ def get_insights(
     history = history_fn(user_id=user.id)
     feedback_fn = getattr(store, "list_recommendation_feedback", None)
     feedback = feedback_fn(user.id) if feedback_fn else []
-    result["recommendations"] = apply_policy(
-        calculate_recommendations(history, outcomes, user_timezone=user.timezone), feedback
-    )
+    profile_fn = getattr(store, "get_personalization", None)
+    profile = profile_fn(user_id=user.id) if profile_fn else {}
+
+    contextual: list[dict[str, Any]] = []
+    weather_forecast = None
+    if profile.get("recommendation_frequency") != "off":
+        try:
+            upcoming = [
+                plan for plan in history
+                if not plan.get("latest_outcome") and plan.get("planned_start")
+                and _as_datetime(plan["planned_start"]) >= current_time
+            ]
+            if upcoming:
+                next_plan = min(upcoming, key=lambda plan: _as_datetime(plan["planned_start"]))
+                with WeatherService() as weather_service:
+                    weather_forecast = weather_service.get_forecast(
+                        latitude=DEFAULT_LATITUDE,
+                        longitude=DEFAULT_LONGITUDE,
+                        target_time=_as_datetime(next_plan["planned_start"]),
+                        timezone_str=user.timezone,
+                    )
+        except Exception as exc:
+            logger.warning("Contextual weather lookup failed: %s", exc)
+
+    if profile.get("recommendation_frequency") == "off":
+        result["recommendations"] = []
+    else:
+        contextual = build_contextual_recommendations(
+            profile=profile,
+            plans=history,
+            now=current_time,
+            timezone_name=user.timezone,
+            weather_forecast=weather_forecast,
+        )
+        result["recommendations"] = apply_policy(
+            calculate_recommendations(history, outcomes, user_timezone=user.timezone),
+            feedback,
+            contextual=contextual,
+            now=current_time,
+        )
     return result
+
+
+def _as_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))

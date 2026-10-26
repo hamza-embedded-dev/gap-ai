@@ -55,9 +55,13 @@ class FakeInsightsStore:
         self.plan_owners: dict[str, str] = {}
         self.outcomes: dict[str, dict[str, object]] = {}
         self.tokens: dict[str, tuple[AuthenticatedUser, str | None]] = {}
+        self.personalization: dict[str, dict[str, object]] = {}
 
     def get_user_for_token_hash(self, token_hash: str):
         return self.tokens.get(token_hash)
+
+    def get_personalization(self, *, user_id: str):
+        return self.personalization.get(user_id, {})
 
     def add_plan(
         self,

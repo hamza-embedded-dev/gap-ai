@@ -166,7 +166,13 @@ Her iki alan da isteğe bağlıdır. Yanıt güncellenmiş profildir.
 
 `GET /me/profile` tam profil görünümünü döndürür; henüz satır yoksa boş değerler döndürülür. `PATCH /me/profile` kısmi güncelleme alır. Alanlar: `preferred_name`, `age_range` (doğum tarihi saklanmaz), `life_context` (`student` | `working` | `other`), `field_of_study`, `study_year`, `deadlines_goals` (başlık, isteğe bağlı ISO tarih ve `goal` | `exam` | `deadline` türü), `work_schedule`, `typical_availability`, `interests`, `skills_to_develop`, `planning_preferences`, `recommendation_frequency` (`daily` | `weekly` | `on_demand` | `off`), `onboarding_skipped` ve `onboarding_completed`. Kullanıcı tarafından girilmeyen değerler çıkarılmaz; konuşma dökümü saklanmaz. Yaş için yalnızca aralık kullanılır.
 
-`DELETE /me/profile/fields/{field}` yalnızca belirtilen cevabı temizler ve alanı atlandı olarak işaretlemez; onboarding yeniden sorabilir. `DELETE /me/profile` yalnızca kişiselleştirme satırını siler; planlar, sonuçlar, kayıtlı öneriler ve geri bildirim (varsa) korunur. İstemci önceden silinecek alanları ve korunacak verileri açıkça gösterip onay alır. Öneri sıklığındaki `off` mevcut plan önerisi uç noktasını kapatır. Diğer sıklık değerleri saklanır; bu repository'de günlük/haftalık teslimat zamanlayıcısı yoktur. Var olan plan önerisi hava durumu ve geçmiş plan tamamlama sinyallerine dayanır; ilgi/amaç/müsaitlik girdileriyle discovery seçimi veya öneri içeriği kişiselleştirme sistemi yoktur. Profil sıfırlanınca bu değerler okunmaz ve mevcut öneri politikası çalışır. Hesap ve tüm veri silme endpoint'i mevcut değildir.
+Üç silme işleminin kapsamı farklıdır:
+
+- `DELETE /me/profile/fields/{field}` (uygulandı) yalnızca seçilen profile alanını boşaltır ve o alanın onboarding ilerleme kaydını temizler; diğer profil alanları ve plan verileri kalır.
+- `DELETE /me/profile` (uygulandı) yalnızca kullanıcının personalization profile satırını siler; hesap, planlar, outcomes, kayıtlı plan önerileri ve feedback kalır.
+- `DELETE /me/data` (hedef sözleşme, uygulanmadı) kullanıcıya ait profil, plan, outcome, öneri, feedback, önbelleğe alınmış analiz ve ilişkili anıları kaldırmalıdır; başlık onayı gerekir. Endpoint'in varlığı veya gerçek silme davranışı uygulanmış değildir.
+
+Öneri sıklığındaki `off`, hem `/insights` öneri kartlarını hem de plan başına suggestion endpoint'ini bastırır. `daily`, `weekly` ve `on_demand` değerleri profil tercihidir; bu repository'de otomatik zamanlayıcı/teslimat mekanizması yoktur. Kişiselleştirme yalnızca kullanıcının açıkça girdiği profil alanlarından yararlanır; konuşma dökümü saklanmaz. Contextual kartlar girilmiş exam/deadline/goal tarihlerini, belirtilen müsaitliği ve mevcut gelecek planı kullanır. Weather kartı yalnızca gerçek Open-Meteo yanıtı varsa çıkar; mevcut entegrasyonun sabit Üsküdar uygulama varsayılanını kullandığını ve bunun kaydedilmiş kullanıcı konumu olmadığını kartta gösterir. Ürün sürekli izleme yapmaz.
 
 "POST /parse"
 
@@ -320,9 +326,9 @@ Kullanıcının onayından sonra yeni plan zamanını uygular. Orijinal zaman, d
 
 Backend tarafından hesaplanan deterministik istatistikleri döndürür. Sorgu parametresi: "period" = "week" (varsayılan) | "last_week" | "all".
 
-Yanıta `recommendations` dizisi eklenmiştir (en fazla 3 öğe). Behavior adayları yalnızca gerçek plan ve sonuç olaylarından deterministik olarak hesaplanır; en az 3 bildirilen sonuç olayı gerekir. Yetersiz/boş geçmişte behavior kartı üretilmez; discovery kartları aşağıdaki policy uyarınca gösterilebilir. Her öğe `id`, `title`, `message`, `why`, `evidence`, `confidence`, `next_step`, `source`, `label`, `dedup_key` ve `duration_minutes` içerir. Behavior adayları tekrar tekrar ertelenen/atlanmış kategoriler (en az 2 olay), tekrar ertelenen gün/saat dilimleri (en az 2 olay), veya en az 2 örnekli başarılı saat dilimleridir. Her behavior önerisi kendi sayım ve örnek büyüklüğünü kanıt olarak taşır; minimum eşik karşılanmıyorsa öneri üretilmez. Hesap deterministiktir ve AI sağlayıcısı gerektirmez.
+Yanıta `recommendations` dizisi eklenmiştir (en fazla 3 öğe). Behavior adayları yalnızca gerçek plan ve sonuç olaylarından deterministik olarak hesaplanır; en az 3 bildirilen sonuç olayı gerekir. Yetersiz/boş geçmişte behavior kartı üretilmez. Contextual adaylar yalnızca kullanıcının kaydettiği gelecek hedef/tarih, müsaitlik veya gelecek plansa oluşturulur; forecast adayı yalnızca gerçek hava durumu yanıtı varsa eklenir. Dayanak `label`, `why` ve `evidence` içinde görünür. Her öğe `id`, `title`, `message`, `why`, `evidence`, `confidence`, `next_step`, `source`, `label`, `dedup_key` ve `duration_minutes` içerir; `source` değeri `behavior` | `contextual` | `discovery` olur. Behavior adayları tekrar tekrar ertelenen/atlanmış kategoriler (en az 2 olay), tekrar ertelenen gün/saat dilimleri (en az 2 olay), veya en az 2 örnekli başarılı saat dilimleridir. Her behavior önerisi kendi sayım ve örnek büyüklüğünü kanıt olarak taşır; minimum eşik karşılanmıyorsa öneri üretilmez. Hesap deterministiktir ve LLM çağrısı yapmaz.
 
-`GET /plans/{id}/suggestion` yetersiz geçmişte `{"suggestion": null}` döndürür. Web istemcisi bu durumu daha fazla tamamlanmış/bildirilmiş plan gerektiğini açıklayan boş durum olarak gösterir; istek 10 saniyede zaman aşımına uğrarsa kullanıcı Retry ile yeniden deneyebilir.
+`GET /plans/{id}/suggestion` yetersiz geçmişte `{"suggestion": null}` döndürür. My Plans sayfası bu endpoint'i plan kartı yüklenirken otomatik çağırmaz; kullanıcı öneriyi istediğinde çağırır. Kaydedilmiş öneri tekrar kullanılır. Önerilen zaman değişikliği, kullanıcı açıkça onayladıktan sonra mevcut `PUT /plans/{id}` endpoint'iyle uygulanır. Web istemcisi istek 10 saniyede zaman aşımına uğrarsa Retry sunar.
 
 Yanıt:
 
@@ -366,18 +372,33 @@ Yanıt:
   },
   "narrative": "Raporlanan üç planın ikisini tamamladın...",
   "is_demo": false,
-  "data_label": "real"
+  "data_label": "real",
+  "recommendations": [
+    {
+      "id": "context-goal-3b7a9fd3f18e22a1",
+      "title": "Plan around your exam date",
+      "message": "You entered Biology exam on 2026-10-28. Review your next step before then.",
+      "why": "Based on the exam date you entered on 2026-10-28.",
+      "evidence": {"kind": "exam", "deadline": "2026-10-28", "goal_title": "Biology exam"},
+      "confidence": "moderate",
+      "next_step": "Check the availability you entered: Tuesday afternoons.",
+      "source": "contextual",
+      "label": "Based on the exam date you entered",
+      "dedup_key": "9cf8b6f46f2fe3a0aaf854f944d1159b4bb4a76e71eabcc4416b523ae3345260",
+      "duration_minutes": null
+    }
+  ]
 }
 
 "adherence_pct", bitiş zamanı geçmiş ve sonucu bildirilmiş planlarda "done / (done + postponed + skipped)" oranıdır. Sonucu olmayan geçmiş planlar "unreported" sayılır ve paydadan çıkarılır. Planın son sonuç olayı uyum hesabında kullanılır; tüm "postponed" olayları örüntü analizine dahil edilir. Uygun ve sonuç bildirilmiş plan yoksa "adherence_pct" değeri "null" olur. "narrative" boş veya "null" olabilir. "data_label": "real" | "demo".
 
-Recommendations policy: `recommendations` is capped at 3. Default allocation is up to 2 behavior-based cards and 1 discovery card; unused slots are filled from remaining cards, and the allocation can later be changed with `RECOMMENDATION_BEHAVIOR_SLOTS` (0–3). Contextual recommendations are deferred to Phase 4. Discovery uses only profile interests/goals and available-time data if those fields exist in `/me`; the current profile has none, so it emits neutral starter ideas, labels each `Not based on your history`, and defaults the duration to the idea's listed duration. Discovery is deterministic and does not call the provider. Behavior cards require real history. A SHA-256 `dedup_key` is computed from lowercase `source:id` (message and duration do not affect identity). Dismissed IDs are hidden for 30 days; after expiry, an idea is eligible and is prioritized over untouched discovery ideas so it can resurface. Useful/not-useful ratings are persisted and prioritize/demote IDs during later selection; dismissal and modification records also persist. This is persisted-feedback-based ranking, not continuous model learning.
+Recommendations policy: `recommendations` is capped at 3. The default allocation is up to 1 behavior, 1 contextual, and 1 discovery card; unused slots are filled from remaining behavior, contextual, then discovery candidates. `RECOMMENDATION_BEHAVIOR_SLOTS` (0–3) and `RECOMMENDATION_CONTEXTUAL_SLOTS` (0–the remaining slots) adjust the balance. `recommendation_frequency=off` returns no recommendation cards and also suppresses plan-specific suggestions; other frequency values are stored preferences because there is no delivery scheduler. Behavior cards require real outcomes. Contextual cards use only stored goal/deadline/exam data, stated availability, an upcoming plan, or a fetched forecast for the fixed app-default Üsküdar area (clearly disclosed as not a saved user location). No calendar events, dates, availability, or weather are inferred; no continuous monitoring occurs. Discovery cards are neutral starter ideas labeled `Not based on your history`. All sources are deterministic and do not call the LLM. A SHA-256 `dedup_key` is computed from lowercase `source:id` (message and duration do not affect identity). IDs are source-namespaced. Dismissed IDs are hidden for 30 days; after expiry, an idea is eligible and prioritized over untouched ideas so it can resurface. Useful/not-useful ratings affect later ordering; dismissal and modification feedback persist. This is feedback-based ranking, not continuous model learning.
 
 `POST /recommendations/feedback` records user-scoped feedback.
 
 Request: `{"recommendation_id":"discovery-walk","action":"dismissed","rating":null,"payload":{}}` (`rating` and `payload` may be omitted). `action` is `accepted` | `dismissed` | `modified`; optional `rating` is `useful` | `not_useful` and cannot accompany `dismissed`. A modified discovery duration is stored in `payload.duration_minutes` and must be 5–1440. Useful ratings are prioritized and not-useful ratings are demoted in later selection. The API derives `user_id` from the authenticated token. The response is `201 Created` with `id`, `recommendation_id`, `action`, `rating`, `payload`, and `created_at`; it never accepts an owner ID from the client. Invalid feedback returns `422 validation_error`; missing auth returns `401 unauthorized`; unavailable feedback storage returns `503 unavailable`.
 
-Insights card actions include Show another idea (rotates the returned cards), Not interested (persists a dismissal), Tell me why (shows the card's explanation), Change duration (discovery only; persists a modified value), Useful/Not useful, and Add to My Plans. Adding a discovery idea requires a browser confirmation and then uses the existing idempotent `POST /plans` path. Feedback storage migration `20261026_004_recommendation_feedback.sql` is additive and must be applied before enabling the endpoints; it has not been applied to production by this code change.
+Insights card actions include Show another idea (rotates the returned cards), Not interested (persists a dismissal), Tell me why (shows the card's explanation), Change duration (discovery only; persists a modified value), Useful/Not useful, and Add to My Plans (discovery only). Adding an idea requires browser confirmation and uses the existing idempotent `POST /plans` path. Contextual cards do not modify plans. Plan-specific proposed times are shown in My Plans and use `PUT /plans/{id}` only after a separate browser confirmation. Feedback storage migration `20261026_004_recommendation_feedback.sql` is additive and must be applied before enabling feedback-backed policy; it has not been applied to production. The profile, plan suggestion refresh, and other migrations likewise require deliberate deployment and verification; no migration is applied automatically by this code.
 
 "GET /me/upcoming"
 

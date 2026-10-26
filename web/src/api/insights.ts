@@ -33,11 +33,11 @@ export interface TrendVsPrev {
   adherence_pct_delta?: number | null;
 }
 
-export interface BehaviorRecommendation {
+export interface RecommendationCard {
   id: string; title: string; message: string; why: string;
   evidence: Record<string, string | number>;
   confidence: 'moderate' | 'none'; next_step: string;
-  source: 'behavior' | 'discovery'; label: string | null; dedup_key: string | null; duration_minutes: number | null;
+  source: 'behavior' | 'discovery' | 'contextual'; label: string | null; dedup_key: string | null; duration_minutes: number | null;
 }
 
 export interface RecommendationFeedbackRequest {
@@ -68,7 +68,7 @@ export interface InsightsResponse {
   narrative?: string | null;
   is_demo?: boolean;
   data_label?: 'real' | 'demo' | string;
-  recommendations?: BehaviorRecommendation[];
+  recommendations?: RecommendationCard[];
 }
 
 /**

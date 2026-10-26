@@ -253,9 +253,9 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
           ) : (
             <div className="coach-grid">{(insights.recommendations ?? []).slice(0, 3).map((item) => (
               <article className="coach-card" key={item.id}>
-                {item.source === 'discovery' && <small>{item.label ?? 'Not based on your history'}</small>}
+                {item.label && <small>{item.label}</small>}
                 <h3>{item.title}</h3><p>{item.message}</p><p>{item.why}</p>
-                {item.source === 'behavior' && <><small>Evidence: {Object.entries(item.evidence).map(([key, value]) => `${key}: ${value}`).join(' · ')}</small><small>Confidence: {item.confidence}</small></>}
+                {(item.source === 'behavior' || item.source === 'contextual') && <><small>Evidence: {Object.entries(item.evidence).map(([key, value]) => `${key}: ${value}`).join(' · ')}</small><small>Confidence: {item.confidence}</small></>}
                 <p><strong>Next step:</strong> {item.next_step}</p>
                 {whyOpen[item.id] && <p role="status">{item.why}{item.source === 'discovery' ? ' This is a neutral starter and uses no history.' : ''}</p>}
                 {item.source === 'discovery' && <label>Duration (minutes) <input type="number" min={5} max={1440} value={durations[item.id] ?? item.duration_minutes ?? 20} onChange={e => setDurations(v => ({...v, [item.id]: Math.max(5, Math.min(1440, Number(e.target.value) || 5))}))} /></label>}
@@ -265,7 +265,7 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
                   <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'useful'}); })}>Useful</button>
                   <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'not_useful'}); })}>Not useful</button>
                   {item.source === 'discovery' && <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'modified', payload:{duration_minutes:durations[item.id] ?? item.duration_minutes}}); })}>Change duration</button>}
-                  <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => {
+                  {item.source === 'discovery' && <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => {
                     const duration = durations[item.id] ?? item.duration_minutes ?? 20;
                     const now = new Date(); const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                     const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -274,7 +274,7 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
                     if (!key) { key = generateIdempotencyKey(); recommendationPlanKeys.current.set(item.id, key); }
                     await createPlan({intent:'create_plan', title:item.title, category:'personal', date, time, duration_minutes:duration, recurrence:null, language:'en', needs_weather_check:false, clarification_question:null, confidence:1}, key);
                     await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted'});
-                  })}>{actionBusy === item.id ? 'Working…' : 'Add to My Plans'}</button>
+                  })}>{actionBusy === item.id ? 'Working…' : 'Add to My Plans'}</button>}
                 </div>
               </article>
             ))}</div>

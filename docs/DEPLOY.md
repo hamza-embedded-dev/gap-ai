@@ -70,6 +70,25 @@ bar, including `https://` and without a path or trailing slash, for example
 individually as comma-separated origins. Do not use `*`. CORS settings load at
 backend startup, so restart or redeploy after changing them.
 
+## Supabase migrations
+
+Application code does not apply migrations. Before deployment, inspect the
+target database's current schema and migration history, then review and apply
+the required SQL deliberately in this order:
+
+1. `20261013_001_gate1_core.sql`
+2. `20261018_002_suggestions.sql`
+3. `20261026_003_refresh_suggestions.sql`
+4. `20261026_003_personalization_profile.sql`
+5. `20261026_004_recommendation_feedback.sql`
+
+Run the corresponding SQL verification files against a disposable/staging
+PostgreSQL database first. The current GitHub migration job applies only the
+first three files; it does not yet apply/verify the personalization-profile or
+recommendation-feedback migrations. No repository or CI result proves that any
+of these migrations has been applied to production. Confirm that status
+separately before enabling dependent features.
+
 ## Health and Free-tier behavior
 
 `GET /health` is liveness only: it returns a static status/version response and

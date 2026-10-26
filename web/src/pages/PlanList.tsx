@@ -71,45 +71,83 @@ function planEditFormValues(plan: Plan): PlanUpdateRequest {
   };
 }
 
-function SuggestionCard({ planId, planTitle, refreshKey, enabled }: {
-  planId: string;
-  planTitle: string;
-  refreshKey: string;
+function SuggestionCard({ plan, enabled, onPlanUpdated }: {
+  plan: Plan;
   enabled: boolean;
+  onPlanUpdated: (plan: Plan) => void;
 }) {
   const [suggestion, setSuggestion] = useState<PlanSuggestion | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [retry, setRetry] = useState(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    if (!enabled) {
-      setLoading(false);
-      return () => { active = false; };
-    }
+  const loadSuggestion = async () => {
+    if (!enabled || loading) return;
     setLoading(true);
     setError(false);
-    void fetchPlanSuggestion(planId)
-      .then((value) => { if (active) setSuggestion(value); })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [planId, refreshKey, retry, enabled]);
+    setApplyError(null);
+    setNotice(null);
+    try {
+      setSuggestion(await fetchPlanSuggestion(plan.id));
+      setHasLoaded(true);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (loading) return <div className="suggestion-card" aria-live="polite">Loading your personalized recommendation…</div>;
-  if (error) return <div className="suggestion-card" role="alert">
-    Recommendation could not be loaded. <button type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>
-  </div>;
-  if (!suggestion) return <div className="suggestion-card" role="status">
-    More completed or reported plans are needed before a personalized recommendation is available.
-  </div>;
-  return <aside className="suggestion-card" aria-label="Personalized recommendation">
-    <strong>{planTitle} · Personalized recommendation</strong>
-    <p>{suggestion.message}</p>
-    {suggestion.evidence.adherence_pct != null && <small>
-      Based on {suggestion.evidence.outcome_count ?? ''} outcomes, completion rate: {suggestion.evidence.adherence_pct}%
-    </small>}
+  const applySuggestion = async () => {
+    if (!suggestion || applying) return;
+    const start = new Date(suggestion.proposed_start);
+    const end = new Date(suggestion.proposed_end);
+    const displayTime = (value: Date) => Number.isNaN(value.getTime()) ? 'the suggested time' : value.toLocaleString();
+    if (!window.confirm(`Move “${plan.title}” to ${displayTime(start)}–${displayTime(end)}? This updates the plan in My Plans.`)) return;
+    setApplying(true);
+    setApplyError(null);
+    setNotice(null);
+    try {
+      const updated = await updatePlan(plan.id, {
+        title: plan.title,
+        category: plan.category as PlanUpdateRequest['category'],
+        planned_start: suggestion.proposed_start,
+        planned_end: suggestion.proposed_end,
+      });
+      onPlanUpdated(updated);
+      setNotice('Plan time updated.');
+      setSuggestion(null);
+      setHasLoaded(false);
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'The plan could not be updated. Try again.');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return <aside className="suggestion-card" aria-label="Plan-specific suggestion">
+    <strong>{plan.title} · Plan-specific suggestion</strong>
+    {!hasLoaded && !loading && <p>Load a saved suggestion, if available. A new one is requested only when you ask.</p>}
+    {loading && <p aria-live="polite">Loading your personalized recommendation…</p>}
+    {error && <p role="alert">Recommendation could not be loaded.</p>}
+    {hasLoaded && !suggestion && !error && <p role="status">No plan-specific suggestion is available right now.</p>}
+    {suggestion && <>
+      <p>{suggestion.message}</p>
+      <small>Suggested time: {new Date(suggestion.proposed_start).toLocaleString()} – {new Date(suggestion.proposed_end).toLocaleTimeString()}</small>
+      {suggestion.evidence.adherence_pct != null && <small>
+        Based on {suggestion.evidence.outcome_count ?? ''} outcomes, completion rate: {suggestion.evidence.adherence_pct}%
+      </small>}
+      <button type="button" disabled={!enabled || applying} onClick={() => void applySuggestion()}>
+        {applying ? 'Updating plan…' : 'Confirm suggested time'}
+      </button>
+    </>}
+    {applyError && <p role="alert">{applyError}</p>}
+    {notice && <p role="status">{notice}</p>}
+    {(!hasLoaded || error || (hasLoaded && !suggestion)) && <button type="button" disabled={!enabled || loading} onClick={() => void loadSuggestion()}>
+      {loading ? 'Loading…' : error ? 'Retry' : hasLoaded ? 'Check again' : 'Show suggestion'}
+    </button>}
   </aside>;
 }
 
@@ -604,10 +642,10 @@ export function PlanList({ token, onRequireToken, onNavigateCreate }: PlanListPr
                 </div>
 
                 <SuggestionCard
-                  planId={plan.id}
-                  planTitle={plan.title}
+                  key={`${plan.id}:${plan.latest_outcome?.reported_at ?? ''}`}
+                  plan={plan}
                   enabled={!mockMode && Boolean(token)}
-                  refreshKey={plan.latest_outcome?.reported_at ?? ''}
+                  onPlanUpdated={(updated) => setPlans((current) => current.map((item) => item.id === updated.id ? updated : item))}
                 />
 
                 {/* Outcome Reporting Section */}

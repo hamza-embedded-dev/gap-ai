@@ -77,6 +77,8 @@ Kalıcı veriler yalnızca burada saklanır. Modelin veritabanına doğrudan eri
 - **users:** Kimlik bilgisi, saat dilimi ve yetkilendirme (Auth) anahtar özetleri.
 - **plans:** Planlanan niyetler, başlangıç ve bitiş zamanları.
 - **outcomes:** Kullanıcının eylemleri (yapıldı, ertelendi, atlandı) ve gerçekleşme zamanları.
+- **personalization_profiles:** Kullanıcının açıkça girdiği onboarding/profil cevapları. Yaş aralığı saklanır; doğum tarihi ve konuşma dökümü saklanmaz.
+- **suggestions / recommendation_feedback:** Plan başına saklanan öneriler ve kullanıcıya özel öneri geri bildirimi.
 
 ### Depolama Türlerinin Karşılaştırması
 
@@ -96,13 +98,25 @@ Kalıcı veriler yalnızca burada saklanır. Modelin veritabanına doğrudan eri
 4. **Web kaydı:** Kullanıcı `create_plan` sonucunu onayladıktan sonra istemci `POST /plans` ile planı kaydeder.
 5. **ESP32 kaydı:** `POST /voice`, `create_plan` sonucu için planı kaydeder. `clarify` veya `unsupported` sonucu için plan kaydedilmez.
 
-### Akış B: GAP Analizi ve Kendiliğinden Öneri
+### Akış B: GAP Analizi ve İstek Üzerine Plan Önerisi
 
 1. **Eylem Bildirimi:** ESP32'de bir butona basılır (örn. uzun basış = atlandı) ve POST /plans/{id}/outcome çağrılır.
 2. **Metrik Güncelleme:** FastAPI sonucu Supabase'e yazar. Python analiz motoru kullanıcının yeni başarı oranını ve erteleme örüntüsünü hesaplar; sonuçlar geçici depolamada önbelleğe alınır.
-3. **Öneri isteği:** İstemci `GET /plans/{id}/suggestion` çağrısı yaptığında, henüz kayıtlı öneri yoksa ve yeterli veri ile uygun koşullar varsa backend öneri oluşturup kaydeder. MVP kapsamında kayıtlı öneriler otomatik güncellenmez.
+3. **Plan önerisi:** My Plans ekranı plan başına öneri endpoint'ini sayfa açılırken çağırmaz. Kullanıcı plan kartından öneriyi istediğinde `GET /plans/{id}/suggestion` kayıtlı öneriyi döndürür veya uygun koşullarda ilk öneriyi üretip kaydeder. Yeni outcome varsa sonraki istek eski öneriyi yenileyebilir.
 4. **LLM Yorumu:** FastAPI, hesaplanan net sayıları Nemotron'a gönderir ve "Bu verilere dayanarak kısa bir öneri yaz" der.
-5. **Öneriyi Sunma:** Modelin yazdığı metin (örn. "Sporu sürekli atlıyorsun, sabah saatine alalım mı?") kaydedilir ve ilk fırsatta web uygulaması üzerinden kullanıcıya gösterilir.
+5. **Öneriyi Sunma:** Kaydedilen öneri My Plans'te yalnızca kullanıcı istediğinde gösterilir. Önerilen plan zamanı kullanıcı ayrı bir onay verirse mevcut `PUT /plans/{id}` ile güncellenir.
+
+### Akış C: Insights önerileri ve plan onayı
+
+`GET /insights` kullanıcının kimliğine göre plan/outcome geçmişini, personalization profile cevaplarını ve öneri feedback kayıtlarını okur. Behavior adayları yalnızca yeterli gerçek outcome verisinden çıkarılır. Contextual adaylar yalnızca girilmiş deadline/exam/goal tarihleri, kullanıcının belirttiği müsaitlik, gerçekten yaklaşan bir plan veya gerçek weather API yanıtına dayanır. Weather entegrasyonu en yakın gelecek plansa istek başına en fazla bir forecast sorgular ve mevcut sabit Üsküdar uygulama varsayılanını kartta açıklar; bu kullanıcı konumu olarak saklanmaz. Scheduler veya sürekli izleme yoktur.
+
+Backend policy toplamı üç kartla sınırlar; varsayılan dağılım behavior/contextual/discovery için birer karttır ve boş kalan yerleri mevcut adaylarla doldurur. Kaynak ve sabit kimlikten SHA-256 dedup anahtarı üretilir. `recommendation_feedback` içindeki dismissal 30 gün gizler; useful/not-useful geri bildirimi sonraki seçim sırasını etkiler. Policy deterministiktir ve LLM çağırmaz. `recommendation_frequency=off` hem Insights kartlarını hem plan başına öneri endpoint'ini kapatır; diğer sıklık seçenekleri saklanır ama zamanlanmış teslimat oluşturmaz.
+
+Contextual ve behavior kartları planı kendiliğinden değiştirmez. Discovery fikrini My Plans'e eklemek için kullanıcı onayı gerekir. Plan başına önerinin önerdiği yeni saat, kullanıcı onayı verdiğinde mevcut `PUT /plans/{id}` çağrısıyla kaydedilir. Profil alanı silme yalnızca seçili cevabı temizler; profil reset yalnızca `personalization_profiles` satırını siler ve plan/outcome/suggestion/feedback kayıtlarını korur. Kullanıcıya ait profil, plan, outcome, öneri, feedback ve ilişkili analiz verisini temizlemesi hedeflenen `DELETE /me/data` endpoint'i henüz uygulanmamıştır.
+
+### Veri ve migration dağıtımı
+
+Kod deposundaki migration dosyalarının bulunması Supabase'te uygulanmış olduğu anlamına gelmez. `20261013_001_gate1_core.sql`, `20261018_002_suggestions.sql`, `20261026_003_refresh_suggestions.sql`, `20261026_003_personalization_profile.sql` ve `20261026_004_recommendation_feedback.sql` hedef veritabanında gözden geçirilmeli ve sıralı/kontrollü uygulanıp SQL doğrulama testleri çalıştırılmalıdır. Mevcut GitHub migration job'u yalnızca core, suggestions ve refresh migration'larını çalıştırır; profile ve feedback migration'ları CI'da henüz uygulanmıyor. Phase 3B contextual policy için yeni bir migration gerekmez; mevcut profile ve feedback tablolarını okur.
 
 ## 4. Altyapı ve Dağıtım
 
