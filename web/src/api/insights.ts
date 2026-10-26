@@ -36,7 +36,19 @@ export interface TrendVsPrev {
 export interface BehaviorRecommendation {
   id: string; title: string; message: string; why: string;
   evidence: Record<string, string | number>;
-  confidence: 'moderate'; next_step: string;
+  confidence: 'moderate' | 'none'; next_step: string;
+  source: 'behavior' | 'discovery'; label: string | null; dedup_key: string | null; duration_minutes: number | null;
+}
+
+export interface RecommendationFeedbackRequest {
+  recommendation_id: string;
+  action: 'accepted' | 'dismissed' | 'modified';
+  rating?: 'useful' | 'not_useful' | null;
+  payload?: Record<string, unknown>;
+}
+
+export async function submitRecommendationFeedback(input: RecommendationFeedbackRequest): Promise<void> {
+  await apiFetch('/recommendations/feedback', { method: 'POST', body: JSON.stringify({ rating: null, payload: {}, ...input }) });
 }
 
 export interface InsightsResponse {

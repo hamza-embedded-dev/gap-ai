@@ -159,12 +159,21 @@
   "$defs": {
     "BehaviorRecommendation": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "title", "message", "why", "evidence", "confidence", "next_step"],
+      "required": ["id", "title", "message", "why", "evidence", "confidence", "next_step", "source", "label", "dedup_key", "duration_minutes"],
       "properties": {
         "id": {"type":"string"}, "title":{"type":"string"}, "message":{"type":"string"},
         "why":{"type":"string"}, "evidence":{"type":"object", "additionalProperties":{"type":["string","number"]}},
-        "confidence":{"enum":["moderate"]}, "next_step":{"type":"string"}
+        "confidence":{"enum":["moderate","none"]}, "next_step":{"type":"string"},
+        "source":{"enum":["behavior","discovery"]}, "label":{"type":["string","null"]},
+        "dedup_key":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$"},
+        "duration_minutes":{"type":["integer","null"],"minimum":5,"maximum":1440}
       }
+    },
+    "RecommendationFeedbackRequest": {
+      "type":"object", "additionalProperties":false,
+      "required":["recommendation_id","action"],
+      "properties":{"recommendation_id":{"type":"string","minLength":1,"maxLength":80},"action":{"enum":["accepted","dismissed","modified"]},"rating":{"enum":["useful","not_useful",null]},"payload":{"type":"object","properties":{"duration_minutes":{"type":"integer","minimum":5,"maximum":1440}}}},
+      "allOf":[{"if":{"properties":{"action":{"const":"dismissed"}}},"then":{"properties":{"rating":{"type":"null"}}}}]
     },
     "InsightsResponse": {
       "type":"object", "required":["recommendations"],

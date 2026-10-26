@@ -82,6 +82,10 @@ class PlanStore(Protocol):
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]: ...
 
+    def list_recommendation_feedback(self, user_id: str) -> list[dict[str, Any]]: ...
+
+    def save_recommendation_feedback(self, user_id: str, feedback: dict[str, Any]) -> dict[str, Any]: ...
+
 
 class SupabasePlanStore:
     """Small PostgREST adapter; idempotent writes use one transactional RPC."""
@@ -437,8 +441,20 @@ class SupabasePlanStore:
             raise RuntimeError("Suggestion insert was ignored but no stored suggestion was found")
         return existing
 
+    def list_recommendation_feedback(self, user_id: str) -> list[dict[str, Any]]:
+        response = self._client.get(urljoin(self._rest_url, "recommendation_feedback"), params={"select": FEEDBACK_FIELDS, "user_id": f"eq.{user_id}", "order": "created_at.desc"})
+        response.raise_for_status()
+        return response.json()
+
+    def save_recommendation_feedback(self, user_id: str, feedback: dict[str, Any]) -> dict[str, Any]:
+        row = {**feedback, "user_id": user_id}
+        response = self._client.post(urljoin(self._rest_url, "recommendation_feedback"), params={"select": FEEDBACK_FIELDS}, headers={"Prefer": "return=representation"}, json=row)
+        response.raise_for_status()
+        return response.json()[0]
+
 
 SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence,created_at"
+FEEDBACK_FIELDS = "id,recommendation_id,action,rating,payload,created_at"
 OUTCOME_FIELDS = "id,plan_id,user_id,status,actual_start,postponed_to,note,reported_via,reported_at"
 LATEST_OUTCOME_FIELDS = "id,status,actual_start,postponed_to,note,reported_via,reported_at"
 PLAN_LIST_FIELDS = (
@@ -598,6 +614,12 @@ class LazyPlanStore:
         self, user_id: str, plan_id: str, suggestion_data: dict[str, Any]
     ) -> dict[str, Any]:
         return _build_plan_store().refresh_suggestion(user_id, plan_id, suggestion_data)
+
+    def list_recommendation_feedback(self, user_id: str) -> list[dict[str, Any]]:
+        return _build_plan_store().list_recommendation_feedback(user_id)
+
+    def save_recommendation_feedback(self, user_id: str, feedback: dict[str, Any]) -> dict[str, Any]:
+        return _build_plan_store().save_recommendation_feedback(user_id, feedback)
 
 
 @lru_cache(maxsize=1)

@@ -8,6 +8,7 @@ from app.api.insights import router as insights_router
 from app.api.me import router as me_router
 from app.api.outcomes import router as outcomes_router
 from app.api.plans import router as plans_router
+from app.api.recommendations import router as recommendations_router
 from app.api.parse import router as parse_router
 from app.api.suggestions import router as suggestions_router
 from app.api.upcoming import router as upcoming_router
@@ -45,5 +46,6 @@ app.include_router(outcomes_router)
 app.include_router(parse_router)
 app.include_router(upcoming_router)
 app.include_router(insights_router)
+app.include_router(recommendations_router)
 app.include_router(voice_router)
 app.include_router(suggestions_router)
