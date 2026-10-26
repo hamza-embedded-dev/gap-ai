@@ -62,6 +62,14 @@ export interface PlanCreateRequest {
   source: PlanSource;
 }
 
+/** Editable fields persisted on the public.plans table. */
+export interface PlanUpdateRequest {
+  title: string;
+  category: Exclude<PlanCategory, null>;
+  planned_start: string;
+  planned_end: string;
+}
+
 /**
  * Payload sent to POST /plans/{id}/outcome
  *docs/api-contract.md:243-258

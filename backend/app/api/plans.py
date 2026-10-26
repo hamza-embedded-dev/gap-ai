@@ -5,11 +5,12 @@ import inspect
 import json
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.config import get_settings
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
@@ -27,6 +28,33 @@ class PlanCreateRequest(BaseModel):
 
     parsed_plan: ParsedPlan
     source: Literal["text", "voice", "device"]
+
+
+class PlanUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    category: Literal["sport", "study", "work", "meeting", "health", "social", "personal", "other"]
+    planned_start: datetime
+    planned_end: datetime
+
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Plan title cannot be empty.")
+        return value
+
+    @model_validator(mode="after")
+    def plan_times_must_be_valid(self) -> PlanUpdateRequest:
+        for field_name in ("planned_start", "planned_end"):
+            value = getattr(self, field_name)
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{field_name} must include a timezone.")
+        if self.planned_end <= self.planned_start:
+            raise ValueError("Plan end time must be after its start time.")
+        return self
 
 
 class PlanResponse(BaseModel):
@@ -146,6 +174,45 @@ def create_plan(
             "Idempotency-Key was already used with a different request.",
         )
     return snapshot
+
+
+def _canonical_plan_id(plan_id: str) -> str:
+    try:
+        return str(UUID(plan_id))
+    except ValueError:
+        raise APIError(404, "not_found", "Plan not found.") from None
+
+
+@router.put("/plans/{plan_id}", response_model=PlanResponse)
+def update_plan(
+    plan_id: str,
+    payload: PlanUpdateRequest,
+    user: AuthenticatedUser = Depends(current_user),
+    store: PlanStore = Depends(get_plan_store),
+) -> dict[str, Any]:
+    saved = store.update_plan(
+        user_id=user.id,
+        plan_id=_canonical_plan_id(plan_id),
+        changes=payload.model_dump(mode="json"),
+    )
+    if saved is None:
+        raise APIError(404, "not_found", "Plan not found.")
+    return saved
+
+
+@router.delete("/plans/{plan_id}", status_code=204)
+def delete_plan(
+    plan_id: str,
+    user: AuthenticatedUser = Depends(current_user),
+    store: PlanStore = Depends(get_plan_store),
+) -> Response:
+    deleted = store.delete_plan(
+        user_id=user.id,
+        plan_id=_canonical_plan_id(plan_id),
+    )
+    if not deleted:
+        raise APIError(404, "not_found", "Plan not found.")
+    return Response(status_code=204)
 
 
 @router.get("/plans", response_model=PlanListResponse)

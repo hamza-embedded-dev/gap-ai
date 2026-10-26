@@ -103,6 +103,7 @@ Bu belge API arayüz sözleşmesidir; tek başına her endpoint'in uygulanmış 
 | `POST /parse` | Uygulandı |
 | `POST /voice` | Uygulandı; ESP32 firmware'ine yükleme entegrasyonu yapılmamış |
 | `POST /plans`, `GET /plans` | Uygulandı |
+| `PUT /plans/{id}`, `DELETE /plans/{id}` | Uygulandı |
 | `GET /plans/{id}/suggestion` | Uygulandı |
 | `POST /plans/{id}/outcome` | Uygulandı |
 | `GET /insights` | Uygulandı |
@@ -230,7 +231,26 @@ Yanıt:
   ]
 }
 
-"GET /plans/{id}/suggestion" — Backend'de uygulanmıştır. Kişiselleştirilmiş bir öneri üretmek için geçmişi olan en az 3 planın sonuç olayı gerekir; bu eşik yoksa cevapta "suggestion": null döner. Öneri mesajı Nebius modelinden alınır, tek satır ve 240 karakterle sınırlanır; modelin boş/uygunsuz yanıtı kısa deterministik mesaja düşer. Öneri yalnızca ilgili kullanıcının planı için üretilir ve kaydedilir. Bir planın herhangi bir son bildirilen sonucu öneri kaydından daha yeniyse kayıt eski kabul edilir ve yeterli veri varsa yenilenir.
+"PUT /plans/{id}"
+
+Giriş yapan kullanıcının sahip olduğu planın desteklenen alanlarını günceller. İstek tüm düzenlenebilir alanları içerir; başlık boş olamaz, kategori mevcut kategori listesinden olmalı, zaman damgaları saat dilimi içermeli ve bitiş başlangıçtan sonra olmalıdır. Başka kullanıcıya ait veya bulunamayan plan için "404 not_found" döner.
+
+İstek:
+
+{
+  "title": "Akşam koşusu",
+  "category": "sport",
+  "planned_start": "2026-10-18T18:30:00+03:00",
+  "planned_end": "2026-10-18T19:30:00+03:00"
+}
+
+Yanıt güncellenmiş "Plan" nesnesidir. Planın outcome geçmişi korunur.
+
+"DELETE /plans/{id}"
+
+Giriş yapan kullanıcının sahip olduğu planı kalıcı olarak siler. Başka kullanıcıya ait veya bulunamayan plan için "404 not_found" döner; başarılı silme "204 No Content" döndürür. Mevcut veritabanı foreign key kuralları gereği outcome ve ilişkili öneriler silinir; idempotency isteği kaydı korunur ve plan bağlantısı NULL yapılır. Bu işlem geri alınamaz.
+
+"GET /plans/{id}/suggestion" — Backend'de uygulanmıştır. Kişiselleştirilmiş öneri için geçmişi olan en az 3 planın sonuç olayı gerekir; bu eşik yoksa "suggestion": null döner. Öneri mesajı Nebius modelinden alınır, tek satır ve 240 karakterle sınırlanır; modelin boş veya uygunsuz yanıtı kısa deterministik mesaja düşer. Öneri yalnızca ilgili kullanıcının planı için üretilir ve kaydedilir. Bir planın son bildirilen sonucu kayıtlı öneriden daha yeniyse kayıt eski kabul edilir ve yeterli veri varsa yenilenir.
 
 Kayıtlı öneriyi döndürür. Henüz kayıtlı öneri yoksa ilk istekte, yeterli veri ve uygun koşullar bulunduğunda hava durumu ve geçmiş verilere göre bir öneri oluşturulur ve veritabanına kaydedilir. Öneri üretilemiyorsa "suggestion" değeri "null" döndürülür. Sonraki isteklerde kayıtlı öneri döndürülür. Yeni bir outcome bildirildiğinde sonraki istek öneriyi yeniden değerlendirir ve geçerliyse kaydı günceller.
 

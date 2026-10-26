@@ -41,6 +41,12 @@ class PlanStore(Protocol):
 
     def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None: ...
 
+    def update_plan(
+        self, *, user_id: str, plan_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool: ...
+
     def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]: ...
 
     def create_outcome(
@@ -197,6 +203,36 @@ class SupabasePlanStore:
         response.raise_for_status()
         rows = response.json()
         return rows[0] if rows else None
+
+    def update_plan(
+        self, *, user_id: str, plan_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        response = self._client.patch(
+            urljoin(self._rest_url, "plans"),
+            params={
+                "select": PLAN_LIST_FIELDS,
+                "id": f"eq.{plan_id}",
+                "user_id": f"eq.{user_id}",
+            },
+            headers={"Prefer": "return=representation"},
+            json=changes,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return _plan_list_response(rows[0]) if rows else None
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool:
+        response = self._client.delete(
+            urljoin(self._rest_url, "plans"),
+            params={
+                "select": "id",
+                "id": f"eq.{plan_id}",
+                "user_id": f"eq.{user_id}",
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        response.raise_for_status()
+        return bool(response.json())
 
     def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]:
         response = self._client.get(
@@ -498,6 +534,16 @@ class LazyPlanStore:
 
     def get_plan(self, *, user_id: str, plan_id: str) -> dict[str, Any] | None:
         return _build_plan_store().get_plan(user_id=user_id, plan_id=plan_id)
+
+    def update_plan(
+        self, *, user_id: str, plan_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return _build_plan_store().update_plan(
+            user_id=user_id, plan_id=plan_id, changes=changes
+        )
+
+    def delete_plan(self, *, user_id: str, plan_id: str) -> bool:
+        return _build_plan_store().delete_plan(user_id=user_id, plan_id=plan_id)
 
     def list_outcomes(self, *, user_id: str) -> list[dict[str, Any]]:
         return _build_plan_store().list_outcomes(user_id=user_id)
