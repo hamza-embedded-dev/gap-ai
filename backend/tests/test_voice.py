@@ -1268,7 +1268,50 @@ def test_voice_proposal_rejection_never_saves_plan(
         headers=headers,
     )
     assert reject_resp.status_code == 200
+
     assert reject_resp.headers["x-status"] == "rejected"
 
     # Verify still NO plan was created in the database store
+    assert len(fake_store.created_plans) == 0
+
+
+
+def test_voice_endpoint_falls_back_to_tts_ai_on_groq_429(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that if Groq returns 429 during /voice synthesis, fallback to TTS.ai delivers WAV."""
+    from app.ai.tts import FallbackTTSClient, GroqTTSClient, TTSAiClient, TTSResponseError
+
+    class FailingGroqClient(GroqTTSClient):
+        def synthesize(self, text: str, **kwargs: Any) -> bytes:
+            raise TTSResponseError(429, "Rate limit exceeded", provider="groq")
+
+    class SuccessfulTTSAiClient(TTSAiClient):
+        def synthesize(self, text: str, **kwargs: Any) -> bytes:
+            return _make_wav_bytes(duration_seconds=0.5)
+
+    fallback_client = FallbackTTSClient(
+        primary=FailingGroqClient(),
+        fallback=SuccessfulTTSAiClient(),
+    )
+    client.app.dependency_overrides[get_tts_client] = lambda: fallback_client
+    client.app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(transcript="Swim tomorrow 6 PM")
+
+    payload = _valid_create_plan(title="Swimming")
+    monkeypatch.setattr("app.api.voice.parse_text", lambda **kwargs: ParsedPlan(payload))
+
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    response = client.post(
+        "/voice",
+        files={"audio": ("voice.wav", _make_wav_bytes(), "audio/wav")},
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    assert response.headers["Content-Type"] == "audio/wav"
+    assert response.headers["X-Intent"] == "propose_plan"
+    assert response.content.startswith(b"RIFF")
+    # Plan must NOT be created yet before button confirmation
     assert len(fake_store.created_plans) == 0

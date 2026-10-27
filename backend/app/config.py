@@ -77,6 +77,26 @@ class Settings(BaseSettings):
         default=10.0,
         validation_alias="TTS_TIMEOUT_SECONDS",
     )
+    tts_ai_api_key: SecretStr | None = Field(
+        default=None, validation_alias="TTS_AI_API_KEY"
+    )
+    tts_ai_base_url: str = Field(
+        default="https://api.tts.ai/v1/",
+        validation_alias="TTS_AI_BASE_URL",
+    )
+    tts_ai_model: str = Field(
+        default="kokoro",
+        validation_alias="TTS_AI_MODEL",
+    )
+    tts_ai_voice: str = Field(
+        default="af_heart",
+        validation_alias="TTS_AI_VOICE",
+    )
+    tts_ai_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias="TTS_AI_TIMEOUT_SECONDS",
+    )
+
 
 
     @field_validator("allowed_origins", mode="before")

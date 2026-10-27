@@ -68,7 +68,9 @@ Sistemin istek yöneticisi ve iş mantığı katmanıdır. FastAPI uygulamasın�
 Ses tanıma doğrudan Groq API'si üzerinden Whisper Large V3 modeliyle, dil modeli ise Nebius Token Factory üzerinden NVIDIA Nemotron ile çalışır. İkisi de REST API ile çağrılır.
 
 - **STT (Konuşmayı Metne Çevirme) — Whisper Large V3:** Groq API'sinde çalışır; kullanıcıdan gelen WAV ses dosyasını yazıya dönüştürür.
+- **TTS (Metinden Sese) — Groq + TTS.ai Fallback:** Birincil sağlayıcı olarak Groq (`canopylabs/orpheus-v1-english`, ses: `autumn`), yedek sağlayıcı olarak TTS.ai (`kokoro`, ses: `af_heart`, taban URL: `https://api.tts.ai/v1/`) kullanılır. Groq 429 kota aşımı veya geçici kesinti yaşadığında `TTS_AI_API_KEY` yapılandırılmışsa otomatik olarak TTS.ai yedeğe geçer. Her iki sağlayıcı da başarısız olursa plan kaydı/onayı bozulmaz ve güvenli JSON yanıtına düşülür.
 - **LLM (NVIDIA Nemotron):** **Girdiyi Ayrıştırma** — Metni alır ve JSON şemasıyla kısıtlanmış yapılandırılmış bir çıktıya (niyet, tarih, saat, kategori) dönüştürür. **Yorumlama** — Analiz motorunun ürettiği sayıları okur (örn. "%67 uyum, salı günleri erteleme") ve kullanıcıya doğal dille, uygulanabilir bir öneri yazar.
+
 
 ### 2.4 Veri Katmanı (Supabase / PostgreSQL): Kalıcı Veri Depolama
 
