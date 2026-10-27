@@ -3,12 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
+import logging
 from typing import Any, Protocol
 from urllib.parse import urljoin
+import uuid
 
 import httpx
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,26 @@ class PlanStore(Protocol):
     def list_recommendation_feedback(self, user_id: str) -> list[dict[str, Any]]: ...
 
     def save_recommendation_feedback(self, user_id: str, feedback: dict[str, Any]) -> dict[str, Any]: ...
+
+    def create_plan_proposal(
+        self,
+        *,
+        user_id: str,
+        proposal: dict[str, Any],
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    def get_latest_pending_proposal(
+        self, *, user_id: str
+    ) -> dict[str, Any] | None: ...
+
+    def accept_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]: ...
+
+    def reject_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> dict[str, Any]: ...
 
 
 class SupabasePlanStore:
@@ -553,6 +577,157 @@ class SupabasePlanStore:
         response.raise_for_status()
         return response.json()[0]
 
+    def create_plan_proposal(
+        self,
+        *,
+        user_id: str,
+        proposal: dict[str, Any],
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            self._client.patch(
+                urljoin(self._rest_url, "plan_proposals"),
+                params={"user_id": f"eq.{user_id}", "status": "eq.pending"},
+                json={"status": "superseded"},
+            )
+            data = {
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "title": proposal.get("title", "Plan"),
+                "category": proposal.get("category", "other"),
+                "planned_start": proposal.get("planned_start"),
+                "planned_end": proposal.get("planned_end"),
+                "duration_minutes": proposal.get("duration_minutes", 60),
+                "recurrence_rule": proposal.get("recurrence_rule"),
+                "status": "pending",
+            }
+            resp = self._client.post(
+                urljoin(self._rest_url, "plan_proposals"),
+                params={"select": "id,user_id,conversation_id,title,category,planned_start,planned_end,duration_minutes,recurrence_rule,status,created_at"},
+                headers={"Prefer": "return=representation"},
+                json=data,
+            )
+            if resp.status_code in (200, 201):
+                return resp.json()[0]
+        except Exception as exc:
+            logger.warning("Supabase plan_proposals failed: %s; using memory store", exc)
+
+        if not hasattr(self, "_memory_proposals"):
+            self._memory_proposals = {}
+        for p in self._memory_proposals.get(user_id, []):
+            if p.get("status") == "pending":
+                p["status"] = "superseded"
+        prop_record = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "title": proposal.get("title", "Plan"),
+            "category": proposal.get("category", "other"),
+            "planned_start": proposal.get("planned_start"),
+            "planned_end": proposal.get("planned_end"),
+            "duration_minutes": proposal.get("duration_minutes", 60),
+            "recurrence_rule": proposal.get("recurrence_rule"),
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._memory_proposals.setdefault(user_id, []).append(prop_record)
+        return prop_record
+
+    def get_latest_pending_proposal(
+        self, *, user_id: str
+    ) -> dict[str, Any] | None:
+        try:
+            resp = self._client.get(
+                urljoin(self._rest_url, "plan_proposals"),
+                params={
+                    "select": "id,user_id,conversation_id,title,category,planned_start,planned_end,duration_minutes,recurrence_rule,status,created_at",
+                    "user_id": f"eq.{user_id}",
+                    "status": "eq.pending",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+            )
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows:
+                    return rows[0]
+        except Exception as exc:
+            logger.warning("Supabase get_latest_pending_proposal failed: %s; using memory store", exc)
+
+        if hasattr(self, "_memory_proposals"):
+            for p in reversed(self._memory_proposals.get(user_id, [])):
+                if p.get("status") == "pending":
+                    return p
+        return None
+
+    def accept_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        proposal = self.get_latest_pending_proposal(user_id=user_id)
+        if not proposal:
+            raise ValueError("No pending plan proposal found.")
+        if proposal_id and proposal.get("id") != proposal_id:
+            raise ValueError(f"Proposal {proposal_id} does not match active pending proposal.")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            self._client.patch(
+                urljoin(self._rest_url, "plan_proposals"),
+                params={"id": f"eq.{proposal['id']}"},
+                json={"status": "accepted", "accepted_at": now_iso},
+            )
+        except Exception:
+            pass
+        proposal["status"] = "accepted"
+        proposal["accepted_at"] = now_iso
+
+        category = proposal.get("category")
+        if category not in {"sport", "study", "work", "meeting", "health", "social", "personal", "other"}:
+            category = "other"
+
+        start_str = proposal.get("planned_start")
+        end_str = proposal.get("planned_end")
+        if not end_str and start_str:
+            try:
+                start_dt = datetime.fromisoformat(start_str)
+                dur = int(proposal.get("duration_minutes") or 60)
+                end_str = (start_dt + timedelta(minutes=dur)).isoformat()
+            except Exception:
+                pass
+
+        plan_record = {
+            "user_id": user_id,
+            "title": proposal.get("title", "Plan"),
+            "category": category,
+            "planned_start": start_str,
+            "planned_end": end_str,
+            "recurrence_rule": proposal.get("recurrence_rule"),
+            "source": proposal.get("source") if proposal.get("source") in {"text", "voice", "device"} else "voice",
+        }
+        created_plan = self.create_plan(plan_record)
+        return proposal, created_plan
+
+    def reject_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> dict[str, Any]:
+        proposal = self.get_latest_pending_proposal(user_id=user_id)
+        if not proposal:
+            raise ValueError("No pending plan proposal found.")
+        if proposal_id and proposal.get("id") != proposal_id:
+            raise ValueError(f"Proposal {proposal_id} does not match active pending proposal.")
+
+        try:
+            self._client.patch(
+                urljoin(self._rest_url, "plan_proposals"),
+                params={"id": f"eq.{proposal['id']}"},
+                json={"status": "rejected"},
+            )
+        except Exception:
+            pass
+
+        proposal["status"] = "rejected"
+        return proposal
+
 
 SUGGESTION_FIELDS = "plan_id,reason,message,proposed_start,proposed_end,evidence,created_at"
 FEEDBACK_FIELDS = "id,recommendation_id,action,rating,payload,created_at"
@@ -735,6 +910,32 @@ class LazyPlanStore:
 
     def save_recommendation_feedback(self, user_id: str, feedback: dict[str, Any]) -> dict[str, Any]:
         return _build_plan_store().save_recommendation_feedback(user_id, feedback)
+
+    def create_plan_proposal(
+        self,
+        *,
+        user_id: str,
+        proposal: dict[str, Any],
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
+        return _build_plan_store().create_plan_proposal(
+            user_id=user_id, proposal=proposal, conversation_id=conversation_id
+        )
+
+    def get_latest_pending_proposal(
+        self, *, user_id: str
+    ) -> dict[str, Any] | None:
+        return _build_plan_store().get_latest_pending_proposal(user_id=user_id)
+
+    def accept_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        return _build_plan_store().accept_plan_proposal(user_id=user_id, proposal_id=proposal_id)
+
+    def reject_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> dict[str, Any]:
+        return _build_plan_store().reject_plan_proposal(user_id=user_id, proposal_id=proposal_id)
 
 
 @lru_cache(maxsize=1)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Mapping
 from urllib.parse import urljoin
 
@@ -11,6 +12,11 @@ from pydantic import SecretStr
 from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+# Upper bound for one LLM call including its retry. The ESP32 waits 60s for the whole
+# /voice round trip (STT + LLM + TTS), so the LLM must give up well before that.
+LLM_TOTAL_BUDGET_SECONDS = 40.0
+MIN_RETRY_SECONDS = 3.0
 
 
 # -----------------------------------------------------------------------------
@@ -68,6 +74,7 @@ class NebiusLLMClient:
         default_model: str | None = None,
         default_timeout: float | None = None,
         http_client: httpx.Client | None = None,
+        max_retries: int = 1,
     ) -> None:
         settings: Settings = get_settings()
 
@@ -92,9 +99,10 @@ class NebiusLLMClient:
         self._default_timeout = (
             default_timeout
             if default_timeout is not None
-            else settings.nebius_timeout_seconds or 30.0
+            else settings.nebius_timeout_seconds or 15.0
         )
 
+        self._max_retries = max_retries
         self._external_client = http_client is not None
         self._client = http_client or httpx.Client(timeout=self._default_timeout)
 
@@ -130,6 +138,10 @@ class NebiusLLMClient:
         if not base.endswith("/v1"):
             base = f"{base}/v1"
         return f"{base}/chat/completions"
+
+    @staticmethod
+    def _has_retry_budget(started: float) -> bool:
+        return LLM_TOTAL_BUDGET_SECONDS - (time.monotonic() - started) >= MIN_RETRY_SECONDS
 
     def _sanitize_error_message(self, text: str) -> str:
         """Strip raw API key if it somehow appears in upstream error text."""
@@ -185,28 +197,52 @@ class NebiusLLMClient:
 
         call_timeout = timeout if timeout is not None else self._default_timeout
 
-        try:
-            response = self._client.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=call_timeout,
-            )
-        except (httpx.TimeoutException, TimeoutError) as exc:
-            logger.warning("Nebius LLM call timed out after %s seconds", call_timeout)
-            raise LLMUnavailableError(
-                f"LLM request timed out after {call_timeout}s"
-            ) from exc
-        except (httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.warning("Nebius LLM network connection error")
-            raise LLMUnavailableError(
-                "Failed to connect to Nebius LLM provider"
-            ) from exc
-        except httpx.HTTPError as exc:
-            logger.warning("Nebius LLM HTTP transport error: %s", type(exc).__name__)
-            raise LLMUnavailableError(
-                f"Nebius LLM transport error: {type(exc).__name__}"
-            ) from exc
+        # A hung upstream must surface as a fast, controlled 503 well before the
+        # device's own HTTP deadline, so transient stalls get one bounded retry and
+        # connecting to a dead endpoint fails fast instead of eating the whole budget.
+        attempts = 1 + max(0, self._max_retries)
+        started = time.monotonic()
+        response: httpx.Response | None = None
+        for attempt in range(1, attempts + 1):
+            remaining = LLM_TOTAL_BUDGET_SECONDS - (time.monotonic() - started)
+            attempt_timeout = min(call_timeout, remaining) if attempt > 1 else call_timeout
+            request_timeout = httpx.Timeout(attempt_timeout, connect=min(5.0, attempt_timeout))
+            try:
+                response = self._client.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=request_timeout,
+                )
+                break
+            except (httpx.TimeoutException, TimeoutError) as exc:
+                logger.warning(
+                    "Nebius LLM call timed out after %s seconds (attempt %d/%d)",
+                    call_timeout,
+                    attempt,
+                    attempts,
+                )
+                if attempt < attempts and self._has_retry_budget(started):
+                    continue
+                raise LLMUnavailableError(
+                    f"LLM request timed out after {call_timeout}s"
+                ) from exc
+            except (httpx.ConnectError, httpx.NetworkError) as exc:
+                logger.warning(
+                    "Nebius LLM network connection error (attempt %d/%d)", attempt, attempts
+                )
+                if attempt < attempts and self._has_retry_budget(started):
+                    continue
+                raise LLMUnavailableError(
+                    "Failed to connect to Nebius LLM provider"
+                ) from exc
+            except httpx.HTTPError as exc:
+                logger.warning("Nebius LLM HTTP transport error: %s", type(exc).__name__)
+                raise LLMUnavailableError(
+                    f"Nebius LLM transport error: {type(exc).__name__}"
+                ) from exc
+
+        assert response is not None
 
         if response.status_code >= 500:
             sanitized = self._sanitize_error_message(response.text)[:300]

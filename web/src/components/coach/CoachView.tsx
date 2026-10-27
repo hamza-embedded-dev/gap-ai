@@ -1,5 +1,11 @@
 import type { RecommendationCard } from '../../api/insights.ts';
-import { effectiveDuration, visibleCards } from './coachActions.ts';
+import {
+  effectiveDate,
+  effectiveDuration,
+  effectiveTime,
+  formatLocalDate,
+  visibleCards,
+} from './coachActions.ts';
 import type { CoachState } from './coachActions.ts';
 
 export interface CoachViewHandlers {
@@ -9,6 +15,8 @@ export interface CoachViewHandlers {
   onDismiss: (card: RecommendationCard) => void;
   onToggleWhy: (card: RecommendationCard) => void;
   onDurationInput: (card: RecommendationCard, minutes: number) => void;
+  onDateInput: (card: RecommendationCard, date: string) => void;
+  onTimeInput: (card: RecommendationCard, time: string) => void;
   onSaveDuration: (card: RecommendationCard) => void;
   onAddToPlans: (card: RecommendationCard) => void;
   onRequireAuth: () => void;
@@ -24,6 +32,8 @@ const SOURCE_LABELS: Record<RecommendationCard['source'], string> = {
   contextual: 'Based on your context',
   discovery: 'Starter idea',
 };
+
+const TODAY = formatLocalDate(new Date());
 
 function CoachCard({ card, state, handlers }: { card: RecommendationCard; state: CoachState; handlers: CoachViewHandlers }) {
   const busy = state.busyId !== null;
@@ -66,18 +76,41 @@ function CoachCard({ card, state, handlers }: { card: RecommendationCard; state:
       )}
 
       {card.source === 'discovery' && (
-        <div className="coach-duration">
-          <label htmlFor={`coach-duration-${card.id}`}>Duration (minutes)</label>
-          <input
-            id={`coach-duration-${card.id}`}
-            type="number"
-            inputMode="numeric"
-            min={5}
-            max={1440}
-            value={effectiveDuration(card, state.durations)}
-            disabled={busy}
-            onChange={(e) => handlers.onDurationInput(card, Number(e.target.value))}
-          />
+        <div className="coach-schedule" role="group" aria-label={`Schedule for ${card.title}`}>
+          <div className="coach-schedule-field">
+            <label htmlFor={`coach-date-${card.id}`}>Date</label>
+            <input
+              id={`coach-date-${card.id}`}
+              type="date"
+              value={effectiveDate(card, state.scheduledDates)}
+              min={TODAY}
+              disabled={busy}
+              onChange={(e) => handlers.onDateInput(card, e.target.value)}
+            />
+          </div>
+          <div className="coach-schedule-field">
+            <label htmlFor={`coach-time-${card.id}`}>Start time</label>
+            <input
+              id={`coach-time-${card.id}`}
+              type="time"
+              value={effectiveTime(card, state.scheduledTimes)}
+              disabled={busy}
+              onChange={(e) => handlers.onTimeInput(card, e.target.value)}
+            />
+          </div>
+          <div className="coach-schedule-field coach-duration">
+            <label htmlFor={`coach-duration-${card.id}`}>Duration (minutes)</label>
+            <input
+              id={`coach-duration-${card.id}`}
+              type="number"
+              inputMode="numeric"
+              min={5}
+              max={1440}
+              value={effectiveDuration(card, state.durations)}
+              disabled={busy}
+              onChange={(e) => handlers.onDurationInput(card, Number(e.target.value))}
+            />
+          </div>
         </div>
       )}
 

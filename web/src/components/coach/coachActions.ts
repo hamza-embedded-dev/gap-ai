@@ -30,8 +30,46 @@ export function clampDuration(value: number): number {
   return Math.max(5, Math.min(1440, Number(value) || 5));
 }
 
+export function defaultSchedule(now?: Date): { date: string; time: string } {
+  const d = new Date((now ?? new Date()).getTime());
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  return {
+    date: formatLocalDate(d),
+    time: formatLocalTime(d),
+  };
+}
+
+export function effectiveDate(
+  card: RecommendationCard,
+  scheduledDates: Record<string, string>,
+  now?: Date,
+): string {
+  const custom = scheduledDates[card.id]?.trim();
+  if (custom && /^\d{4}-\d{2}-\d{2}$/.test(custom)) {
+    return custom;
+  }
+  return defaultSchedule(now).date;
+}
+
+export function effectiveTime(
+  card: RecommendationCard,
+  scheduledTimes: Record<string, string>,
+  now?: Date,
+): string {
+  const custom = scheduledTimes[card.id]?.trim();
+  if (custom && /^([01]\d|2[0-3]):[0-5]\d$/.test(custom)) {
+    return custom;
+  }
+  return defaultSchedule(now).time;
+}
+
 export function effectiveDuration(card: RecommendationCard, durations: Record<string, number>): number {
   return durations[card.id] ?? card.duration_minutes ?? DEFAULT_DISCOVERY_DURATION;
+}
+
+export interface PlanSchedule {
+  date?: string;
+  time?: string;
 }
 
 /** POST /recommendations/feedback with accepted + rating. Returns the success message. */
@@ -64,11 +102,17 @@ export async function addToPlans(
   card: RecommendationCard,
   minutes: number,
   keys: Map<string, string>,
+  schedule?: PlanSchedule,
 ): Promise<string | null> {
   const now = (deps.now ?? (() => new Date()))();
-  const date = formatLocalDate(now);
-  const time = formatLocalTime(now);
-  if (!deps.confirm(`Add \u201c${card.title}\u201d to My Plans for today at ${time} (${minutes} minutes)?`)) return null;
+  const def = defaultSchedule(now);
+  const date = schedule?.date?.trim() || def.date;
+  const time = schedule?.time?.trim() || def.time;
+  const today = formatLocalDate(now);
+  const when = date === today ? `today at ${time}` : `${date} at ${time}`;
+
+  if (!deps.confirm(`Add \u201c${card.title}\u201d to My Plans for ${when} (${minutes} minutes)?`)) return null;
+
   let key = keys.get(card.id);
   if (!key) {
     key = deps.newKey();
@@ -115,6 +159,8 @@ export interface CoachState {
   cards: RecommendationCard[];
   ratings: Record<string, CoachRating>;
   durations: Record<string, number>;
+  scheduledDates: Record<string, string>;
+  scheduledTimes: Record<string, string>;
   whyOpen: Record<string, boolean>;
   busyId: string | null;
   notice: string | null;
@@ -133,6 +179,8 @@ export type CoachEvent =
   | { type: 'dismissed'; id: string }
   | { type: 'rotate' }
   | { type: 'set_duration'; id: string; minutes: number }
+  | { type: 'set_date'; id: string; date: string }
+  | { type: 'set_time'; id: string; time: string }
   | { type: 'toggle_why'; id: string };
 
 export const initialCoachState: CoachState = {
@@ -140,6 +188,8 @@ export const initialCoachState: CoachState = {
   cards: [],
   ratings: {},
   durations: {},
+  scheduledDates: {},
+  scheduledTimes: {},
   whyOpen: {},
   busyId: null,
   notice: null,
@@ -169,6 +219,10 @@ export function coachReducer(state: CoachState, event: CoachEvent): CoachState {
       return { ...state, cards: rotateCards(state.cards) };
     case 'set_duration':
       return { ...state, durations: { ...state.durations, [event.id]: clampDuration(event.minutes) } };
+    case 'set_date':
+      return { ...state, scheduledDates: { ...state.scheduledDates, [event.id]: event.date } };
+    case 'set_time':
+      return { ...state, scheduledTimes: { ...state.scheduledTimes, [event.id]: event.time } };
     case 'toggle_why':
       return { ...state, whyOpen: { ...state.whyOpen, [event.id]: !state.whyOpen[event.id] } };
     default:

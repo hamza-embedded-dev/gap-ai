@@ -10,7 +10,9 @@ import {
   addToPlans,
   coachReducer,
   dismissCard,
+  effectiveDate,
   effectiveDuration,
+  effectiveTime,
   initialCoachState,
   rateCard,
   saveDuration,
@@ -81,10 +83,21 @@ export const PersonalAICoach: React.FC<PersonalAICoachProps> = ({ token, onRequi
       void run(card.id, () => dismissCard(DEPS, card), () => dispatch({ type: 'dismissed', id: card.id })),
     onToggleWhy: (card) => dispatch({ type: 'toggle_why', id: card.id }),
     onDurationInput: (card, minutes) => dispatch({ type: 'set_duration', id: card.id, minutes }),
+    onDateInput: (card, date) => dispatch({ type: 'set_date', id: card.id, date }),
+    onTimeInput: (card, time) => dispatch({ type: 'set_time', id: card.id, time }),
     onSaveDuration: (card) =>
       void run(card.id, () => saveDuration(DEPS, card, effectiveDuration(card, stateRef.current.durations))),
-    onAddToPlans: (card) =>
-      void run(card.id, () => addToPlans(DEPS, card, effectiveDuration(card, stateRef.current.durations), planKeys.current)),
+    onAddToPlans: (card) => {
+      const minutes = effectiveDuration(card, stateRef.current.durations);
+      const scheduledDate = effectiveDate(card, stateRef.current.scheduledDates);
+      const scheduledTime = effectiveTime(card, stateRef.current.scheduledTimes);
+      return void run(card.id, () =>
+        addToPlans(DEPS, card, minutes, planKeys.current, {
+          date: scheduledDate,
+          time: scheduledTime,
+        })
+      );
+    },
     onRequireAuth,
   }), [run, onRequireAuth]);
 
