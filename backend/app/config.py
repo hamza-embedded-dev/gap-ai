@@ -93,9 +93,10 @@ class Settings(BaseSettings):
         validation_alias="TTS_AI_VOICE",
     )
     tts_ai_timeout_seconds: float = Field(
-        default=10.0,
+        default=30.0,
         validation_alias="TTS_AI_TIMEOUT_SECONDS",
     )
+
 
 
 

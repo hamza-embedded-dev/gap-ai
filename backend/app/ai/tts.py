@@ -234,7 +234,7 @@ class TTSAiClient:
         default_voice: str | None = None,
         default_timeout: float | None = None,
         http_client: httpx.Client | None = None,
-        max_poll_attempts: int = 10,
+        max_poll_attempts: int = 30,
         poll_interval: float = 1.0,
     ) -> None:
         settings: Settings = get_settings()
@@ -252,7 +252,7 @@ class TTSAiClient:
         self._default_timeout = (
             default_timeout
             if default_timeout is not None
-            else settings.tts_ai_timeout_seconds or 10.0
+            else settings.tts_ai_timeout_seconds or 30.0
         )
         self._max_poll_attempts = max_poll_attempts
         self._poll_interval = poll_interval
@@ -275,6 +275,11 @@ class TTSAiClient:
     @property
     def poll_interval(self) -> float:
         return self._poll_interval
+
+    @property
+    def max_poll_attempts(self) -> int:
+        return self._max_poll_attempts
+
 
     def _tts_url(self) -> str:
         return f"{self._base_url.rstrip('/')}/tts/"
@@ -395,6 +400,11 @@ class TTSAiClient:
 
             if attempt > 0:
                 time.sleep(min(self._poll_interval, remaining))
+                elapsed = time.monotonic() - start_time
+                remaining = call_timeout - elapsed
+                if remaining <= 0:
+                    logger.warning("TTS.ai polling timed out after %.2fs", elapsed)
+                    raise TTSUnavailableError(f"TTS.ai job polling timed out after {call_timeout}s")
 
             try:
                 poll_resp = self._client.get(
