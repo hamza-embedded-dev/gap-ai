@@ -141,6 +141,9 @@ def _build_plan_record(
     }
 
 
+VOICE_LANGUAGE: Literal["en"] = "en"
+
+
 @router.post(
     "/voice",
     response_model=VoicePlanResponse | VoiceClarifyResponse,
@@ -149,7 +152,7 @@ def _build_plan_record(
 async def handle_voice_endpoint(
     response: Response,
     audio: UploadFile = File(...),
-    language: Literal["tr", "en"] | None = Form(default=None),
+    language: Literal["tr", "en"] | None = Form(default=VOICE_LANGUAGE),
     current_date: str | None = Form(default=None),
     timezone: str | None = Form(default=None),
     require_confirmation: bool = Form(default=False),
@@ -206,11 +209,11 @@ async def handle_voice_endpoint(
             except STTValidationError as exc:
                 raise APIError(422, "validation_error", str(exc)) from exc
 
-        # 5. Speech-to-text conversion (B5-1)
+        # 5. Speech-to-text conversion (B5-1) - strictly locked to English for ESP32 voice flow
         try:
             transcript = stt_client.transcribe(
                 audio_bytes,
-                language=language,
+                language=VOICE_LANGUAGE,
                 validate_audio=False,  # Already strictly validated above
             )
         except STTValidationError as exc:
@@ -237,12 +240,12 @@ async def handle_voice_endpoint(
         if not transcript or not transcript.strip():
             raise APIError(422, "validation_error", "Audio transcription produced no intelligible text.")
 
-        # 6. Natural language text parsing (B2-2)
+        # 6. Natural language text parsing (B2-2) - strictly locked to English for ESP32 voice flow
         parsed_plan = parse_text(
             text=transcript,
             current_date=resolved_date,
             timezone=user.timezone,
-            language=language,
+            language=VOICE_LANGUAGE,
             llm_client=llm_client,
         )
 

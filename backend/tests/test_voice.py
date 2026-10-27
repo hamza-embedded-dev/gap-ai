@@ -26,6 +26,7 @@ from app.ai.stt import (
     STTUnavailableError,
     get_stt_client,
 )
+from app.ai.tts import get_tts_client
 import app.api.plans as plans_api
 from app.db.plans import AuthenticatedUser, get_plan_store
 from app.schemas.parsed_plan import ParsedPlan
@@ -259,6 +260,16 @@ class FakeLLMClient:
         if isinstance(next_resp, Exception):
             raise next_resp
         return next_resp
+
+
+class FakeTTSClient:
+    def __init__(self, audio_bytes: bytes | None = None) -> None:
+        self.audio_bytes = audio_bytes or _make_wav_bytes(duration_seconds=0.5)
+        self.calls: list[str] = []
+
+    def synthesize(self, text: str, **kwargs: Any) -> bytes:
+        self.calls.append(text)
+        return self.audio_bytes
 
 
 @pytest.fixture(autouse=True)
@@ -1037,4 +1048,227 @@ def test_voice_tts_failure_falls_back_to_json_without_duplicate_plan(
     body = response.json()
     assert body["proposal"]["title"] == "Swimming"
     # Plan must NOT be created yet before button press!
+    assert len(fake_store.created_plans) == 0
+
+
+def test_voice_strictly_forces_english_stt_and_parser_when_no_language_specified(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that when no language parameter is supplied, STT and parser are strictly given 'en'."""
+    stt = FakeSTTClient(transcript="I want to go swimming tomorrow at 6 PM for two hours.")
+    client.app.dependency_overrides[get_stt_client] = lambda: stt
+    client.app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def mock_parse_text(**kwargs: Any) -> ParsedPlan:
+        captured_kwargs.update(kwargs)
+        return ParsedPlan({
+            "intent": "create_plan",
+            "title": "Swimming",
+            "category": "sport",
+            "date": "2026-10-29",
+            "time": "18:00",
+            "duration_minutes": 120,
+            "recurrence": None,
+            "language": "en",
+            "needs_weather_check": False,
+            "clarification_question": None,
+            "confidence": 0.95,
+        })
+
+    monkeypatch.setattr("app.api.voice.parse_text", mock_parse_text)
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 201
+    assert stt.calls[-1]["language"] == "en"
+    assert captured_kwargs.get("language") == "en"
+
+
+def test_voice_strictly_forces_english_stt_and_parser_even_if_tr_requested(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that even if a client attempts to pass language='tr', /voice overrides and forces 'en'."""
+    stt = FakeSTTClient(transcript="I want to study math tomorrow at 7 PM for one hour.")
+    client.app.dependency_overrides[get_stt_client] = lambda: stt
+    client.app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def mock_parse_text(**kwargs: Any) -> ParsedPlan:
+        captured_kwargs.update(kwargs)
+        return ParsedPlan({
+            "intent": "create_plan",
+            "title": "Study math",
+            "category": "study",
+            "date": "2026-10-29",
+            "time": "19:00",
+            "duration_minutes": 60,
+            "recurrence": None,
+            "language": "en",
+            "needs_weather_check": False,
+            "clarification_question": None,
+            "confidence": 0.95,
+        })
+
+    monkeypatch.setattr("app.api.voice.parse_text", mock_parse_text)
+
+    response = client.post(
+        "/voice",
+        headers=_auth_headers(),
+        data={"language": "tr", "current_date": "2026-10-28", "timezone": USER_TZ},
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 201
+    assert stt.calls[-1]["language"] == "en"
+    assert captured_kwargs.get("language") == "en"
+
+
+def test_parse_text_english_swimming_phrase() -> None:
+    """Verifies that 'I want to go swimming tomorrow at 6 PM for two hours.' is parsed correctly."""
+    from datetime import date
+    from app.api.parse import parse_text
+    from tests.test_parse import FakeLLMClient
+
+    today = date(2026, 10, 28)
+    expected_date = (today + timedelta(days=1)).isoformat()
+    raw_text = "I want to go swimming tomorrow at 6 PM for two hours."
+
+    llm_payload = {
+        "intent": "create_plan",
+        "title": "Swimming",
+        "category": "sport",
+        "date": expected_date,
+        "time": "18:00",
+        "duration_minutes": 120,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": None,
+        "confidence": 0.95,
+    }
+    fake_llm = FakeLLMClient([llm_payload])
+
+    parsed = parse_text(
+        raw_text,
+        current_date=today,
+        timezone="Europe/Istanbul",
+        language="en",
+        llm_client=fake_llm,
+    )
+    root = parsed.root
+    assert root["intent"] == "create_plan"
+    assert root["title"] == "Swimming"
+    assert root["category"] == "sport"
+    assert root["date"] == expected_date
+    assert root["time"] == "18:00"
+    assert root["duration_minutes"] == 120
+    assert root["language"] == "en"
+
+    prompt_user_content = fake_llm.calls[0][1]["content"]
+    assert "- Requested Language: en" in prompt_user_content
+
+
+def test_parse_text_english_study_math_phrase() -> None:
+    """Verifies that 'I want to study math tomorrow at 7 PM for one hour.' is parsed correctly."""
+    from datetime import date
+    from app.api.parse import parse_text
+    from tests.test_parse import FakeLLMClient
+
+    today = date(2026, 10, 28)
+    expected_date = (today + timedelta(days=1)).isoformat()
+    raw_text = "I want to study math tomorrow at 7 PM for one hour."
+
+    llm_payload = {
+        "intent": "create_plan",
+        "title": "Study math",
+        "category": "study",
+        "date": expected_date,
+        "time": "19:00",
+        "duration_minutes": 60,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": None,
+        "confidence": 0.95,
+    }
+    fake_llm = FakeLLMClient([llm_payload])
+
+    parsed = parse_text(
+        raw_text,
+        current_date=today,
+        timezone="Europe/Istanbul",
+        language="en",
+        llm_client=fake_llm,
+    )
+    root = parsed.root
+    assert root["intent"] == "create_plan"
+    assert root["title"] == "Study math"
+    assert root["category"] == "study"
+    assert root["date"] == expected_date
+    assert root["time"] == "19:00"
+    assert root["duration_minutes"] == 60
+    assert root["language"] == "en"
+
+    prompt_user_content = fake_llm.calls[0][1]["content"]
+    assert "- Requested Language: en" in prompt_user_content
+
+
+def test_voice_proposal_rejection_never_saves_plan(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that when a drafted proposal is rejected, it is never saved to the plans database."""
+    swimming_payload = {
+        "intent": "create_plan",
+        "title": "Swimming",
+        "category": "sport",
+        "date": "2026-10-29",
+        "time": "18:00",
+        "duration_minutes": 120,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": None,
+        "confidence": 0.95,
+    }
+    client.app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(
+        transcript="I want to go swimming tomorrow at 6 PM for two hours."
+    )
+    monkeypatch.setattr("app.api.voice.parse_text", lambda **kwargs: ParsedPlan(swimming_payload))
+    client.app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
+
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    # 1. Voice command creates a pending proposal
+    response = client.post(
+        "/voice",
+        files={"audio": ("voice.wav", _make_wav_bytes(), "audio/wav")},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    assert response.headers["x-intent"] == "propose_plan"
+    assert response.headers["x-needs-button"] == "true"
+    proposal_id = response.headers["x-proposal-id"]
+    assert proposal_id
+
+    # Verify no plan was created yet
+    assert len(fake_store.created_plans) == 0
+
+    # 2. Reject proposal via GPIO 2 endpoint
+    reject_resp = client.post(
+        f"/plans/proposals/reject?proposal_id={proposal_id}",
+        headers=headers,
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.headers["x-status"] == "rejected"
+
+    # Verify still NO plan was created in the database store
     assert len(fake_store.created_plans) == 0
