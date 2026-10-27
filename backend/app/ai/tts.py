@@ -492,12 +492,137 @@ class TTSAiClient:
 
         t_post_start = time.monotonic()
         try:
-            response = self._client.post(
+            with self._client.stream(
+                "POST",
                 stream_url,
                 json=payload,
                 headers=headers,
                 timeout=call_timeout,
-            )
+            ) as response:
+                post_duration = time.monotonic() - t_post_start
+                logger.info(
+                    "TTS.ai stream connected (status=%d, duration=%.2fs)",
+                    response.status_code,
+                    post_duration,
+                )
+
+                if response.status_code == 429:
+                    logger.warning("TTS.ai stream returned HTTP 429 (duration=%.2fs)", post_duration)
+                    raise TTSResponseError(429, "TTS.ai rate limit exceeded", provider="tts.ai")
+
+                if response.status_code >= 500:
+                    logger.error("TTS.ai stream returned server error HTTP %d (duration=%.2fs)", response.status_code, post_duration)
+                    raise TTSUnavailableError(f"TTS.ai provider returned server error HTTP {response.status_code}")
+
+                if response.status_code == 404:
+                    logger.warning("TTS.ai stream endpoint returned 404, falling back to polling endpoint")
+                    return self._synthesize_poll(
+                        cleaned,
+                        model=model,
+                        voice=voice,
+                        language=language,
+                        format=format,
+                        call_timeout=call_timeout,
+                        start_time=start_time,
+                    )
+
+                if response.status_code >= 400:
+                    logger.warning("TTS.ai stream returned client error HTTP %d (duration=%.2fs)", response.status_code, post_duration)
+                    raise TTSResponseError(
+                        status_code=response.status_code,
+                        message=f"TTS.ai client error HTTP {response.status_code}",
+                        provider="tts.ai",
+                    )
+
+                content_type = response.headers.get("content-type", "").lower()
+
+                # 1. Direct WAV response
+                if "audio/wav" in content_type:
+                    audio_content = response.read()
+                    return self._validate_wav(audio_content)
+
+                # 2. SSE event-stream response: process lines as they arrive
+                if "text/event-stream" in content_type:
+                    chunks: list[bytes] = []
+                    result_url: str | None = None
+
+                    for line in response.iter_lines():
+                        elapsed = time.monotonic() - start_time
+                        if elapsed >= self._max_total_timeout:
+                            logger.warning(
+                                "TTS.ai streaming exceeded total timeout limit (duration=%.2fs, limit=%.2fs)",
+                                elapsed,
+                                self._max_total_timeout,
+                            )
+                            raise TTSUnavailableError(
+                                f"TTS.ai streaming exceeded total timeout limit of {self._max_total_timeout}s"
+                            )
+
+                        line = line.strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+
+                        payload_str = line[5:].strip()
+                        try:
+                            data = json.loads(payload_str)
+                        except Exception:
+                            continue
+
+                        if isinstance(data, dict):
+                            chunk_b64 = data.get("chunk")
+                            if chunk_b64 and isinstance(chunk_b64, str):
+                                try:
+                                    chunks.append(base64.b64decode(chunk_b64))
+                                except Exception as exc:
+                                    logger.warning(
+                                        "Failed to decode base64 chunk from TTS.ai SSE stream: %s",
+                                        type(exc).__name__,
+                                    )
+
+                            url = data.get("result_url") or data.get("url")
+                            if url and isinstance(url, str):
+                                result_url = url
+
+                            if data.get("done"):
+                                break
+
+                    if chunks:
+                        audio = self._assemble_wav_chunks(chunks)
+                        stream_duration = time.monotonic() - start_time
+                        logger.info(
+                            "TTS.ai stream completed (chunks=%d, bytes=%d, duration=%.2fs)",
+                            len(chunks),
+                            len(audio),
+                            stream_duration,
+                        )
+                        return self._validate_wav(audio)
+                    elif result_url:
+                        logger.info("TTS.ai stream completed with result URL, downloading WAV...")
+                        return self._download_wav(result_url, start_time=start_time)
+                    else:
+                        raise TTSParseError("TTS.ai stream response contained neither audio chunks nor result URL")
+
+                # 3. JSON response (cached or UUID)
+                body = response.read()
+                if body[:4] == b"RIFF":
+                    return self._validate_wav(body)
+
+                try:
+                    data = json.loads(body.decode("utf-8", errors="replace"))
+                except Exception as exc:
+                    raise TTSParseError("TTS.ai stream response is neither WAV, SSE, nor valid JSON") from exc
+
+                status = str(data.get("status", "")).lower()
+                result_url = data.get("result_url") or data.get("url")
+                if status in ("cached", "completed") and result_url:
+                    logger.info("TTS.ai stream returned cached/completed audio, downloading WAV...")
+                    return self._download_wav(result_url, start_time=start_time)
+
+                job_uuid = data.get("uuid") or data.get("job_id")
+                if job_uuid:
+                    return self._poll_and_download(str(job_uuid), start_time, call_timeout)
+
+                raise TTSParseError("TTS.ai stream response missing audio and job UUID")
         except (httpx.TimeoutException, TimeoutError) as exc:
             duration = time.monotonic() - t_post_start
             logger.warning("TTS.ai stream call timed out (duration=%.2fs)", duration)
@@ -510,79 +635,6 @@ class TTSAiClient:
             duration = time.monotonic() - t_post_start
             logger.warning("TTS.ai stream transport error: %s (duration=%.2fs)", type(exc).__name__, duration)
             raise TTSUnavailableError(f"TTS.ai stream transport error: {type(exc).__name__}") from exc
-
-        post_duration = time.monotonic() - t_post_start
-        logger.info("TTS.ai stream POST completed (status=%d, duration=%.2fs)", response.status_code, post_duration)
-
-        if response.status_code == 429:
-            logger.warning("TTS.ai stream returned HTTP 429 (duration=%.2fs)", post_duration)
-            raise TTSResponseError(429, "TTS.ai rate limit exceeded", provider="tts.ai")
-
-        if response.status_code >= 500:
-            logger.error("TTS.ai stream returned server error HTTP %d (duration=%.2fs)", response.status_code, post_duration)
-            raise TTSUnavailableError(f"TTS.ai provider returned server error HTTP {response.status_code}")
-
-        if response.status_code == 404:
-            logger.warning("TTS.ai stream endpoint returned 404, falling back to polling endpoint")
-            return self._synthesize_poll(
-                cleaned,
-                model=model,
-                voice=voice,
-                language=language,
-                format=format,
-                call_timeout=call_timeout,
-                start_time=start_time,
-            )
-
-        if response.status_code >= 400:
-            logger.warning("TTS.ai stream returned client error HTTP %d (duration=%.2fs)", response.status_code, post_duration)
-            raise TTSResponseError(
-                status_code=response.status_code,
-                message=f"TTS.ai client error HTTP {response.status_code}",
-                provider="tts.ai",
-            )
-
-        # 1. Direct WAV response
-        content_type = response.headers.get("content-type", "").lower()
-        if "audio/wav" in content_type or response.content[:4] == b"RIFF":
-            return self._validate_wav(response.content)
-
-        # 2. SSE event-stream response
-        if "text/event-stream" in content_type:
-            chunks, result_url = self._parse_sse_events(response.text)
-            if chunks:
-                audio = self._assemble_wav_chunks(chunks)
-                stream_duration = time.monotonic() - start_time
-                logger.info(
-                    "TTS.ai stream completed (chunks=%d, bytes=%d, duration=%.2fs)",
-                    len(chunks),
-                    len(audio),
-                    stream_duration,
-                )
-                return self._validate_wav(audio)
-            elif result_url:
-                logger.info("TTS.ai stream completed with result URL, downloading WAV...")
-                return self._download_wav(result_url, start_time=start_time)
-            else:
-                raise TTSParseError("TTS.ai stream response contained neither audio chunks nor result URL")
-
-        # 3. JSON response (cached or UUID)
-        try:
-            data = response.json()
-        except Exception as exc:
-            raise TTSParseError("TTS.ai stream response is neither WAV, SSE, nor valid JSON") from exc
-
-        status = str(data.get("status", "")).lower()
-        result_url = data.get("result_url") or data.get("url")
-        if status in ("cached", "completed") and result_url:
-            logger.info("TTS.ai stream returned cached/completed audio, downloading WAV...")
-            return self._download_wav(result_url, start_time=start_time)
-
-        job_uuid = data.get("uuid") or data.get("job_id")
-        if job_uuid:
-            return self._poll_and_download(str(job_uuid), start_time, call_timeout)
-
-        raise TTSParseError("TTS.ai stream response missing audio and job UUID")
 
     def _synthesize_poll(
         self,
@@ -674,6 +726,15 @@ class TTSAiClient:
 
         for attempt in range(self._max_poll_attempts):
             elapsed = time.monotonic() - start_time
+            if elapsed >= self._max_total_timeout:
+                logger.warning(
+                    "TTS.ai polling exceeded total timeout limit (duration=%.2fs, limit=%.2fs)",
+                    elapsed,
+                    self._max_total_timeout,
+                )
+                raise TTSUnavailableError(
+                    f"TTS.ai polling exceeded total timeout limit of {self._max_total_timeout}s"
+                )
             remaining = call_timeout - elapsed
             if remaining <= 0:
                 logger.warning(
@@ -687,6 +748,15 @@ class TTSAiClient:
                 sleep_dur = min(self._poll_interval, remaining)
                 time.sleep(sleep_dur)
                 elapsed = time.monotonic() - start_time
+                if elapsed >= self._max_total_timeout:
+                    logger.warning(
+                        "TTS.ai polling exceeded total timeout limit (duration=%.2fs, limit=%.2fs)",
+                        elapsed,
+                        self._max_total_timeout,
+                    )
+                    raise TTSUnavailableError(
+                        f"TTS.ai polling exceeded total timeout limit of {self._max_total_timeout}s"
+                    )
                 remaining = call_timeout - elapsed
                 if remaining <= 0:
                     logger.warning(

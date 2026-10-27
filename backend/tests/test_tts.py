@@ -803,3 +803,41 @@ def test_tts_ai_hard_total_timeout_limit_aborts_download(monkeypatch: pytest.Mon
         client.synthesize("Testing hard total timeout cap")
 
     assert "exceeded" in str(exc_info.value).lower() and "limit" in str(exc_info.value).lower()
+
+
+def test_tts_ai_streaming_exceeds_total_timeout_raises_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies that if SSE streaming duration exceeds max_total_timeout, it cleanly aborts without hanging."""
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+
+    class SimulatedStreamingBody(httpx.SyncByteStream):
+        def __iter__(self):
+            nonlocal current_simulated_time
+            yield b'data: {"chunk": "UklGRg==", "index": 0, "sample_rate": 24000}\n\n'
+            current_simulated_time += 50.0
+            yield b'data: {"chunk": "UklGRg==", "index": 1, "sample_rate": 24000}\n\n'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            stream=SimulatedStreamingBody(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        max_total_timeout=45.0,
+        use_stream=True,
+    )
+
+    with pytest.raises(TTSUnavailableError) as exc_info:
+        client.synthesize("Testing streaming total timeout exceeded")
+
+    assert "exceeded total timeout limit" in str(exc_info.value).lower()
