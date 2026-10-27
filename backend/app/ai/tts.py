@@ -821,17 +821,58 @@ class TTSAiClient:
         raise TTSUnavailableError(f"TTS.ai job did not complete within {self._max_poll_attempts} attempts")
 
     def _download_wav(self, result_url: str, *, start_time: float | None = None) -> bytes:
-        """Downloads the completed WAV file from result_url with a dedicated bounded download timeout."""
+        """Downloads the completed WAV file from result_url incrementally with strict bounded timeouts."""
+        now = time.monotonic()
         if start_time is not None:
-            total_elapsed = time.monotonic() - start_time
-            if total_elapsed >= self._max_total_timeout:
-                raise TTSUnavailableError(f"TTS.ai total process exceeded {self._max_total_timeout}s limit")
+            total_elapsed = now - start_time
+            remaining_total = self._max_total_timeout - total_elapsed
+            if remaining_total <= 0:
+                logger.warning(
+                    "TTS.ai total process exceeded total timeout limit before download (duration=%.2fs, limit=%.2fs)",
+                    total_elapsed,
+                    self._max_total_timeout,
+                )
+                raise TTSUnavailableError(
+                    f"TTS.ai total process exceeded {self._max_total_timeout}s limit"
+                )
+            dl_timeout = min(self._download_timeout, remaining_total)
+        else:
+            dl_timeout = self._download_timeout
+
+        if dl_timeout <= 0:
+            raise TTSUnavailableError(
+                f"TTS.ai total process exceeded {self._max_total_timeout}s limit"
+            )
 
         t_dl_start = time.monotonic()
-        dl_timeout = self._download_timeout
+        content_buffer = bytearray()
 
         try:
-            dl_resp = self._client.get(result_url, timeout=dl_timeout)
+            with self._client.stream("GET", result_url, timeout=dl_timeout) as dl_resp:
+                if dl_resp.status_code != 200:
+                    dl_duration = time.monotonic() - t_dl_start
+                    logger.warning("TTS.ai download returned HTTP %d (duration=%.2fs)", dl_resp.status_code, dl_duration)
+                    raise TTSUnavailableError(f"TTS.ai download returned HTTP {dl_resp.status_code}")
+
+                for chunk in dl_resp.iter_bytes():
+                    t_chunk = time.monotonic()
+                    if start_time is not None and (t_chunk - start_time) >= self._max_total_timeout:
+                        logger.warning(
+                            "TTS.ai WAV download exceeded total timeout limit (duration=%.2fs, limit=%.2fs)",
+                            t_chunk - start_time,
+                            self._max_total_timeout,
+                        )
+                        raise TTSUnavailableError(
+                            f"TTS.ai total process exceeded {self._max_total_timeout}s limit"
+                        )
+                    if (t_chunk - t_dl_start) >= dl_timeout:
+                        logger.warning(
+                            "TTS.ai WAV download timed out during stream (duration=%.2fs, limit=%.2fs)",
+                            t_chunk - t_dl_start,
+                            dl_timeout,
+                        )
+                        raise TTSUnavailableError(f"TTS.ai WAV download timed out after {dl_timeout}s")
+                    content_buffer.extend(chunk)
         except (httpx.TimeoutException, TimeoutError) as exc:
             dl_duration = time.monotonic() - t_dl_start
             logger.warning("TTS.ai WAV download timed out after %.2fs", dl_duration)
@@ -840,23 +881,36 @@ class TTSAiClient:
             dl_duration = time.monotonic() - t_dl_start
             logger.warning("TTS.ai WAV download network error (duration=%.2fs)", dl_duration)
             raise TTSUnavailableError("Failed to connect to TTS.ai CDN during download") from exc
+        except TTSUnavailableError:
+            raise
         except Exception as exc:
             dl_duration = time.monotonic() - t_dl_start
             logger.warning("TTS.ai WAV download transport error: %s (duration=%.2fs)", type(exc).__name__, dl_duration)
             raise TTSUnavailableError(f"Failed to download audio from TTS.ai: {type(exc).__name__}") from exc
 
         dl_duration = time.monotonic() - t_dl_start
-        if dl_resp.status_code != 200:
-            logger.warning("TTS.ai download returned HTTP %d (duration=%.2fs)", dl_resp.status_code, dl_duration)
-            raise TTSUnavailableError(f"TTS.ai download returned HTTP {dl_resp.status_code}")
+        if start_time is not None and (time.monotonic() - start_time) >= self._max_total_timeout:
+            logger.warning(
+                "TTS.ai WAV download exceeded total timeout limit at completion (duration=%.2fs, limit=%.2fs)",
+                time.monotonic() - start_time,
+                self._max_total_timeout,
+            )
+            raise TTSUnavailableError(
+                f"TTS.ai total process exceeded {self._max_total_timeout}s limit"
+            )
 
+        if not content_buffer:
+            raise TTSParseError("TTS.ai downloaded WAV is empty")
+
+        audio_bytes = bytes(content_buffer)
         logger.info(
             "TTS.ai WAV download completed (status=%d, bytes=%d, duration=%.2fs)",
-            dl_resp.status_code,
-            len(dl_resp.content),
+            200,
+            len(audio_bytes),
             dl_duration,
         )
-        return self._validate_wav(dl_resp.content)
+        return self._validate_wav(audio_bytes)
+
 
     def close(self) -> None:
         if not self._external_client:

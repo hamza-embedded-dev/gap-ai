@@ -773,7 +773,7 @@ def test_tts_ai_streaming_invalid_wav_raises_parse_error() -> None:
 
 
 def test_tts_ai_hard_total_timeout_limit_aborts_download(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verifies that if total elapsed time across all stages reaches max_total_timeout, it aborts."""
+    """Verifies that if total elapsed time before download reaches max_total_timeout, download never starts."""
     current_simulated_time = 1000.0
 
     def mock_monotonic() -> float:
@@ -781,14 +781,19 @@ def test_tts_ai_hard_total_timeout_limit_aborts_download(monkeypatch: pytest.Mon
 
     monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
 
+    cdn_requested = False
+
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal current_simulated_time
+        nonlocal current_simulated_time, cdn_requested
         if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
             return httpx.Response(200, json={"uuid": "huge-delay-job", "status": "queued"})
         elif "speech/results" in str(request.url):
             # Advance simulated time past max_total_timeout (45s)
             current_simulated_time += 50.0
             return httpx.Response(200, json={"status": "completed", "result_url": "https://cdn.tts.ai/huge/out.wav"})
+        elif "cdn.tts.ai" in str(request.url):
+            cdn_requested = True
+            return httpx.Response(200, content=b"audio")
         return httpx.Response(404)
 
     client = _tts_ai_client(
@@ -802,7 +807,131 @@ def test_tts_ai_hard_total_timeout_limit_aborts_download(monkeypatch: pytest.Mon
     with pytest.raises(TTSUnavailableError) as exc_info:
         client.synthesize("Testing hard total timeout cap")
 
+    # Download must never have been initiated because total budget was exhausted
+    assert cdn_requested is False
     assert "exceeded" in str(exc_info.value).lower() and "limit" in str(exc_info.value).lower()
+
+
+def test_tts_ai_slow_chunked_download_exceeds_total_timeout_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies that slow chunked download exceeding max_total_timeout is cleanly aborted."""
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+
+    class SlowDownloadStream(httpx.SyncByteStream):
+        def __iter__(self):
+            nonlocal current_simulated_time
+            yield b"RIFF" + b"\x00" * 40
+            # Advance simulated time past total timeout limit
+            current_simulated_time += 50.0
+            yield b"\x00" * 100
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal current_simulated_time
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "slow-chunk-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            current_simulated_time += 5.0
+            return httpx.Response(200, json={"status": "completed", "result_url": "https://cdn.tts.ai/slow/out.wav"})
+        elif "cdn.tts.ai" in str(request.url):
+            return httpx.Response(200, stream=SlowDownloadStream())
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        download_timeout=10.0,
+        max_total_timeout=45.0,
+        use_stream=False,
+    )
+
+    with pytest.raises(TTSUnavailableError) as exc_info:
+        client.synthesize("Testing slow chunk download timeout")
+
+    assert "exceeded" in str(exc_info.value).lower() and "limit" in str(exc_info.value).lower()
+
+
+def test_tts_ai_slow_chunked_download_exceeds_download_timeout_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies that slow chunked download exceeding download_timeout is cleanly aborted."""
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+
+    class SlowDownloadStream(httpx.SyncByteStream):
+        def __iter__(self):
+            nonlocal current_simulated_time
+            yield b"RIFF" + b"\x00" * 40
+            # Advance simulated time past download_timeout (5s) but within max_total_timeout (45s)
+            current_simulated_time += 6.0
+            yield b"\x00" * 100
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal current_simulated_time
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "slow-dl-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            current_simulated_time += 2.0
+            return httpx.Response(200, json={"status": "completed", "result_url": "https://cdn.tts.ai/slow-dl/out.wav"})
+        elif "cdn.tts.ai" in str(request.url):
+            return httpx.Response(200, stream=SlowDownloadStream())
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        download_timeout=5.0,
+        max_total_timeout=45.0,
+        use_stream=False,
+    )
+
+    with pytest.raises(TTSUnavailableError) as exc_info:
+        client.synthesize("Testing slow chunk download timeout")
+
+    assert "timed out after 5.0s" in str(exc_info.value).lower()
+
+
+def test_tts_ai_chunked_download_success() -> None:
+    """Verifies that normal chunked download succeeds, receives all bytes, and validates WAV."""
+    audio = _wav(sample_rate=24000)
+    chunk1 = audio[: len(audio) // 2]
+    chunk2 = audio[len(audio) // 2 :]
+
+    class FastDownloadStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield chunk1
+            yield chunk2
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "chunked-ok-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            return httpx.Response(200, json={"status": "completed", "result_url": "https://cdn.tts.ai/ok/out.wav"})
+        elif "cdn.tts.ai" in str(request.url):
+            return httpx.Response(200, stream=FastDownloadStream())
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        download_timeout=10.0,
+        use_stream=False,
+    )
+
+    result = client.synthesize("Testing chunked download success")
+
+    assert result == audio
+    assert result[:4] == b"RIFF"
+    assert result[8:12] == b"WAVE"
 
 
 def test_tts_ai_streaming_exceeds_total_timeout_raises_unavailable(
