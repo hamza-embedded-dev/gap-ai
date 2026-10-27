@@ -96,6 +96,14 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias="TTS_AI_TIMEOUT_SECONDS",
     )
+    tts_ai_download_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias="TTS_AI_DOWNLOAD_TIMEOUT_SECONDS",
+    )
+    tts_ai_use_stream: bool = Field(
+        default=True,
+        validation_alias="TTS_AI_USE_STREAM",
+    )
 
 
 
