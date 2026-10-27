@@ -10,6 +10,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/timers.h"
 #include "secrets.h"
+#include "settings.h"
 
 #define WIFI_CONNECTED_BIT BIT0
 #define RETRY_DELAY_MIN_MS 1000
@@ -55,7 +56,7 @@ static const char *disconnect_hint(uint8_t reason)
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        ESP_LOGI(TAG, "Connecting to \"%s\"...", WIFI_SSID);
+        ESP_LOGI(TAG, "Connecting to \"%s\"...", settings_get_wifi_ssid());
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *event = data;
@@ -85,12 +86,15 @@ void wifi_start(void)
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL, NULL));
 
+    const char *ssid = settings_get_wifi_ssid();
+    const char *pass = settings_get_wifi_password();
     wifi_config_t wifi_cfg = {0};
-    strlcpy((char *)wifi_cfg.sta.ssid, WIFI_SSID, sizeof(wifi_cfg.sta.ssid));
-    strlcpy((char *)wifi_cfg.sta.password, WIFI_PASSWORD, sizeof(wifi_cfg.sta.password));
-    // Open networks have an empty password; everything else must be at least WPA2.
-    wifi_cfg.sta.threshold.authmode = strlen(WIFI_PASSWORD) ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    strlcpy((char *)wifi_cfg.sta.ssid, ssid, sizeof(wifi_cfg.sta.ssid));
+    strlcpy((char *)wifi_cfg.sta.password, pass, sizeof(wifi_cfg.sta.password));
+    // Accept open, WPA, WPA2, or WPA3 personal networks
+    wifi_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
     wifi_cfg.sta.pmf_cfg.capable = true;
+    wifi_cfg.sta.pmf_cfg.required = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));

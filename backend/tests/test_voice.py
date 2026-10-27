@@ -121,9 +121,71 @@ class FakePlanStore:
         self.created_plans: list[dict[str, Any]] = []
         self.historical_plans: list[dict[str, Any]] = []
         self.suggestions: dict[str, dict[str, Any]] = {}
+        self.proposals: dict[str, list[dict[str, Any]]] = {}
 
     def get_user_for_token_hash(self, token_hash: str) -> tuple[AuthenticatedUser, str | None] | None:
         return self.tokens.get(token_hash)
+
+    def create_plan_proposal(
+        self,
+        *,
+        user_id: str,
+        proposal: dict[str, Any],
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "title": proposal["title"],
+            "category": proposal.get("category", "sport"),
+            "planned_start": proposal["planned_start"],
+            "planned_end": proposal["planned_end"],
+            "duration_minutes": proposal.get("duration_minutes", 60),
+            "recurrence_rule": proposal.get("recurrence_rule"),
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.proposals.setdefault(user_id, []).append(record)
+        return record
+
+    def get_latest_pending_proposal(self, *, user_id: str) -> dict[str, Any] | None:
+        for p in reversed(self.proposals.get(user_id, [])):
+            if p.get("status") == "pending":
+                return p
+        return None
+
+    def accept_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        proposal = self.get_latest_pending_proposal(user_id=user_id)
+        if not proposal:
+            raise ValueError("No pending plan proposal found.")
+        if proposal_id and proposal.get("id") != proposal_id:
+            raise ValueError("Proposal ID mismatch.")
+        proposal["status"] = "accepted"
+        plan_record = {
+            "user_id": user_id,
+            "title": proposal["title"],
+            "category": proposal["category"],
+            "planned_start": proposal["planned_start"],
+            "planned_end": proposal["planned_end"],
+            "recurrence_rule": proposal.get("recurrence_rule"),
+            "source": "voice",
+        }
+        created = self.create_plan(plan_record)
+        return proposal, created
+
+    def reject_plan_proposal(
+        self, *, user_id: str, proposal_id: str | None = None
+    ) -> dict[str, Any]:
+        proposal = self.get_latest_pending_proposal(user_id=user_id)
+        if not proposal:
+            raise ValueError("No pending plan proposal found.")
+        if proposal_id and proposal.get("id") != proposal_id:
+            raise ValueError("Proposal ID mismatch.")
+        proposal["status"] = "rejected"
+        return proposal
 
     def create_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         snapshot = {
@@ -821,3 +883,158 @@ def test_voice_uploadfile_closed_on_success_and_error(client: TestClient) -> Non
         )
         assert response.status_code == 503
         assert mock_close.await_count >= 1
+
+
+def test_voice_provides_default_spoken_confirmation_when_recommendation_is_none(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No historical plans, recommendation service returns None
+    from app.api import voice as voice_module
+    monkeypatch.setattr(voice_module, "get_suggestion_for_plan", lambda **kwargs: {"suggestion": None})
+
+    payload = _valid_create_plan(title="Gym")
+    client.app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([payload])
+    client.app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(transcript="Tomorrow 8 AM gym")
+
+    wav_bytes = _make_wav_bytes(duration_seconds=1.0)
+    response = client.post(
+        "/voice",
+        files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["spoken_recommendation"] == "Plan 'Gym' has been scheduled."
+    assert body["plan"]["title"] == "Gym"
+
+
+def test_voice_returns_wav_audio_when_accept_contains_audio_wav(
+    client: TestClient, fake_store: FakePlanStore
+) -> None:
+    from app.ai.tts import get_tts_client
+
+    fake_wav = _make_wav_bytes(duration_seconds=0.5)
+
+    class FakeTTSClient:
+        def synthesize(self, text: str, **kwargs) -> bytes:
+            return fake_wav
+
+    payload = _valid_create_plan(title="Tennis")
+    client.app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([payload])
+    client.app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(transcript="Play tennis tomorrow 5 PM")
+    client.app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
+
+    wav_bytes = _make_wav_bytes(duration_seconds=1.0)
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    response = client.post(
+        "/voice",
+        files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["x-intent"] == "propose_plan"
+    assert response.headers["x-needs-button"] == "true"
+    assert "x-proposal-id" in response.headers
+    assert response.content == fake_wav
+
+    # CRITICAL: Verify plan was NOT saved in store yet (waiting for confirmation button)
+    assert len(fake_store.created_plans) == 0
+    prop_id = response.headers["x-proposal-id"]
+    assert len(fake_store.proposals[USER_ID]) == 1
+
+    # Simulate GPIO 1 button press: POST /plans/proposals/accept
+    accept_resp = client.post(
+        f"/plans/proposals/accept?proposal_id={prop_id}",
+        headers=headers,
+    )
+    assert accept_resp.status_code == 200
+    assert accept_resp.headers["content-type"] == "audio/wav"
+    assert accept_resp.headers["x-status"] == "accepted"
+
+    # NOW and ONLY NOW verify plan was saved in store
+    assert len(fake_store.created_plans) == 1
+    assert fake_store.created_plans[0]["title"] == "Tennis"
+
+
+def test_voice_returns_wav_audio_on_clarify_without_saving_plan(
+    client: TestClient, fake_store: FakePlanStore
+) -> None:
+    from app.ai.tts import get_tts_client
+
+    fake_wav = _make_wav_bytes(duration_seconds=0.5)
+
+    class FakeTTSClient:
+        def synthesize(self, text: str, **kwargs) -> bytes:
+            return fake_wav
+
+    clarify_payload = {
+        "intent": "clarify",
+        "title": "Walk",
+        "category": "sport",
+        "date": None,
+        "time": None,
+        "duration_minutes": None,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": "What time would you like to take a walk?",
+        "confidence": 0.8,
+    }
+    client.app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([clarify_payload])
+    client.app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(transcript="Walk")
+    client.app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
+
+    wav_bytes = _make_wav_bytes(duration_seconds=1.0)
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    response = client.post(
+        "/voice",
+        files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["x-intent"] == "clarify"
+    assert response.headers["x-needs-button"] == "false"
+    assert response.content == fake_wav
+    # Crucial: verify NO plan was saved in store!
+    assert len(fake_store.created_plans) == 0
+
+
+def test_voice_tts_failure_falls_back_to_json_without_duplicate_plan(
+    client: TestClient, fake_store: FakePlanStore
+) -> None:
+    from app.ai.tts import TTSError, get_tts_client
+
+    class FailingTTSClient:
+        def synthesize(self, text: str, **kwargs) -> bytes:
+            raise TTSError("Groq TTS upstream unavailable")
+
+    payload = _valid_create_plan(title="Swimming")
+    client.app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient([payload])
+    client.app.dependency_overrides[get_stt_client] = lambda: FakeSTTClient(transcript="Swimming tomorrow 7 AM")
+    client.app.dependency_overrides[get_tts_client] = lambda: FailingTTSClient()
+
+    wav_bytes = _make_wav_bytes(duration_seconds=1.0)
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    response = client.post(
+        "/voice",
+        files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    assert "application/json" in response.headers["content-type"]
+    body = response.json()
+    assert body["proposal"]["title"] == "Swimming"
+    # Plan must NOT be created yet before button press!
+    assert len(fake_store.created_plans) == 0

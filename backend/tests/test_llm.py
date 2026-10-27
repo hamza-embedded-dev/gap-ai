@@ -462,3 +462,38 @@ def test_base_url_normalization(raw_base_url: str, expected_endpoint: str) -> No
     client = NebiusLLMClient(api_key=TEST_API_KEY, base_url=raw_base_url)
     assert client._chat_completions_url() == expected_endpoint
     client.close()
+
+
+def test_timeout_is_retried_once_then_succeeds() -> None:
+    calls = {"n": 0}
+
+    def mock_handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("stalled upstream")
+        return httpx.Response(200, json=_make_openai_chat_response("ok"))
+
+    with httpx.Client(transport=httpx.MockTransport(mock_handler)) as http_client:
+        client = NebiusLLMClient(api_key=TEST_API_KEY, http_client=http_client)
+        assert client.complete([{"role": "user", "content": "Hi"}]) == "ok"
+    assert calls["n"] == 2
+
+
+def test_persistent_timeout_is_bounded_to_two_attempts() -> None:
+    calls = {"n": 0}
+
+    def mock_handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ReadTimeout("stalled upstream")
+
+    with httpx.Client(transport=httpx.MockTransport(mock_handler)) as http_client:
+        client = NebiusLLMClient(api_key=TEST_API_KEY, http_client=http_client)
+        with pytest.raises(LLMUnavailableError, match="timed out"):
+            client.complete([{"role": "user", "content": "Hi"}])
+    assert calls["n"] == 2
+
+
+def test_default_timeout_stays_below_device_http_deadline() -> None:
+    from app.config import Settings
+
+    assert Settings.model_fields["nebius_timeout_seconds"].default <= 15.0

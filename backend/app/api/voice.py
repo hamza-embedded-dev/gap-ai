@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 import logging
 from typing import Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.llm import NebiusLLMClient, get_llm_client
@@ -21,16 +22,28 @@ from app.ai.stt import (
     get_stt_client,
     pcm_to_wav,
 )
+from app.ai.tts import GroqTTSClient, TTSError, get_tts_client
 from app.api.errors import APIError
 from app.api.parse import parse_text
 from app.api.plans import PlanResponse, current_user
+from app.api.proposals import ProposalResponse
 from app.api.suggestions import get_suggestion_for_plan
+from app.config import get_settings
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.schemas.parsed_plan import ParsedPlan
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _wants_wav(accept: str | None) -> bool:
+    return bool(accept and "audio/wav" in accept.lower())
+
+
+def _header_text(text: str) -> str:
+    return quote(text.strip(), safe="")
+
 
 # 320 KB in binary bytes (320 * 1024 = 327,680 bytes)
 # Provides headroom for standard WAV header while enforcing 10s audio limit.
@@ -50,11 +63,12 @@ def _is_declared_raw_pcm(content_type: str | None, filename: str | None) -> bool
 
 
 class VoicePlanResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     transcript: str
     parsed_plan: ParsedPlan
-    plan: PlanResponse
+    plan: PlanResponse | None = None
+    proposal: ProposalResponse | None = None
     spoken_recommendation: str | None = Field(default=None, max_length=240)
 
 
@@ -138,11 +152,15 @@ async def handle_voice_endpoint(
     language: Literal["tr", "en"] | None = Form(default=None),
     current_date: str | None = Form(default=None),
     timezone: str | None = Form(default=None),
+    require_confirmation: bool = Form(default=False),
+    accept: str | None = Header(default=None),
     user: AuthenticatedUser = Depends(current_user),
     store: PlanStore = Depends(get_plan_store),
     stt_client: GroqWhisperClient = Depends(get_stt_client),
     llm_client: NebiusLLMClient = Depends(get_llm_client),
-) -> VoicePlanResponse | VoiceClarifyResponse:
+    tts_client: GroqTTSClient = Depends(get_tts_client),
+) -> Response | VoicePlanResponse | VoiceClarifyResponse:
+
     try:
         # 1. Timezone verification (D-010)
         if timezone is not None and timezone != user.timezone:
@@ -230,9 +248,51 @@ async def handle_voice_endpoint(
 
         intent = parsed_plan.root.get("intent")
 
-        # 7. Intent routing: create_plan -> persist plan (K-3 source: "voice") + 201 Created
+        # 7. Intent routing: create_plan
         if intent == "create_plan":
             plan_record = _build_plan_record(parsed_plan, user)
+            is_proposal_mode = _wants_wav(accept) or require_confirmation
+
+            if is_proposal_mode:
+                # Human-in-the-loop: draft proposal WITHOUT persisting into plans table
+                proposal_record = store.create_plan_proposal(user_id=user.id, proposal=plan_record)
+                prop_title = str(proposal_record.get("title") or "Plan").strip()
+                prop_start = str(proposal_record.get("planned_start") or "")
+                time_part = prop_start[11:16]
+                date_part = prop_start[:10]
+                spoken_text = f"Drafted {prop_title} on {date_part} at {time_part}. Press button 1 to accept or button 2 to cancel."
+
+                if _wants_wav(accept) and get_settings().tts_enabled:
+                    try:
+                        wav_bytes = tts_client.synthesize(spoken_text)
+                        headers = {
+                            "Content-Type": "audio/wav",
+                            "X-Transcript": _header_text(transcript),
+                            "X-Reply-Text": _header_text(spoken_text),
+                            "X-Intent": "propose_plan",
+                            "X-Proposal-Id": str(proposal_record["id"]),
+                            "X-Proposal-Title": _header_text(prop_title),
+                            "X-Needs-Button": "true",
+                        }
+                        return Response(
+                            content=wav_bytes,
+                            status_code=status.HTTP_201_CREATED,
+                            media_type="audio/wav",
+                            headers=headers,
+                        )
+                    except TTSError as exc:
+                        logger.warning("TTS failed on propose_plan, falling back to JSON: %s", exc)
+
+                response.status_code = status.HTTP_201_CREATED
+                return VoicePlanResponse(
+                    transcript=transcript,
+                    parsed_plan=parsed_plan,
+                    proposal=ProposalResponse.model_validate(proposal_record),
+                    plan=None,
+                    spoken_recommendation=spoken_text,
+                )
+
+            # Direct plan creation fallback (legacy JSON requests where require_confirmation is False)
             created_plan_dict = store.create_plan(plan_record)
             try:
                 recommendation = get_suggestion_for_plan(
@@ -248,6 +308,10 @@ async def handle_voice_endpoint(
             if spoken_text and (len(spoken_text) > 240 or "\n" in spoken_text or "\r" in spoken_text):
                 logger.warning("Saved recommendation is not suitable for spoken playback")
                 spoken_text = None
+            if not spoken_text:
+                plan_title = str(created_plan_dict.get("title") or "Plan").strip()
+                spoken_text = f"Plan '{plan_title}' has been scheduled."
+
             response.status_code = status.HTTP_201_CREATED
             return VoicePlanResponse(
                 transcript=transcript,
@@ -256,11 +320,60 @@ async def handle_voice_endpoint(
                 spoken_recommendation=spoken_text,
             )
 
-        # 8. Clarify / Unsupported -> do NOT persist + 200 OK
+        # 8. Clarify -> do NOT persist + 200 OK
+        if intent == "clarify":
+            clarify_question = parsed_plan.root.get("clarification_question") or "Please specify the date or time for this plan."
+            if _wants_wav(accept) and get_settings().tts_enabled:
+                try:
+                    wav_bytes = tts_client.synthesize(clarify_question)
+                    headers = {
+                        "Content-Type": "audio/wav",
+                        "X-Transcript": _header_text(transcript),
+                        "X-Reply-Text": _header_text(clarify_question),
+                        "X-Intent": "clarify",
+                        "X-Needs-Button": "false",
+                    }
+                    return Response(
+                        content=wav_bytes,
+                        status_code=status.HTTP_200_OK,
+                        media_type="audio/wav",
+                        headers=headers,
+                    )
+                except TTSError as exc:
+                    logger.warning("TTS failed on clarify, falling back to JSON: %s", exc)
+
+            response.status_code = status.HTTP_200_OK
+            return VoiceClarifyResponse(
+                transcript=transcript,
+                parsed_plan=parsed_plan,
+            )
+
+        # 9. Unsupported / other -> do NOT persist + 200 OK
+        if _wants_wav(accept) and get_settings().tts_enabled:
+            unsupported_msg = "Sorry, I could not understand that plan request."
+            try:
+                wav_bytes = tts_client.synthesize(unsupported_msg)
+                headers = {
+                    "Content-Type": "audio/wav",
+                    "X-Transcript": _header_text(transcript),
+                    "X-Reply-Text": _header_text(unsupported_msg),
+                    "X-Intent": "unsupported",
+                    "X-Needs-Button": "false",
+                }
+                return Response(
+                    content=wav_bytes,
+                    status_code=status.HTTP_200_OK,
+                    media_type="audio/wav",
+                    headers=headers,
+                )
+            except TTSError as exc:
+                logger.warning("TTS failed on unsupported, falling back to JSON: %s", exc)
+
         response.status_code = status.HTTP_200_OK
         return VoiceClarifyResponse(
             transcript=transcript,
             parsed_plan=parsed_plan,
         )
+
     finally:
         await audio.close()

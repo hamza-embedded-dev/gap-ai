@@ -135,7 +135,7 @@ esp_err_t audio_record_init(const audio_record_cfg_t *cfg)
     ESP_LOGI(TAG, "Initializing I2S standard RX: BCLK=%d, WS=%d, DIN=%d, slot_mask=0x%x",
              cfg->bclk_io_num, cfg->ws_io_num, cfg->din_io_num, (unsigned)cfg->slot_mask);
 
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     esp_err_t err = i2s_new_channel(&chan_cfg, NULL, &s_rx_chan);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(err));
