@@ -38,13 +38,15 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
   const [errorData, setErrorData] = useState<ErrorStateData | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [ratings, setRatings] = useState<Record<string, 'useful' | 'not_useful'>>({});
   const [durations, setDurations] = useState<Record<string, number>>({});
   const [whyOpen, setWhyOpen] = useState<Record<string, boolean>>({});
   const recommendationPlanKeys = useRef(new Map<string, string>());
 
   const runCardAction = async (id: string, action: () => Promise<void>) => {
     if (actionBusy) return;
-    setActionBusy(id); setActionError(null);
+    setActionBusy(id); setActionError(null); setActionNotice(null);
     try { await action(); } catch (e) { setActionError(e instanceof Error ? e.message : 'Action failed. Try again.'); }
     finally { setActionBusy(null); }
   };
@@ -262,8 +264,8 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
                 <div className="coach-actions">
                   <button type="button" disabled={actionBusy !== null} onClick={() => { setWhyOpen(v => ({...v, [item.id]: !v[item.id]})); }}>Tell me why this was suggested</button>
                   <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'dismissed'}); setInsights(v => v ? {...v, recommendations:(v.recommendations ?? []).filter(r => r.id !== item.id)} : v); })}>Not interested</button>
-                  <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'useful'}); })}>Useful</button>
-                  <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'not_useful'}); })}>Not useful</button>
+                  <button type="button" aria-pressed={ratings[item.id] === 'useful'} disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'useful'}); setRatings(v => ({...v, [item.id]:'useful'})); setActionNotice('Thanks! Marked as useful. We will prioritize similar ideas.'); })}>{ratings[item.id] === 'useful' ? 'Useful ✓' : 'Useful'}</button>
+                  <button type="button" aria-pressed={ratings[item.id] === 'not_useful'} disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'not_useful'}); setRatings(v => ({...v, [item.id]:'not_useful'})); setActionNotice('Thanks! Marked as not useful. We will show fewer ideas like this.'); })}>{ratings[item.id] === 'not_useful' ? 'Not useful ✓' : 'Not useful'}</button>
                   {item.source === 'discovery' && <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'modified', payload:{duration_minutes:durations[item.id] ?? item.duration_minutes}}); })}>Change duration</button>}
                   {item.source === 'discovery' && <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => {
                     const duration = durations[item.id] ?? item.duration_minutes ?? 20;
@@ -282,6 +284,7 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
           <button type="button" onClick={() => setInsights(v => v?.recommendations?.length ? {...v, recommendations:[...v.recommendations.slice(1), v.recommendations[0]]} : v)} disabled={isRetrying || actionBusy !== null}>
             {isRetrying ? 'Loading another idea…' : 'Show another idea'}
           </button>
+          {actionNotice && <p role="status">{actionNotice}</p>}
           {actionError && <p role="alert">{actionError}</p>}
         </section>
       )}
