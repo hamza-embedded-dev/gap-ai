@@ -104,3 +104,45 @@ export function extractTokenFromUrlAndClean(): string | null {
 
   return getStoredToken();
 }
+
+/**
+ * Detects OAuth error parameters in query or hash (e.g. user cancelled Google consent),
+ * sanitizes the address bar, and returns an error description if present.
+ */
+export function extractOAuthErrorFromUrl(): string | null {
+  if (typeof window === 'undefined' || !window.location) {
+    return null;
+  }
+  try {
+    const url = new URL(window.location.href);
+    let error = url.searchParams.get('error');
+    let errorDescription = url.searchParams.get('error_description');
+
+    // Also check hash parameters: e.g. #error=access_denied&error_description=...
+    if (!error && url.hash && url.hash.includes('error=')) {
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+      error = hashParams.get('error');
+      errorDescription = hashParams.get('error_description');
+    }
+
+    if (error) {
+      // Remove error parameters from URL to keep address bar clean
+      url.searchParams.delete('error');
+      url.searchParams.delete('error_code');
+      url.searchParams.delete('error_description');
+      const cleanSearch = url.searchParams.toString() ? `?${url.searchParams.toString()}` : '';
+      const cleanHash = url.hash && url.hash.includes('error=') ? '' : url.hash;
+      const cleanUrl = `${url.pathname}${cleanSearch}${cleanHash}`;
+      window.history.replaceState(window.history.state, '', cleanUrl);
+
+      if (error === 'access_denied') {
+        return 'Google sign-in was cancelled.';
+      }
+      return errorDescription || error || 'Authentication failed.';
+    }
+  } catch {
+    // Ignore URL parse failures
+  }
+  return null;
+}
+
