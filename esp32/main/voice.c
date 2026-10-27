@@ -307,7 +307,13 @@ static esp_err_t play_wav_stream(esp_http_client_handle_t client)
     }
 
     int available_data = total_bytes - data_start;
-    if (data_size == 0 || (int)data_size > available_data) {
+    if (available_data <= 0) {
+        ESP_LOGE(TAG, "No audio payload available (total_bytes=%d, data_start=%d)", total_bytes, data_start);
+        free(wav_buf);
+        return ESP_FAIL;
+    }
+
+    if (data_size == 0 || data_size > (uint32_t)available_data) {
         data_size = (uint32_t)available_data;
     }
 
@@ -319,19 +325,36 @@ static esp_err_t play_wav_stream(esp_http_client_handle_t client)
     }
 
     const int frame_bytes = 2 * channels;
-    int total_frames = data_size / frame_bytes;
+    if (frame_bytes <= 0) {
+        audio_play_end();
+        free(wav_buf);
+        return ESP_FAIL;
+    }
+
+    int total_frames = (int)(data_size / frame_bytes);
 
     #define PLAY_BATCH_FRAMES 512
     static int16_t mono[PLAY_BATCH_FRAMES];
 
     int frames_played = 0;
+    esp_err_t play_err = ESP_OK;
+
     while (frames_played < total_frames) {
         int batch = total_frames - frames_played;
         if (batch > PLAY_BATCH_FRAMES) {
             batch = PLAY_BATCH_FRAMES;
         }
 
-        const uint8_t *p = wav_buf + data_start + frames_played * frame_bytes;
+        int current_offset = data_start + frames_played * frame_bytes;
+        int batch_bytes = batch * frame_bytes;
+        if (current_offset + batch_bytes > total_bytes) {
+            ESP_LOGE(TAG, "Buffer overrun prevented: offset=%d, batch_bytes=%d, total=%d",
+                     current_offset, batch_bytes, total_bytes);
+            play_err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+
+        const uint8_t *p = wav_buf + current_offset;
         for (int f = 0; f < batch; f++) {
             const uint8_t *sample_p = p + f * frame_bytes;
             int32_t s = (int16_t)le16(sample_p);
@@ -341,14 +364,24 @@ static esp_err_t play_wav_stream(esp_http_client_handle_t client)
             mono[f] = (int16_t)s;
         }
 
-        audio_play_write(mono, batch);
+        esp_err_t werr = audio_play_write(mono, batch);
+        if (werr != ESP_OK) {
+            ESP_LOGE(TAG, "audio_play_write failed: %s", esp_err_to_name(werr));
+            play_err = werr;
+            break;
+        }
         frames_played += batch;
     }
 
     audio_play_end();
-    ESP_LOGI(TAG, "Reply played: %.1f s", (double)frames_played / rate);
+    if (play_err == ESP_OK) {
+        ESP_LOGI(TAG, "Reply played: %.1f s", (double)frames_played / rate);
+    } else {
+        ESP_LOGW(TAG, "Playback stopped early after %d frames due to error (%s)",
+                 frames_played, esp_err_to_name(play_err));
+    }
     free(wav_buf);
-    return ESP_OK;
+    return play_err;
 }
 
 static void read_json_reply(esp_http_client_handle_t client, reply_headers_t *h)
