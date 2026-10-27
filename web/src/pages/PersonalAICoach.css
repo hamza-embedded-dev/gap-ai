@@ -166,6 +166,54 @@
   color: var(--coach-ink-soft);
 }
 
+.coach-schedule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--coach-surface-alt, #f8fafc);
+  border: 1px solid var(--coach-border, #e2e8f0);
+}
+
+.coach-schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--coach-ink);
+}
+
+.coach-schedule-field label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--coach-ink);
+}
+
+.coach-schedule-field input {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  background: var(--coach-surface);
+  color: var(--coach-ink);
+  font: inherit;
+}
+
+.coach-schedule-field input[type="date"] {
+  min-width: 140px;
+}
+
+.coach-schedule-field input[type="time"] {
+  min-width: 110px;
+}
+
+.coach-schedule-field input[type="number"] {
+  width: 96px;
+}
+
 .coach-duration {
   display: flex;
   flex-wrap: wrap;
@@ -248,6 +296,7 @@
 }
 
 .coach-btn:focus-visible,
+.coach-schedule-field input:focus-visible,
 .coach-duration input:focus-visible {
   outline: 3px solid #a78bfa;
   outline-offset: 2px;

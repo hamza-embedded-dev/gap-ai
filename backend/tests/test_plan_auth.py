@@ -417,6 +417,25 @@ def test_post_plans_creates_plan_with_201(store: TokenStore) -> None:
 
 
 @_skip_windows
+def test_post_plans_future_schedule_persisted_correctly(store: TokenStore) -> None:
+    future_parsed = {
+        **_PARSED,
+        "title": "Future Walk",
+        "date": "2026-11-15",
+        "time": "14:45",
+        "duration_minutes": 30,
+    }
+    response = _post(_auth(), {"parsed_plan": future_parsed, "source": "text"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["title"] == "Future Walk"
+    assert body["planned_start"].startswith("2026-11-15T14:45:00")
+    assert body["planned_end"].startswith("2026-11-15T15:15:00")
+    assert len(store.created) == 1
+
+
+@_skip_windows
 def test_post_plans_invalid_body_returns_contract_422(store: TokenStore) -> None:
     response = _post(_auth(), {"parsed_plan": _PARSED, "source": "text", "extra": 1})
 

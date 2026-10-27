@@ -40,7 +40,19 @@ function makeDeps(over = {}) {
 }
 
 const noop = () => {};
-const handlers = { onRefresh: noop, onShowAnother: noop, onRate: noop, onDismiss: noop, onToggleWhy: noop, onDurationInput: noop, onSaveDuration: noop, onAddToPlans: noop, onRequireAuth: noop };
+const handlers = {
+  onRefresh: noop,
+  onShowAnother: noop,
+  onRate: noop,
+  onDismiss: noop,
+  onToggleWhy: noop,
+  onDurationInput: noop,
+  onDateInput: noop,
+  onTimeInput: noop,
+  onSaveDuration: noop,
+  onAddToPlans: noop,
+  onRequireAuth: noop,
+};
 const render = (state) => renderToStaticMarkup(React.createElement(CoachView, { state, handlers }));
 const ready = (cards, extra = {}) => ({ ...initialCoachState, status: 'ready', cards, ...extra });
 
@@ -75,21 +87,37 @@ describe('Coach action handlers (executed for real)', () => {
     assert.deepEqual(calls.feedback[0], { recommendation_id: 'discovery-walk', action: 'modified', payload: { duration_minutes: 45 } });
   });
 
-  it('Add to My Plans confirms, creates the plan idempotently, then records acceptance', async () => {
+  it('Add to My Plans confirms, creates the plan idempotently, then records acceptance (default schedule)', async () => {
     const { deps, calls } = makeDeps();
     const keys = new Map();
     const msg = await addToPlans(deps, discovery(), 30, keys);
     assert.match(msg, /Added/);
     assert.equal(calls.plans.length, 1);
     assert.deepEqual(calls.plans[0].plan, {
-      intent: 'create_plan', title: 'Take a walk', category: 'personal', date: '2026-10-27', time: '09:05',
+      intent: 'create_plan', title: 'Take a walk', category: 'personal', date: '2026-10-27', time: '10:00',
       duration_minutes: 30, recurrence: null, language: 'en', needs_weather_check: false, clarification_question: null, confidence: 1,
     });
     assert.equal(calls.plans[0].key, '11111111-1111-4111-8111-111111111111');
     assert.deepEqual(calls.feedback, [{ recommendation_id: 'discovery-walk', action: 'accepted' }]);
-    assert.match(calls.confirms[0], /Take a walk.*09:05.*30 minutes/);
+    assert.match(calls.confirms[0], /Take a walk.*10:00.*30 minutes/);
     await addToPlans(deps, discovery(), 30, keys);
     assert.equal(calls.plans[1].key, calls.plans[0].key, 'retry reuses the idempotency key');
+  });
+
+  it('schedules a recommendation for a chosen future date and time', async () => {
+    const { deps, calls } = makeDeps();
+    const keys = new Map();
+    const futureDate = '2026-11-05';
+    const futureTime = '14:30';
+    const msg = await addToPlans(deps, discovery(), 45, keys, { date: futureDate, time: futureTime });
+    assert.match(msg, /Added/);
+    assert.equal(calls.plans.length, 1);
+    assert.deepEqual(calls.plans[0].plan, {
+      intent: 'create_plan', title: 'Take a walk', category: 'personal', date: '2026-11-05', time: '14:30',
+      duration_minutes: 45, recurrence: null, language: 'en', needs_weather_check: false, clarification_question: null, confidence: 1,
+    });
+    assert.match(calls.confirms[0], /Take a walk.*2026-11-05 at 14:30.*45 minutes/);
+    assert.deepEqual(calls.feedback, [{ recommendation_id: 'discovery-walk', action: 'accepted' }]);
   });
 
   it('Add to My Plans does nothing when the user cancels, and skips feedback when plan creation fails', async () => {
@@ -107,7 +135,7 @@ describe('Coach action handlers (executed for real)', () => {
     assert.deepEqual(rotateCards(five).map((c) => c.id), ['b', 'c', 'd', 'e', 'a']);
   });
 
-  it('reducer tracks ratings, busy lock, notice and errors', () => {
+  it('reducer tracks ratings, busy lock, notice, errors, and scheduled dates/times', () => {
     let s = coachReducer(ready([card()]), { type: 'action_start', id: 'behavior-morning' });
     assert.equal(s.busyId, 'behavior-morning');
     s = coachReducer(s, { type: 'rated', id: 'behavior-morning', rating: 'useful' });
@@ -115,6 +143,10 @@ describe('Coach action handlers (executed for real)', () => {
     assert.equal(s.busyId, null);
     assert.equal(s.notice, 'Thanks!');
     assert.equal(s.ratings['behavior-morning'], 'useful');
+    s = coachReducer(s, { type: 'set_date', id: 'behavior-morning', date: '2026-11-01' });
+    assert.equal(s.scheduledDates['behavior-morning'], '2026-11-01');
+    s = coachReducer(s, { type: 'set_time', id: 'behavior-morning', time: '16:00' });
+    assert.equal(s.scheduledTimes['behavior-morning'], '16:00');
     s = coachReducer(s, { type: 'action_fail', message: 'boom' });
     assert.equal(s.actionError, 'boom');
   });
@@ -143,6 +175,9 @@ describe('Coach view rendering (real component output)', () => {
     }
     assert.equal((html.match(/Add to My Plans/g) || []).length, 1, 'discovery only');
     assert.match(html, /Not based on your history/);
+    assert.match(html, /type="date"/);
+    assert.match(html, /type="time"/);
+    assert.match(html, /Start time/);
   });
 
   it('shows success notice, pressed rating, and the why panel when requested', () => {
