@@ -201,7 +201,98 @@ def test_tts_ai_direct_wav_response() -> None:
 def test_tts_ai_default_poll_interval_within_official_range() -> None:
     client = TTSAiClient(api_key="dummy")
     assert 1.0 <= client.poll_interval <= 2.0
+    assert client.max_poll_attempts == 30
+    assert client.default_timeout == 30.0
     client.close()
+
+
+def test_tts_ai_delayed_async_job_completes_past_10_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that an async job taking >10 seconds completes successfully without real wait."""
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    def mock_sleep(seconds: float) -> None:
+        nonlocal current_simulated_time
+        current_simulated_time += seconds
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+    monkeypatch.setattr("app.ai.tts.time.sleep", mock_sleep)
+
+    poll_count = 0
+    audio = _wav()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal poll_count
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "delayed-job-456", "status": "queued"})
+        elif request.url == httpx.URL("https://api.tts.ai/v1/speech/results/?uuid=delayed-job-456"):
+            poll_count += 1
+            # Takes 15 attempts (14 seconds of simulated polling sleep > 10s old timeout)
+            if poll_count < 15:
+                return httpx.Response(200, json={"status": "processing"})
+            return httpx.Response(
+                200,
+                json={"status": "completed", "result_url": "https://cdn.tts.ai/delayed-job-456/out.wav"},
+            )
+        elif request.url == httpx.URL("https://cdn.tts.ai/delayed-job-456/out.wav"):
+            return httpx.Response(200, content=audio, headers={"content-type": "audio/wav"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        max_poll_attempts=30,
+        poll_interval=1.0,
+    )
+
+    result = client.synthesize("Testing delayed job completion exceeding 10 seconds")
+
+    assert result == audio
+    assert poll_count == 15
+    # Simulated elapsed time is >= 14s (exceeds the old 10s limit)
+    assert (current_simulated_time - 1000.0) >= 14.0
+    # But strictly within the 30.0s total timeout
+    assert (current_simulated_time - 1000.0) <= 30.0
+    assert result[:4] == b"RIFF"
+    assert result[8:12] == b"WAVE"
+
+
+def test_tts_ai_polling_strictly_times_out_at_total_timeout_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that polling strictly aborts with TTSUnavailableError when total timeout is exceeded."""
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    def mock_sleep(seconds: float) -> None:
+        nonlocal current_simulated_time
+        current_simulated_time += seconds
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+    monkeypatch.setattr("app.ai.tts.time.sleep", mock_sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "never-completing-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            return httpx.Response(200, json={"status": "processing"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        max_poll_attempts=50,
+        poll_interval=1.0,
+    )
+
+    with pytest.raises(TTSUnavailableError) as exc_info:
+        client.synthesize("Testing strict 30s timeout enforcement")
+
+    assert "timed out after 30" in str(exc_info.value)
+    assert (current_simulated_time - 1000.0) >= 30.0
+
 
 
 def test_tts_ai_job_uuid_polling_success() -> None:
