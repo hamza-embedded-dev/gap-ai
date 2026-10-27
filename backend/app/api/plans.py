@@ -82,11 +82,26 @@ def current_user(
     store: PlanStore = Depends(get_plan_store),
     now: datetime | None = None,
 ) -> AuthenticatedUser:
-    settings = get_settings()
-    if credentials is None or settings.token_hash_pepper is None:
+    if credentials is None:
         raise APIError(401, "unauthorized", "Token is missing or invalid.")
 
     raw_token = credentials.credentials
+    # Check if the token is a Supabase JWT (header.payload.signature)
+    if raw_token.count(".") == 2 and raw_token.startswith("ey"):
+        user = store.get_user_for_supabase_jwt(raw_token)
+        if user is None:
+            raise APIError(401, "unauthorized", "Token is missing or invalid.")
+        now = (now or get_system_time()).astimezone(timezone.utc)
+        if user.is_demo and (
+            user.demo_expires_at is None or _parse_timestamp(user.demo_expires_at) <= now
+        ):
+            raise APIError(401, "unauthorized", "Token is missing or invalid.")
+        return user
+
+    settings = get_settings()
+    if settings.token_hash_pepper is None:
+        raise APIError(401, "unauthorized", "Token is missing or invalid.")
+
     token_hash = hashlib.sha256(
         (raw_token + settings.token_hash_pepper.get_secret_value()).encode("utf-8")
     ).hexdigest()

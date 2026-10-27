@@ -25,6 +25,10 @@ class PlanStore(Protocol):
         self, token_hash: str
     ) -> tuple[AuthenticatedUser, str | None] | None: ...
 
+    def get_user_for_supabase_jwt(
+        self, jwt_token: str
+    ) -> AuthenticatedUser | None: ...
+
     def update_profile(
         self, *, user_id: str, changes: dict[str, Any]
     ) -> dict[str, Any] | None: ...
@@ -95,6 +99,7 @@ class SupabasePlanStore:
     """Small PostgREST adapter; idempotent writes use one transactional RPC."""
 
     def __init__(self, url: str, service_key: str) -> None:
+        self._base_url = url.rstrip("/") + "/"
         self._rest_url = url.rstrip("/") + "/rest/v1/"
         self._client = httpx.Client(
             headers={
@@ -104,6 +109,82 @@ class SupabasePlanStore:
             },
             timeout=10.0,
         )
+
+    def get_user_for_supabase_jwt(
+        self, jwt_token: str
+    ) -> AuthenticatedUser | None:
+        try:
+            auth_url = urljoin(self._base_url, "auth/v1/user")
+            res = self._client.get(
+                auth_url,
+                headers={"Authorization": f"Bearer {jwt_token}"},
+            )
+            if res.status_code != 200:
+                return None
+            auth_user = res.json()
+        except Exception:
+            return None
+
+        user_id = auth_user.get("id")
+        if not user_id:
+            return None
+
+        try:
+            user_res = self._client.get(
+                urljoin(self._rest_url, "users"),
+                params={
+                    "select": "id,display_name,timezone,is_demo,demo_expires_at",
+                    "id": f"eq.{user_id}",
+                    "limit": "1",
+                },
+            )
+            if user_res.status_code == 200:
+                users = user_res.json()
+                if users:
+                    user = users[0]
+                    return AuthenticatedUser(
+                        id=user["id"],
+                        timezone=user["timezone"],
+                        is_demo=user["is_demo"],
+                        demo_expires_at=user.get("demo_expires_at"),
+                        display_name=user.get("display_name"),
+                    )
+
+            # Auto-provision user in public.users if not present yet
+            user_metadata = auth_user.get("user_metadata") or {}
+            display_name = (
+                user_metadata.get("full_name")
+                or user_metadata.get("name")
+                or user_metadata.get("user_name")
+                or (auth_user.get("email") or "").split("@")[0]
+                or "User"
+            )
+            insert_res = self._client.post(
+                urljoin(self._rest_url, "users"),
+                params={"select": "id,display_name,timezone,is_demo,demo_expires_at"},
+                headers={"Prefer": "return=representation"},
+                json={
+                    "id": user_id,
+                    "display_name": display_name,
+                    "timezone": "Europe/Istanbul",
+                    "is_demo": False,
+                },
+            )
+            if insert_res.status_code in (200, 201):
+                rows = insert_res.json()
+                if rows:
+                    user = rows[0]
+                    return AuthenticatedUser(
+                        id=user["id"],
+                        timezone=user["timezone"],
+                        is_demo=user["is_demo"],
+                        demo_expires_at=user.get("demo_expires_at"),
+                        display_name=user.get("display_name"),
+                    )
+        except Exception:
+            return None
+
+        return None
 
     def get_user_for_token_hash(
         self, token_hash: str
@@ -548,6 +629,11 @@ class LazyPlanStore:
         self, token_hash: str
     ) -> tuple[AuthenticatedUser, str | None] | None:
         return _build_plan_store().get_user_for_token_hash(token_hash)
+
+    def get_user_for_supabase_jwt(
+        self, jwt_token: str
+    ) -> AuthenticatedUser | None:
+        return _build_plan_store().get_user_for_supabase_jwt(jwt_token)
 
     def update_profile(
         self, *, user_id: str, changes: dict[str, Any]
