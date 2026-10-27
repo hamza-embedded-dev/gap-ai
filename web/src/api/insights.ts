@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiFetch } from './client.ts';
 
 export type InsightsPeriod = 'week' | 'last_week' | 'all';
 

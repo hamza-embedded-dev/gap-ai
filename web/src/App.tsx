@@ -10,6 +10,7 @@ import {
   Pencil,
   Server,
   ShieldCheck,
+  Sparkles,
   User as UserIcon,
 } from 'lucide-react';
 import { createDemoSession } from './api/demo';
@@ -33,12 +34,13 @@ import { GoogleAuthButton } from './components/auth/GoogleAuthButton';
 import { PublicLanding } from './components/auth/PublicLanding';
 import { AuthRequiredCard } from './components/auth/AuthRequiredCard';
 import { Insights } from './pages/Insights';
+import { PersonalAICoach } from './pages/PersonalAICoach';
 import { Profile } from './pages/Profile';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AUTH_SESSION_INVALID_EVENT } from './api/client';
 import './App.css';
 
-type ActiveTab = 'overview' | 'insights' | 'plans' | 'create' | 'profile' | 'demo';
+type ActiveTab = 'overview' | 'insights' | 'coach' | 'plans' | 'create' | 'profile' | 'demo';
 
 function App() {
   // Capture ?t= parameter on initial load or read stored token:
@@ -266,6 +268,17 @@ function App() {
               <span>Insights</span>
             </button>
             <button
+              id="tab-coach-btn"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'coach'}
+              className={`nav-tab-btn ${activeTab === 'coach' ? 'active' : ''}`}
+              onClick={() => setActiveTab('coach')}
+            >
+              <Sparkles className="tab-icon" aria-hidden="true" />
+              <span>Personal AI Coach</span>
+            </button>
+            <button
               id="tab-plan-list-btn"
               type="button"
               role="tab"
@@ -335,6 +348,19 @@ function App() {
             ) : (
               <AuthRequiredCard
                 featureName="Insights & Analytics"
+                onTryDemo={handleTryDemo}
+                onError={(msg) => setErrorMessage(msg)}
+              />
+            )
+          )}
+
+          {/* Personal AI Coach Tab */}
+          {activeTab === 'coach' && (
+            token ? (
+              <PersonalAICoach token={token} onRequireAuth={() => setActiveTab('demo')} />
+            ) : (
+              <AuthRequiredCard
+                featureName="Personal AI Coach"
                 onTryDemo={handleTryDemo}
                 onError={(msg) => setErrorMessage(msg)}
               />

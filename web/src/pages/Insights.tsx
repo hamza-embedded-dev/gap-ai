@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchInsights, submitRecommendationFeedback } from '../api/insights';
+import React, { useCallback, useEffect, useState } from 'react';
+import { fetchInsights } from '../api/insights';
 import type { InsightsPeriod, InsightsResponse } from '../api/insights';
 import { ApiError } from '../api/client';
 import { AdherenceMetricCard } from '../components/insights/AdherenceMetricCard';
@@ -9,8 +9,6 @@ import { EmptyInsights } from '../components/insights/EmptyInsights';
 import { SampleDataBadge } from '../components/insights/SampleDataBadge';
 import { InsightsSkeleton } from '../components/insights/InsightsSkeleton';
 import { ErrorState } from '../components/ui/ErrorState';
-import { createPlan } from '../api/plans';
-import { generateIdempotencyKey } from '../utils/idempotency';
 import './Insights.css';
 
 const PERIOD_LABELS: Record<InsightsPeriod, string> = {
@@ -36,20 +34,6 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
   const [errorData, setErrorData] = useState<ErrorStateData | null>(null);
-  const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [ratings, setRatings] = useState<Record<string, 'useful' | 'not_useful'>>({});
-  const [durations, setDurations] = useState<Record<string, number>>({});
-  const [whyOpen, setWhyOpen] = useState<Record<string, boolean>>({});
-  const recommendationPlanKeys = useRef(new Map<string, string>());
-
-  const runCardAction = async (id: string, action: () => Promise<void>) => {
-    if (actionBusy) return;
-    setActionBusy(id); setActionError(null); setActionNotice(null);
-    try { await action(); } catch (e) { setActionError(e instanceof Error ? e.message : 'Action failed. Try again.'); }
-    finally { setActionBusy(null); }
-  };
 
   const loadData = useCallback(async (selectedPeriod: InsightsPeriod, isManualRetry = false) => {
     if (!token) {
@@ -246,47 +230,6 @@ export const Insights: React.FC<InsightsProps> = ({ token, onRequireAuth }) => {
           {/* Postponed Targets */}
           <PostponedTargetsList targets={insights.postponed_targets} />
         </>
-      )}
-      {!isLoading && !errorData && insights && (
-        <section className="coach-section" aria-label="Your Personal AI Coach">
-          <h2>Your Personal AI Coach</h2>
-          {(insights.recommendations ?? []).length === 0 ? (
-            <p>No ideas are available right now. Refresh to try again.</p>
-          ) : (
-            <div className="coach-grid">{(insights.recommendations ?? []).slice(0, 3).map((item) => (
-              <article className="coach-card" key={item.id}>
-                {item.label && <small>{item.label}</small>}
-                <h3>{item.title}</h3><p>{item.message}</p><p>{item.why}</p>
-                {(item.source === 'behavior' || item.source === 'contextual') && <><small>Evidence: {Object.entries(item.evidence).map(([key, value]) => `${key}: ${value}`).join(' · ')}</small><small>Confidence: {item.confidence}</small></>}
-                <p><strong>Next step:</strong> {item.next_step}</p>
-                {whyOpen[item.id] && <p role="status">{item.why}{item.source === 'discovery' ? ' This is a neutral starter and uses no history.' : ''}</p>}
-                {item.source === 'discovery' && <label>Duration (minutes) <input type="number" min={5} max={1440} value={durations[item.id] ?? item.duration_minutes ?? 20} onChange={e => setDurations(v => ({...v, [item.id]: Math.max(5, Math.min(1440, Number(e.target.value) || 5))}))} /></label>}
-                <div className="coach-actions">
-                  <button type="button" disabled={actionBusy !== null} onClick={() => { setWhyOpen(v => ({...v, [item.id]: !v[item.id]})); }}>Tell me why this was suggested</button>
-                  <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'dismissed'}); setInsights(v => v ? {...v, recommendations:(v.recommendations ?? []).filter(r => r.id !== item.id)} : v); })}>Not interested</button>
-                  <button type="button" aria-pressed={ratings[item.id] === 'useful'} disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'useful'}); setRatings(v => ({...v, [item.id]:'useful'})); setActionNotice('Thanks! Marked as useful. We will prioritize similar ideas.'); })}>{ratings[item.id] === 'useful' ? 'Useful ✓' : 'Useful'}</button>
-                  <button type="button" aria-pressed={ratings[item.id] === 'not_useful'} disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted', rating:'not_useful'}); setRatings(v => ({...v, [item.id]:'not_useful'})); setActionNotice('Thanks! Marked as not useful. We will show fewer ideas like this.'); })}>{ratings[item.id] === 'not_useful' ? 'Not useful ✓' : 'Not useful'}</button>
-                  {item.source === 'discovery' && <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => { await submitRecommendationFeedback({recommendation_id:item.id, action:'modified', payload:{duration_minutes:durations[item.id] ?? item.duration_minutes}}); })}>Change duration</button>}
-                  {item.source === 'discovery' && <button type="button" disabled={actionBusy !== null} onClick={() => void runCardAction(item.id, async () => {
-                    const duration = durations[item.id] ?? item.duration_minutes ?? 20;
-                    const now = new Date(); const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-                    const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-                    if (!window.confirm(`Add “${item.title}” to My Plans for today at ${time} (${duration} minutes)?`)) return;
-                    let key = recommendationPlanKeys.current.get(item.id);
-                    if (!key) { key = generateIdempotencyKey(); recommendationPlanKeys.current.set(item.id, key); }
-                    await createPlan({intent:'create_plan', title:item.title, category:'personal', date, time, duration_minutes:duration, recurrence:null, language:'en', needs_weather_check:false, clarification_question:null, confidence:1}, key);
-                    await submitRecommendationFeedback({recommendation_id:item.id, action:'accepted'});
-                  })}>{actionBusy === item.id ? 'Working…' : 'Add to My Plans'}</button>}
-                </div>
-              </article>
-            ))}</div>
-          )}
-          <button type="button" onClick={() => setInsights(v => v?.recommendations?.length ? {...v, recommendations:[...v.recommendations.slice(1), v.recommendations[0]]} : v)} disabled={isRetrying || actionBusy !== null}>
-            {isRetrying ? 'Loading another idea…' : 'Show another idea'}
-          </button>
-          {actionNotice && <p role="status">{actionNotice}</p>}
-          {actionError && <p role="alert">{actionError}</p>}
-        </section>
       )}
     </div>
   );

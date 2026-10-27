@@ -5,6 +5,9 @@ import fs from 'node:fs';
 const plansApi = fs.readFileSync(new URL('../src/api/plans.ts', import.meta.url), 'utf8');
 const planPage = fs.readFileSync(new URL('../src/pages/PlanList.tsx', import.meta.url), 'utf8');
 const insightsPage = fs.readFileSync(new URL('../src/pages/Insights.tsx', import.meta.url), 'utf8');
+const coachPage = fs.readFileSync(new URL('../src/pages/PersonalAICoach.tsx', import.meta.url), 'utf8');
+const coachView = fs.readFileSync(new URL('../src/components/coach/CoachView.tsx', import.meta.url), 'utf8');
+const coachActions = fs.readFileSync(new URL('../src/components/coach/coachActions.ts', import.meta.url), 'utf8');
 const insightsApi = fs.readFileSync(new URL('../src/api/insights.ts', import.meta.url), 'utf8');
 
 describe('recommendation state regression coverage', () => {
@@ -23,20 +26,21 @@ describe('recommendation state regression coverage', () => {
     assert.match(planPage, /error \? 'Retry'/);
   });
 
-  it('renders at most three evidence-backed coach recommendations with empty and retry states', () => {
-    assert.match(insightsPage, /Your Personal AI Coach/);
-    assert.match(insightsPage, /\(insights\.recommendations \?\? \[\]\)\.slice\(0, 3\)/);
-    assert.match(insightsPage, /Evidence:/);
-    assert.match(insightsPage, /No ideas are available right now\. Refresh to try again\./);
-    assert.match(insightsPage, /retryText="Retry Connection"/);
-    assert.match(insightsPage, /Show another idea/);
+  it('keeps coach recommendations out of Insights and in the dedicated Coach page', () => {
+    assert.doesNotMatch(insightsPage, /Personal AI Coach|coach-|submitRecommendationFeedback|Show another idea/);
+    assert.match(coachPage, /fetchInsights\('week'\)/);
+    assert.match(coachPage, /data\.recommendations \?\? \[\]/);
+    assert.match(coachView, /visibleCards\(state\.cards\)/);
+    assert.match(coachView, /Evidence/);
+    assert.match(coachView, /No ideas are available right now\. Refresh to try again\./);
+    assert.match(coachView, /Show another idea/);
   });
 
-  it('renders contextual basis and keeps coach-card plan creation limited to confirmed discovery ideas', () => {
-    assert.match(insightsPage, /item\.label && <small>\{item\.label\}<\/small>/);
-    assert.match(insightsPage, /item\.source === 'contextual'/);
-    assert.match(insightsPage, /item\.source === 'discovery' && <button/);
-    assert.match(insightsPage, /window\.confirm\(`Add/);
+  it('keeps coach-card plan creation limited to confirmed discovery ideas', () => {
+    assert.match(coachView, /card\.source === 'discovery' && \(\s*<>/);
+    assert.match(coachView, /Add to My Plans/);
+    assert.match(coachActions, /deps\.confirm\(`Add/);
+    assert.match(coachView, /card\.label && /);
   });
 
   it('loads plan-specific suggestions only on request and confirms time changes before PUT', () => {
