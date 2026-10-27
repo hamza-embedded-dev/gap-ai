@@ -7,10 +7,18 @@ import uuid
 import pytest
 from starlette.testclient import TestClient
 
-from app.ai.tts import GroqTTSClient, get_tts_client
+from app.ai.tts import (
+    FallbackTTSClient,
+    GroqTTSClient,
+    TTSAiClient,
+    TTSResponseError,
+    TTSUnavailableError,
+    get_tts_client,
+)
 from app.api.plans import current_user
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.main import app
+
 
 
 class InMemoryProposalPlanStore:
@@ -231,3 +239,112 @@ def test_reject_proposal_wav(client: TestClient, store: InMemoryProposalPlanStor
     assert resp.headers["X-Status"] == "rejected"
     assert resp.headers["X-Proposal-Id"] == prop["id"]
     assert resp.content.startswith(b"RIFF")
+
+
+def test_accept_proposal_with_tts_fallback_groq_429_success(
+    client: TestClient, store: InMemoryProposalPlanStore
+) -> None:
+    prop = store.create_plan_proposal(
+        user_id="user-hamza-123",
+        proposal={
+            "title": "Evening Run",
+            "category": "fitness",
+            "planned_start": "2026-10-28T18:00:00+03:00",
+            "planned_end": "2026-10-28T19:00:00+03:00",
+            "duration_minutes": 60,
+        },
+    )
+
+    class FailingGroqClient(GroqTTSClient):
+        def synthesize(self, text: str, **kwargs: Any) -> bytes:
+            raise TTSResponseError(429, "Rate limit exceeded", provider="groq")
+
+    class SuccessfulTTSAiClient(TTSAiClient):
+        def synthesize(self, text: str, **kwargs: Any) -> bytes:
+            return b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+
+    fallback_client = FallbackTTSClient(
+        primary=FailingGroqClient(),
+        fallback=SuccessfulTTSAiClient(),
+    )
+    app.dependency_overrides[get_tts_client] = lambda: fallback_client
+
+    resp = client.post(
+        f"/plans/proposals/accept?proposal_id={prop['id']}",
+        headers={"Accept": "audio/wav, application/json"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["Content-Type"] == "audio/wav"
+    assert resp.headers["X-Status"] == "accepted"
+    assert resp.content.startswith(b"RIFF")
+
+    # Verify plan created exactly once
+    assert len(store.created_plans) == 1
+    assert store.created_plans[0]["title"] == "Evening Run"
+
+
+def test_accept_proposal_when_both_tts_providers_fail_creates_plan_once_and_falls_back_to_json(
+    client: TestClient, store: InMemoryProposalPlanStore
+) -> None:
+    prop = store.create_plan_proposal(
+        user_id="user-hamza-123",
+        proposal={
+            "title": "Yoga Practice",
+            "category": "fitness",
+            "planned_start": "2026-10-28T07:00:00+03:00",
+            "planned_end": "2026-10-28T08:00:00+03:00",
+            "duration_minutes": 60,
+        },
+    )
+
+    class BothFailingTTSClient(GroqTTSClient):
+        def synthesize(self, text: str, **kwargs: Any) -> bytes:
+            raise TTSUnavailableError("Both Groq and TTS.ai unavailable")
+
+    app.dependency_overrides[get_tts_client] = lambda: BothFailingTTSClient()
+
+    resp = client.post(
+        f"/plans/proposals/accept?proposal_id={prop['id']}",
+        headers={"Accept": "audio/wav, application/json"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "accepted"
+    assert data["plan"]["title"] == "Yoga Practice"
+
+    # Plan MUST be created exactly once, never duplicated
+    assert len(store.created_plans) == 1
+    assert store.created_plans[0]["title"] == "Yoga Practice"
+
+
+def test_reject_proposal_when_both_tts_providers_fail_marks_rejected_and_never_creates_plan(
+    client: TestClient, store: InMemoryProposalPlanStore
+) -> None:
+    prop = store.create_plan_proposal(
+        user_id="user-hamza-123",
+        proposal={
+            "title": "Study French",
+            "category": "learning",
+            "planned_start": "2026-10-28T15:00:00+03:00",
+            "planned_end": "2026-10-28T16:00:00+03:00",
+            "duration_minutes": 60,
+        },
+    )
+
+    class BothFailingTTSClient(GroqTTSClient):
+        def synthesize(self, text: str, **kwargs: Any) -> bytes:
+            raise TTSUnavailableError("Both Groq and TTS.ai unavailable")
+
+    app.dependency_overrides[get_tts_client] = lambda: BothFailingTTSClient()
+
+    resp = client.post(
+        f"/plans/proposals/reject?proposal_id={prop['id']}",
+        headers={"Accept": "audio/wav, application/json"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "rejected"
+    assert data["proposal_id"] == prop["id"]
+
+    # No plan should ever be created in database
+    assert len(store.created_plans) == 0

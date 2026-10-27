@@ -10,17 +10,23 @@ import pytest
 from app.ai.speech_sanitizer import sanitize_for_speech
 from app.ai.tts import (
     MAX_TTS_INPUT_CHARS,
+    FallbackTTSClient,
     GroqTTSClient,
+    TTSAiClient,
     TTSConfigurationError,
     TTSParseError,
     TTSResponseError,
     TTSUnavailableError,
     TTSValidationError,
+    get_tts_client,
 )
 from app.config import Settings
 
 TEST_API_KEY = "gsk_test_groq_secret_key_1234567890abcdef"
 TEST_BASE_URL = "https://api.groq.com/openai/v1"
+TEST_TTS_AI_KEY = "tts_ai_secret_token_12345678"
+TEST_TTS_AI_BASE = "https://api.tts.ai/v1/"
+
 
 
 def _wav(sample_rate: int = 24000, seconds: float = 0.1) -> bytes:
@@ -148,3 +154,243 @@ def test_speech_sanitizer_normalizes_numbers_and_contractions() -> None:
     assert "thirty" in clean
     assert "eight thirty AM" in clean
     assert "October twenty eighth" in clean
+
+
+# -----------------------------------------------------------------------------
+# TTSAiClient Tests
+# -----------------------------------------------------------------------------
+
+
+def _tts_ai_client(handler, **kwargs) -> TTSAiClient:
+    return TTSAiClient(
+        api_key=kwargs.pop("api_key", TEST_TTS_AI_KEY),
+        base_url=TEST_TTS_AI_BASE,
+        default_model="kokoro",
+        default_voice="af_heart",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_poll_attempts=kwargs.pop("max_poll_attempts", 3),
+        poll_interval=kwargs.pop("poll_interval", 0.001),
+        **kwargs,
+    )
+
+
+def test_tts_ai_direct_wav_response() -> None:
+    captured: list[httpx.Request] = []
+    audio = _wav()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, content=audio, headers={"content-type": "audio/wav"})
+
+    result = _tts_ai_client(handler).synthesize("Hello from TTS fallback")
+
+    assert result == audio
+    req = captured[0]
+    assert req.url == httpx.URL("https://api.tts.ai/v1/tts/")
+    assert req.headers["authorization"] == f"Bearer {TEST_TTS_AI_KEY}"
+    payload = json.loads(req.content)
+    assert payload["text"] == "Hello from TTS fallback"
+    assert payload["model"] == "kokoro"
+    assert payload["voice"] == "af_heart"
+    assert payload["response_format"] == "wav"
+
+
+
+def test_tts_ai_job_uuid_polling_success() -> None:
+    captured: list[httpx.Request] = []
+    audio = _wav()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(
+                200,
+                json={"uuid": "job-uuid-123", "status": "queued"},
+                headers={"content-type": "application/json"},
+            )
+        elif request.url == httpx.URL("https://api.tts.ai/v1/speech/results/?uuid=job-uuid-123"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "result_url": "https://cdn.tts.ai/job-uuid-123/output.wav",
+                },
+                headers={"content-type": "application/json"},
+            )
+        elif request.url == httpx.URL("https://cdn.tts.ai/job-uuid-123/output.wav"):
+            return httpx.Response(
+                200,
+                content=audio,
+                headers={"content-type": "audio/wav"},
+            )
+        return httpx.Response(404)
+
+    client = _tts_ai_client(handler)
+    result = client.synthesize("Testing asynchronous job polling")
+
+    assert result == audio
+    assert len(captured) == 3
+    assert captured[0].method == "POST"
+    assert captured[1].method == "GET"
+    assert captured[2].method == "GET"
+
+
+def test_tts_ai_429_raises_response_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": "rate_limit_exceeded"})
+
+    with pytest.raises(TTSResponseError) as exc_info:
+        _tts_ai_client(handler).synthesize("Testing 429 rate limit")
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.provider == "tts.ai"
+
+
+def test_tts_ai_timeout_raises_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow server", request=request)
+
+    with pytest.raises(TTSUnavailableError):
+        _tts_ai_client(handler).synthesize("Testing timeout")
+
+
+def test_tts_ai_invalid_wav_raises_parse_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"corrupted not a riff wav header", headers={"content-type": "audio/wav"})
+
+    with pytest.raises(TTSParseError):
+        _tts_ai_client(handler).synthesize("Testing corrupted audio")
+
+
+def test_tts_ai_job_failed_raises_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "failed-job-id", "status": "queued"})
+        return httpx.Response(200, json={"status": "failed", "error": "Internal worker error"})
+
+    with pytest.raises(TTSUnavailableError):
+        _tts_ai_client(handler).synthesize("Testing failed job")
+
+
+def test_tts_ai_bearer_token_handling() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, content=_wav(), headers={"content-type": "audio/wav"})
+
+    # Case 1: Key present -> Authorization header sent
+    _tts_ai_client(handler, api_key="sk-test-custom-key").synthesize("hello")
+    assert captured[-1].headers["authorization"] == "Bearer sk-test-custom-key"
+
+    # Case 2: Key empty -> No Authorization header sent
+    _tts_ai_client(handler, api_key="").synthesize("hello")
+    assert "authorization" not in captured[-1].headers
+
+
+# -----------------------------------------------------------------------------
+# FallbackTTSClient Tests
+# -----------------------------------------------------------------------------
+
+
+def test_fallback_when_groq_returns_429() -> None:
+    groq_audio = _wav()
+    tts_ai_audio = _wav(seconds=0.2)
+
+    def groq_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="Rate limit reached")
+
+    def tts_ai_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=tts_ai_audio, headers={"content-type": "audio/wav"})
+
+    primary = _client(groq_handler)
+    fallback = _tts_ai_client(tts_ai_handler)
+
+    client = FallbackTTSClient(primary=primary, fallback=fallback)
+    result = client.synthesize("Testing 429 fallback to TTS.ai")
+
+    assert result == tts_ai_audio
+    client.close()
+
+
+def test_fallback_when_groq_times_out() -> None:
+    tts_ai_audio = _wav(seconds=0.2)
+
+    def groq_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("Groq unavailable", request=request)
+
+    def tts_ai_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=tts_ai_audio, headers={"content-type": "audio/wav"})
+
+    primary = _client(groq_handler)
+    fallback = _tts_ai_client(tts_ai_handler)
+
+    client = FallbackTTSClient(primary=primary, fallback=fallback)
+    result = client.synthesize("Testing timeout fallback to TTS.ai")
+
+    assert result == tts_ai_audio
+    client.close()
+
+
+def test_fallback_both_providers_fail_raises_error() -> None:
+    def groq_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="Groq quota exhausted")
+
+    def tts_ai_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="TTS.ai maintenance")
+
+    primary = _client(groq_handler)
+    fallback = _tts_ai_client(tts_ai_handler)
+
+    client = FallbackTTSClient(primary=primary, fallback=fallback)
+
+    with pytest.raises(TTSUnavailableError):
+        client.synthesize("Testing both providers failing")
+    client.close()
+
+
+def test_fallback_skips_tts_ai_when_groq_succeeds() -> None:
+    groq_audio = _wav()
+
+    def groq_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=groq_audio, headers={"content-type": "audio/wav"})
+
+    def tts_ai_handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("TTS.ai should not be called when Groq succeeds!")
+
+    primary = _client(groq_handler)
+    fallback = _tts_ai_client(tts_ai_handler)
+
+    client = FallbackTTSClient(primary=primary, fallback=fallback)
+    result = client.synthesize("Testing primary success")
+
+    assert result == groq_audio
+    client.close()
+
+
+def test_get_tts_client_creates_fallback_only_when_key_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 1. No TTS_AI_API_KEY -> Returns plain GroqTTSClient
+    settings_no_key = Settings(
+        GROQ_API_KEY=TEST_API_KEY,
+        TTS_AI_API_KEY="",
+        _env_file=None,
+    )
+    monkeypatch.setattr("app.ai.tts.get_settings", lambda: settings_no_key)
+    c1 = get_tts_client()
+    assert isinstance(c1, GroqTTSClient)
+    assert not isinstance(c1, FallbackTTSClient)
+    c1.close()
+
+    # 2. TTS_AI_API_KEY set -> Returns FallbackTTSClient with fallback configured
+    settings_with_key = Settings(
+        GROQ_API_KEY=TEST_API_KEY,
+        TTS_AI_API_KEY="sk-tts-ai-secret",
+        _env_file=None,
+    )
+    monkeypatch.setattr("app.ai.tts.get_settings", lambda: settings_with_key)
+    c2 = get_tts_client()
+    assert isinstance(c2, FallbackTTSClient)
+    assert c2.fallback is not None
+    assert c2.fallback.default_model == "kokoro"
+    assert c2.fallback.default_voice == "af_heart"
+    c2.close()
