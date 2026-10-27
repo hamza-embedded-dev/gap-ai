@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import wave
@@ -170,6 +171,7 @@ def _tts_ai_client(handler, **kwargs) -> TTSAiClient:
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         max_poll_attempts=kwargs.pop("max_poll_attempts", 3),
         poll_interval=kwargs.pop("poll_interval", 0.001),
+        use_stream=kwargs.pop("use_stream", False),
         **kwargs,
     )
 
@@ -507,4 +509,297 @@ def test_get_tts_client_creates_fallback_only_when_key_set(monkeypatch: pytest.M
     assert c2.fallback is not None
     assert c2.fallback.default_model == "kokoro"
     assert c2.fallback.default_voice == "af_heart"
+    assert c2.fallback.use_stream is True
     c2.close()
+
+
+# -----------------------------------------------------------------------------
+# Dedicated Download Timeout & Streaming Tests
+# -----------------------------------------------------------------------------
+
+
+def test_tts_ai_polling_near_timeout_download_succeeds_with_dedicated_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies that when polling completes near the timeout limit (e.g. at 29s out of 30s),
+
+    the download succeeds using its dedicated download timeout rather than failing immediately.
+    """
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    def mock_sleep(seconds: float) -> None:
+        nonlocal current_simulated_time
+        current_simulated_time += seconds
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+    monkeypatch.setattr("app.ai.tts.time.sleep", mock_sleep)
+
+    poll_count = 0
+    audio = _wav(sample_rate=24000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal poll_count, current_simulated_time
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "boundary-job-789", "status": "queued"})
+        elif request.url == httpx.URL("https://api.tts.ai/v1/speech/results/?uuid=boundary-job-789"):
+            poll_count += 1
+            if poll_count < 28:
+                return httpx.Response(200, json={"status": "processing"})
+            # Returns completed at 28 attempts (27 seconds of simulated sleep)
+            return httpx.Response(
+                200,
+                json={"status": "completed", "result_url": "https://cdn.tts.ai/boundary-job-789/out.wav"},
+            )
+        elif request.url == httpx.URL("https://cdn.tts.ai/boundary-job-789/out.wav"):
+            # Download takes 4.0s of simulated time
+            current_simulated_time += 4.0
+            return httpx.Response(200, content=audio, headers={"content-type": "audio/wav"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=30.0,
+        download_timeout=10.0,
+        max_poll_attempts=30,
+        poll_interval=1.0,
+        use_stream=False,
+    )
+
+    result = client.synthesize("Testing polling near timeout limit")
+
+    assert result == audio
+    # Polling took 27s + download took 4s = 31s elapsed total (> 30s polling timeout)
+    total_elapsed = current_simulated_time - 1000.0
+    assert total_elapsed > 30.0
+    # But strictly within max_total_timeout (45.0s)
+    assert total_elapsed < 45.0
+    assert result[:4] == b"RIFF"
+    assert result[8:12] == b"WAVE"
+
+
+def test_tts_ai_download_timeout_raises_unavailable() -> None:
+    """Verifies that if CDN download exceeds the dedicated download timeout, TTSUnavailableError is raised."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "hang-dl-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            return httpx.Response(
+                200,
+                json={"status": "completed", "result_url": "https://cdn.tts.ai/hang-dl-job/out.wav"},
+            )
+        elif "cdn.tts.ai" in str(request.url):
+            raise httpx.ReadTimeout("CDN download timed out", request=request)
+        return httpx.Response(404)
+
+    client = _tts_ai_client(handler, download_timeout=5.0, use_stream=False)
+    with pytest.raises(TTSUnavailableError) as exc_info:
+        client.synthesize("Testing CDN download timeout")
+
+    assert "download timed out" in str(exc_info.value).lower()
+
+
+def test_tts_ai_download_invalid_sample_rate_raises_parse_error() -> None:
+    """Verifies that WAV files with non-24kHz sample rates are rejected with TTSParseError."""
+    # Create 16kHz audio (wrong sample rate according to 24kHz contract)
+    wrong_rate_audio = _wav(sample_rate=16000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "bad-rate-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            return httpx.Response(
+                200,
+                json={"status": "completed", "result_url": "https://cdn.tts.ai/bad-rate-job/out.wav"},
+            )
+        elif "cdn.tts.ai" in str(request.url):
+            return httpx.Response(200, content=wrong_rate_audio, headers={"content-type": "audio/wav"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(handler, use_stream=False)
+    with pytest.raises(TTSParseError) as exc_info:
+        client.synthesize("Testing wrong sample rate rejection")
+
+    assert "24 kHz" in str(exc_info.value)
+
+
+def test_tts_ai_streaming_single_chunk_sse_success() -> None:
+    """Verifies that POST /v1/tts/stream/ SSE response delivers 24 kHz mono 16-bit PCM WAV."""
+    audio = _wav(sample_rate=24000)
+    audio_b64 = base64.b64encode(audio).decode("ascii")
+
+    sse_body = (
+        f'data: {{"chunk": "{audio_b64}", "index": 0, "sample_rate": 24000}}\n\n'
+        f'data: {{"done": true, "total_chunks": 1, "result_url": "https://cdn.tts.ai/s-123/out.wav"}}\n\n'
+    )
+
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/stream/"):
+            return httpx.Response(
+                200,
+                content=sse_body.encode("utf-8"),
+                headers={"content-type": "text/event-stream; charset=utf-8"},
+            )
+        return httpx.Response(404)
+
+    client = _tts_ai_client(handler, use_stream=True)
+    result = client.synthesize("Testing SSE streaming endpoint")
+
+    assert len(captured) == 1
+    assert captured[0].method == "POST"
+    assert captured[0].url == httpx.URL("https://api.tts.ai/v1/tts/stream/")
+    payload = json.loads(captured[0].content)
+    assert payload["text"] == "Testing SSE streaming endpoint"
+    assert payload["model"] == "kokoro"
+    assert payload["voice"] == "af_heart"
+    assert payload["format"] == "wav"
+    assert payload["language"] == "en"
+
+    assert result == audio
+    assert result[:4] == b"RIFF"
+    assert result[8:12] == b"WAVE"
+
+
+def test_tts_ai_streaming_multi_chunk_assembly() -> None:
+    """Verifies that multiple SSE audio chunks are properly concatenated into a valid 24 kHz WAV."""
+    buf1 = io.BytesIO()
+    with wave.open(buf1, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(24000)
+        w.writeframes(b"\x00\x00" * 240)  # 10ms of silence
+    chunk1_wav = buf1.getvalue()
+    chunk1_b64 = base64.b64encode(chunk1_wav).decode("ascii")
+
+    # Second chunk: raw PCM
+    chunk2_pcm = b"\x01\x00" * 240
+    chunk2_b64 = base64.b64encode(chunk2_pcm).decode("ascii")
+
+    sse_body = (
+        f'data: {{"chunk": "{chunk1_b64}", "index": 0, "sample_rate": 24000}}\n\n'
+        f'data: {{"chunk": "{chunk2_b64}", "index": 1, "sample_rate": 24000}}\n\n'
+        f'data: {{"done": true, "total_chunks": 2, "result_url": "https://cdn.tts.ai/multi/out.wav"}}\n\n'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=sse_body.encode("utf-8"),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    client = _tts_ai_client(handler, use_stream=True)
+    result = client.synthesize("Testing multi-chunk SSE stream assembly")
+
+    assert len(result) >= 44
+    assert result[:4] == b"RIFF"
+    assert result[8:12] == b"WAVE"
+    with wave.open(io.BytesIO(result), "rb") as w:
+        assert w.getnchannels() == 1
+        assert w.getsampwidth() == 2
+        assert w.getframerate() == 24000
+        assert w.getnframes() == 480  # 240 + 240 frames
+
+
+def test_tts_ai_streaming_cached_json_response() -> None:
+    """Verifies that if stream endpoint returns application/json (cached), it downloads and validates the WAV."""
+    audio = _wav(sample_rate=24000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/stream/"):
+            return httpx.Response(
+                200,
+                json={"status": "cached", "result_url": "https://cdn.tts.ai/cached/out.wav", "uuid": "c-123"},
+                headers={"content-type": "application/json"},
+            )
+        elif request.url == httpx.URL("https://cdn.tts.ai/cached/out.wav"):
+            return httpx.Response(200, content=audio, headers={"content-type": "audio/wav"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(handler, use_stream=True)
+    result = client.synthesize("Testing cached stream response")
+
+    assert result == audio
+
+
+def test_tts_ai_streaming_404_falls_back_to_polling() -> None:
+    """Verifies that if /v1/tts/stream/ returns 404, the client seamlessly falls back to /v1/tts/ polling."""
+    audio = _wav(sample_rate=24000)
+    requests_made: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_made.append(request)
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/stream/"):
+            return httpx.Response(404, json={"detail": "Not Found"})
+        elif request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "fb-poll-123", "status": "queued"})
+        elif request.url == httpx.URL("https://api.tts.ai/v1/speech/results/?uuid=fb-poll-123"):
+            return httpx.Response(200, json={"status": "completed", "result_url": "https://cdn.tts.ai/fb/out.wav"})
+        elif request.url == httpx.URL("https://cdn.tts.ai/fb/out.wav"):
+            return httpx.Response(200, content=audio, headers={"content-type": "audio/wav"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(handler, use_stream=True)
+    result = client.synthesize("Testing stream 404 fallback to polling")
+
+    assert result == audio
+    assert len(requests_made) == 4
+    assert requests_made[0].url == httpx.URL("https://api.tts.ai/v1/tts/stream/")
+    assert requests_made[1].url == httpx.URL("https://api.tts.ai/v1/tts/")
+
+
+def test_tts_ai_streaming_invalid_wav_raises_parse_error() -> None:
+    """Verifies that corrupted SSE audio chunks raise TTSParseError."""
+    sse_body = (
+        'data: {"chunk": "bm90IGEgcmVhbCB3YXYgYXVkaW8=", "index": 0, "sample_rate": 24000}\n\n'
+        'data: {"done": true, "total_chunks": 1, "result_url": "https://cdn.tts.ai/bad/out.wav"}\n\n'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=sse_body.encode("utf-8"),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    client = _tts_ai_client(handler, use_stream=True)
+    with pytest.raises(TTSParseError):
+        client.synthesize("Testing corrupted SSE stream")
+
+
+def test_tts_ai_hard_total_timeout_limit_aborts_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that if total elapsed time across all stages reaches max_total_timeout, it aborts."""
+    current_simulated_time = 1000.0
+
+    def mock_monotonic() -> float:
+        return current_simulated_time
+
+    monkeypatch.setattr("app.ai.tts.time.monotonic", mock_monotonic)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal current_simulated_time
+        if request.url == httpx.URL("https://api.tts.ai/v1/tts/"):
+            return httpx.Response(200, json={"uuid": "huge-delay-job", "status": "queued"})
+        elif "speech/results" in str(request.url):
+            # Advance simulated time past max_total_timeout (45s)
+            current_simulated_time += 50.0
+            return httpx.Response(200, json={"status": "completed", "result_url": "https://cdn.tts.ai/huge/out.wav"})
+        return httpx.Response(404)
+
+    client = _tts_ai_client(
+        handler,
+        default_timeout=60.0,
+        download_timeout=10.0,
+        max_total_timeout=45.0,
+        use_stream=False,
+    )
+
+    with pytest.raises(TTSUnavailableError) as exc_info:
+        client.synthesize("Testing hard total timeout cap")
+
+    assert "exceeded" in str(exc_info.value).lower() and "limit" in str(exc_info.value).lower()
