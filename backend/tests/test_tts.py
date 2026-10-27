@@ -192,8 +192,16 @@ def test_tts_ai_direct_wav_response() -> None:
     assert payload["text"] == "Hello from TTS fallback"
     assert payload["model"] == "kokoro"
     assert payload["voice"] == "af_heart"
-    assert payload["response_format"] == "wav"
+    assert payload["format"] == "wav"
+    assert payload["language"] == "en"
+    assert "response_format" not in payload
+    assert "input" not in payload
 
+
+def test_tts_ai_default_poll_interval_within_official_range() -> None:
+    client = TTSAiClient(api_key="dummy")
+    assert 1.0 <= client.poll_interval <= 2.0
+    client.close()
 
 
 def test_tts_ai_job_uuid_polling_success() -> None:
@@ -228,11 +236,26 @@ def test_tts_ai_job_uuid_polling_success() -> None:
     client = _tts_ai_client(handler)
     result = client.synthesize("Testing asynchronous job polling")
 
-    assert result == audio
+    # Verify flow
     assert len(captured) == 3
     assert captured[0].method == "POST"
+    assert captured[0].url == httpx.URL("https://api.tts.ai/v1/tts/")
+    init_payload = json.loads(captured[0].content)
+    assert init_payload["format"] == "wav"
+    assert init_payload["language"] == "en"
+
     assert captured[1].method == "GET"
+    assert captured[1].url == httpx.URL("https://api.tts.ai/v1/speech/results/?uuid=job-uuid-123")
+
     assert captured[2].method == "GET"
+    assert captured[2].url == httpx.URL("https://cdn.tts.ai/job-uuid-123/output.wav")
+
+    # Verify audio content and RIFF/WAVE header
+    assert result == audio
+    assert len(result) >= 44
+    assert result[:4] == b"RIFF"
+    assert result[8:12] == b"WAVE"
+
 
 
 def test_tts_ai_429_raises_response_error() -> None:

@@ -235,7 +235,7 @@ class TTSAiClient:
         default_timeout: float | None = None,
         http_client: httpx.Client | None = None,
         max_poll_attempts: int = 10,
-        poll_interval: float = 0.25,
+        poll_interval: float = 1.0,
     ) -> None:
         settings: Settings = get_settings()
 
@@ -272,6 +272,10 @@ class TTSAiClient:
     def default_timeout(self) -> float:
         return self._default_timeout
 
+    @property
+    def poll_interval(self) -> float:
+        return self._poll_interval
+
     def _tts_url(self) -> str:
         return f"{self._base_url.rstrip('/')}/tts/"
 
@@ -295,6 +299,8 @@ class TTSAiClient:
         *,
         model: str | None = None,
         voice: str | None = None,
+        language: str | None = None,
+        format: str | None = None,
         timeout: float | None = None,
     ) -> bytes:
         """Converts text to speech via TTS.ai and returns the WAV file bytes."""
@@ -308,12 +314,12 @@ class TTSAiClient:
 
         headers = self._build_auth_headers()
         headers["Content-Type"] = "application/json"
-        payload = {
+        payload: dict[str, Any] = {
             "text": cleaned,
-            "input": cleaned,
             "model": model or self._default_model,
             "voice": voice or self._default_voice,
-            "response_format": "wav",
+            "format": format or "wav",
+            "language": language or "en",
         }
 
         try:
