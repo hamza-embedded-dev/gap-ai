@@ -635,26 +635,54 @@ void voice_accept_proposal(void)
     esp_http_client_set_header(client, "Accept", "audio/wav, application/json");
     esp_http_client_set_header(client, "Content-Length", "0");
 
-    esp_err_t err = esp_http_client_perform(client);
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "POST %s failed to open: %s", url, esp_err_to_name(err));
+        show_text("Network Error", "Connection failed");
+        esp_http_client_cleanup(client);
+        return;
+    }
+
+    int64_t hdr_len = esp_http_client_fetch_headers(client);
     int status = esp_http_client_get_status_code(client);
-    ESP_LOGI(TAG, "POST /plans/proposals/accept -> HTTP %d", status);
+    ESP_LOGI(TAG, "POST /plans/proposals/accept -> HTTP %d (content_type=%s, hdr_len=%lld)",
+             status, h.content_type, (long long)hdr_len);
+
+    if (hdr_len < 0 || status <= 0) {
+        ESP_LOGE(TAG, "No response from /plans/proposals/accept (hdr_len=%lld, status=%d)",
+                 (long long)hdr_len, status);
+        show_text("No Response", "Server timed out");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return;
+    }
 
     bool is_wav = strncmp(h.content_type, "audio/wav", 9) == 0;
-    if (err == ESP_OK && status == 200) {
+    if (status == 200) {
         s_active_proposal_id[0] = '\0';
         show_text("Plan Confirmed!", h.reply[0] ? h.reply : "Saved to schedule");
         if (is_wav) {
             play_wav_stream(client);
+        } else {
+            read_json_reply(client, &h);
+            beep(1200, 120);
         }
-    } else if (status == 404) {
-        s_active_proposal_id[0] = '\0';
-        show_text("No Proposal", "No plan waiting for acceptance");
-    } else if (status == 401) {
-        show_text("Auth Error", "Invalid DEVICE_TOKEN");
     } else {
-        show_text("Accept Failed", "Could not confirm plan");
+        read_json_reply(client, &h);
+        if (status == 404) {
+            s_active_proposal_id[0] = '\0';
+            show_text("No Proposal", "No plan waiting for acceptance");
+            beep(400, 150);
+        } else if (status == 401) {
+            show_text("Auth Error", "Invalid DEVICE_TOKEN");
+            beep(400, 200);
+        } else {
+            show_text("Accept Failed", "Could not confirm plan");
+            beep(400, 200);
+        }
     }
 
+    esp_http_client_close(client);
     esp_http_client_cleanup(client);
 }
 
@@ -695,26 +723,54 @@ void voice_reject_proposal(void)
     esp_http_client_set_header(client, "Accept", "audio/wav, application/json");
     esp_http_client_set_header(client, "Content-Length", "0");
 
-    esp_err_t err = esp_http_client_perform(client);
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "POST %s failed to open: %s", url, esp_err_to_name(err));
+        show_text("Network Error", "Connection failed");
+        esp_http_client_cleanup(client);
+        return;
+    }
+
+    int64_t hdr_len = esp_http_client_fetch_headers(client);
     int status = esp_http_client_get_status_code(client);
-    ESP_LOGI(TAG, "POST /plans/proposals/reject -> HTTP %d", status);
+    ESP_LOGI(TAG, "POST /plans/proposals/reject -> HTTP %d (content_type=%s, hdr_len=%lld)",
+             status, h.content_type, (long long)hdr_len);
+
+    if (hdr_len < 0 || status <= 0) {
+        ESP_LOGE(TAG, "No response from /plans/proposals/reject (hdr_len=%lld, status=%d)",
+                 (long long)hdr_len, status);
+        show_text("No Response", "Server timed out");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return;
+    }
 
     bool is_wav = strncmp(h.content_type, "audio/wav", 9) == 0;
-    if (err == ESP_OK && status == 200) {
+    if (status == 200) {
         s_active_proposal_id[0] = '\0';
         show_text("Plan Cancelled", h.reply[0] ? h.reply : "Draft discarded");
         if (is_wav) {
             play_wav_stream(client);
+        } else {
+            read_json_reply(client, &h);
+            beep(600, 80);
         }
-    } else if (status == 404) {
-        s_active_proposal_id[0] = '\0';
-        show_text("No Proposal", "No plan waiting to cancel");
-    } else if (status == 401) {
-        show_text("Auth Error", "Invalid DEVICE_TOKEN");
     } else {
-        show_text("Cancel Failed", "Could not cancel plan");
+        read_json_reply(client, &h);
+        if (status == 404) {
+            s_active_proposal_id[0] = '\0';
+            show_text("No Proposal", "No plan waiting to cancel");
+            beep(400, 150);
+        } else if (status == 401) {
+            show_text("Auth Error", "Invalid DEVICE_TOKEN");
+            beep(400, 200);
+        } else {
+            show_text("Cancel Failed", "Could not cancel plan");
+            beep(400, 200);
+        }
     }
 
+    esp_http_client_close(client);
     esp_http_client_cleanup(client);
 }
 
