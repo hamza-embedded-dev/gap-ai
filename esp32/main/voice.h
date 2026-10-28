@@ -42,5 +42,14 @@ void voice_reject_proposal(void);
 // True if a plan proposal is currently drafted and waiting for button 1/2 confirmation.
 bool voice_has_pending_proposal(void);
 
+// True if an interactive conversation is currently active across turns (e.g. clarification pending).
+bool voice_has_pending_conversation(void);
+
+// Returns active conversation ID or empty string if none.
+const char *voice_get_active_conversation_id(void);
+
+// Clears the active conversation ID.
+void voice_clear_active_conversation(void);
+
 // Temporary speaker hardware test.
 void voice_speaker_test(void);

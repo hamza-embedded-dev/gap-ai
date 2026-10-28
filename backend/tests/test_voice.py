@@ -1315,3 +1315,221 @@ def test_voice_endpoint_falls_back_to_tts_ai_on_groq_429(
     assert response.content.startswith(b"RIFF")
     # Plan must NOT be created yet before button confirmation
     assert len(fake_store.created_plans) == 0
+
+
+def test_voice_multi_turn_exact_flow_study_math_tomorrow_at_2_then_2_am(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies the exact multi-turn voice flow over /voice:
+    1. 'I want to study math tomorrow at 2 for 1 hour.' -> Assistant asks 'Do you mean 2 AM or 2 PM?'
+    2. '2 AM.' with X-Conversation-Id -> Assistant proposes plan retaining tomorrow, study math, and 1 hour.
+    3. Accept proposal -> Plan created in store.
+    """
+    from urllib.parse import unquote
+    from app.services.conversation import get_conversation_engine
+
+    engine = get_conversation_engine()
+    engine.clear_active_session_for_user(USER_ID)
+
+    # Turn 1: Initial ambiguous utterance
+    stt = FakeSTTClient(transcript="I want to study math tomorrow at 2 for 1 hour.")
+    tts = FakeTTSClient()
+    client.app.dependency_overrides[get_stt_client] = lambda: stt
+    client.app.dependency_overrides[get_tts_client] = lambda: tts
+
+    turn1_parsed_plan = {
+        "intent": "clarify",
+        "title": "Study math",
+        "category": "study",
+        "date": "2026-10-29",
+        "time": None,
+        "duration_minutes": 60,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": "Do you mean 2 AM or 2 PM?",
+        "confidence": 0.85,
+    }
+    monkeypatch.setattr("app.api.voice.parse_text", lambda **kwargs: ParsedPlan(turn1_parsed_plan))
+
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    turn1_resp = client.post(
+        "/voice",
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        headers=headers,
+    )
+
+    assert turn1_resp.status_code == 200
+    assert turn1_resp.headers["X-Intent"] == "clarify"
+    assert unquote(turn1_resp.headers["X-Reply-Text"]) == "Do you mean 2 AM or 2 PM?"
+    conv_id = turn1_resp.headers.get("X-Conversation-Id")
+    assert conv_id is not None
+    assert len(conv_id) > 0
+    # No proposal or plan created yet
+    assert len(fake_store.created_plans) == 0
+
+    # Turn 2: User responds "2 AM." with X-Conversation-Id header preserved (as ESP32 does)
+    stt.transcript = "2 AM."
+    headers["X-Conversation-Id"] = conv_id
+
+    turn2_resp = client.post(
+        "/voice",
+        files={"audio": ("sample2.wav", _make_wav_bytes(), "audio/wav")},
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        headers=headers,
+    )
+
+    assert turn2_resp.status_code == 201
+    assert turn2_resp.headers["X-Intent"] == "propose_plan"
+    assert turn2_resp.headers["X-Needs-Button"] == "true"
+    assert turn2_resp.headers["X-Conversation-Id"] == conv_id
+    proposal_id = turn2_resp.headers.get("X-Proposal-Id")
+    assert proposal_id is not None
+
+    # Proposal must retain activity (study math), date (tomorrow: 2026-10-29), time (02:00), duration (60)
+    proposal = fake_store.get_latest_pending_proposal(user_id=USER_ID)
+    assert proposal is not None
+    assert proposal["id"] == proposal_id
+    assert "study math" in proposal["title"].lower()
+    assert "2026-10-29T02:00" in proposal["planned_start"]
+    assert proposal["duration_minutes"] == 60
+
+    # Turn 3: Accept proposal
+    accept_resp = client.post(
+        f"/plans/proposals/accept?proposal_id={proposal_id}",
+        headers=headers,
+    )
+    assert accept_resp.status_code == 200
+    assert len(fake_store.created_plans) == 1
+    created = fake_store.created_plans[0]
+    assert "study math" in created["title"].lower()
+
+
+def test_voice_multi_turn_duration_clarification_followed_by_thirty(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies duration clarification followed by 'Thirty' over /voice."""
+    from urllib.parse import unquote
+    from app.services.conversation import get_conversation_engine
+
+    engine = get_conversation_engine()
+    engine.clear_active_session_for_user(USER_ID)
+
+    stt = FakeSTTClient(transcript="I want to study math tomorrow at 2 PM.")
+    tts = FakeTTSClient()
+    client.app.dependency_overrides[get_stt_client] = lambda: stt
+    client.app.dependency_overrides[get_tts_client] = lambda: tts
+
+    clarify_duration_payload = {
+        "intent": "clarify",
+        "title": "Study math",
+        "category": "study",
+        "date": "2026-10-29",
+        "time": "14:00",
+        "duration_minutes": None,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": "How long would you like to schedule this for?",
+        "confidence": 0.85,
+    }
+    monkeypatch.setattr("app.api.voice.parse_text", lambda **kwargs: ParsedPlan(clarify_duration_payload))
+
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    turn1_resp = client.post(
+        "/voice",
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        headers=headers,
+    )
+
+    assert turn1_resp.status_code == 200
+    assert turn1_resp.headers["X-Intent"] == "clarify"
+    reply_text = unquote(turn1_resp.headers["X-Reply-Text"]).lower()
+    assert "how long" in reply_text or "duration" in reply_text or "minutes" in reply_text
+    conv_id = turn1_resp.headers.get("X-Conversation-Id")
+    assert conv_id is not None
+
+    # Turn 2: User responds "Thirty" with X-Conversation-Id
+    stt.transcript = "Thirty"
+    headers["X-Conversation-Id"] = conv_id
+
+    turn2_resp = client.post(
+        "/voice",
+        files={"audio": ("sample2.wav", _make_wav_bytes(), "audio/wav")},
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        headers=headers,
+    )
+
+    assert turn2_resp.status_code == 201
+    assert turn2_resp.headers["X-Intent"] == "propose_plan"
+    proposal = fake_store.get_latest_pending_proposal(user_id=USER_ID)
+    assert proposal is not None
+    assert proposal["duration_minutes"] == 30
+    assert "2026-10-29T14:00" in proposal["planned_start"]
+
+
+def test_voice_new_conversation_does_not_inherit_old_pending_plan(
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that a genuinely new voice request without X-Conversation-Id does not inherit old pending state."""
+    from app.services.conversation import get_conversation_engine
+
+    engine = get_conversation_engine()
+    engine.clear_active_session_for_user(USER_ID)
+
+    stt = FakeSTTClient(transcript="I want to study math tomorrow at 2 for 1 hour.")
+    tts = FakeTTSClient()
+    client.app.dependency_overrides[get_stt_client] = lambda: stt
+    client.app.dependency_overrides[get_tts_client] = lambda: tts
+
+    headers = dict(_auth_headers())
+    headers["Accept"] = "audio/wav, application/json"
+
+    turn1_resp = client.post(
+        "/voice",
+        files={"audio": ("sample.wav", _make_wav_bytes(), "audio/wav")},
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        headers=headers,
+    )
+    assert turn1_resp.status_code == 200
+    assert turn1_resp.headers["X-Intent"] == "clarify"
+
+    # User starts a completely fresh conversation without X-Conversation-Id header
+    stt.transcript = "I want to go swimming tomorrow at 6 PM for two hours."
+    headers.pop("X-Conversation-Id", None)
+
+    swimming_payload = {
+        "intent": "create_plan",
+        "title": "Swimming",
+        "category": "sport",
+        "date": "2026-10-29",
+        "time": "18:00",
+        "duration_minutes": 120,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": None,
+        "confidence": 0.95,
+    }
+    monkeypatch.setattr("app.api.voice.parse_text", lambda **kwargs: ParsedPlan(swimming_payload))
+
+    turn2_resp = client.post(
+        "/voice",
+        files={"audio": ("sample2.wav", _make_wav_bytes(), "audio/wav")},
+        data={"current_date": "2026-10-28", "timezone": USER_TZ},
+        headers=headers,
+    )
+
+    assert turn2_resp.status_code == 201
+    proposal = fake_store.get_latest_pending_proposal(user_id=USER_ID)
+    assert proposal is not None
+    assert "swimming" in proposal["title"].lower()
+    assert proposal["duration_minutes"] == 120
+    assert "2026-10-29T18:00" in proposal["planned_start"]
+

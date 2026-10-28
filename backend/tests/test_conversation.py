@@ -189,8 +189,16 @@ class DynamicFakeLLMClient:
             if m.get("role") == "user":
                 user_msg = m.get("content", "")
         lower = user_msg.lower()
+        actual_input = lower.split("user input:\n", 1)[1].split("\n\n", 1)[0].strip() if "user input:\n" in lower else lower.strip()
 
-        if any(w in lower for w in ["joke", "weather", "who are you", "what can you do"]):
+        if any(w in lower for w in ["joke", "weather", "who are you", "what can you do"]) or actual_input in [
+            "thirty",
+            "30",
+            "forty",
+            "40",
+            "twenty",
+            "20",
+        ]:
             return {
                 "intent": "unsupported",
                 "title": None,
@@ -725,3 +733,197 @@ def test_unrelated_request_preserves_pending_plan(
     assert r_unrelated.json()["pending_plan"]["title"].lower() == "study"
     assert r_unrelated.json()["state"] == "awaiting_confirmation"
     assert len(store.created_plans) == 0
+
+
+# ==============================================================================
+# MULTI-TURN REGRESSION TESTS (Multi-turn Conversation Bug Fix)
+# ==============================================================================
+
+
+def test_exact_multi_turn_flow_study_math_tomorrow_at_2_for_1_hour_then_2_am(
+    client: TestClient, store: InMemoryConversationStore
+) -> None:
+    """Exact flow from bug report:
+
+    1. User: 'I want to study math tomorrow at 2 for 1 hour.'
+    2. Assistant: 'Do you mean 2 AM or 2 PM?'
+    3. User: '2 AM.'
+    4. System retains tomorrow, study math activity, 1 hour duration, 02:00 time.
+       Does not ask for day again.
+    """
+    # Turn 1
+    r1 = client.post(
+        "/conversation",
+        json={
+            "text": "I want to study math tomorrow at 2 for 1 hour.",
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    assert r1.status_code == 200
+    d1 = r1.json()
+    assert d1["state"] == "awaiting_clarification"
+    assert "2 AM or 2 PM" in d1["reply_text"]
+    assert d1["pending_plan"]["date"] == "2026-10-29"
+    assert d1["pending_plan"]["duration_minutes"] == 60
+    assert "study" in d1["pending_plan"]["title"].lower()
+    cid = d1["conversation_id"]
+
+    # Turn 2: Follow-up answering "2 AM."
+    r2 = client.post(
+        "/conversation",
+        json={
+            "text": "2 AM.",
+            "conversation_id": cid,
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["state"] == "awaiting_confirmation"
+    # MUST retain tomorrow (2026-10-29), duration (60), activity (study), time (02:00)
+    assert d2["pending_plan"]["time"] == "02:00"
+    assert d2["pending_plan"]["date"] == "2026-10-29"
+    assert d2["pending_plan"]["duration_minutes"] == 60
+    assert "study" in d2["pending_plan"]["title"].lower()
+    # It must NOT ask for the day again
+    assert "what day" not in d2["reply_text"].lower()
+    assert "2:00 AM" in d2["reply_text"] or "02:00" in d2["reply_text"]
+    assert "one hour" in d2["reply_text"] or "60 minutes" in d2["reply_text"]
+
+
+@pytest.mark.parametrize(
+    ("follow_up_text", "expected_time"),
+    [
+        ("2 a.m.", "02:00"),
+        ("2 p.m.", "14:00"),
+        ("2 AM", "02:00"),
+        ("2 PM", "14:00"),
+        ("two am", "02:00"),
+        ("two pm", "14:00"),
+    ],
+)
+def test_parsing_of_2_am_and_pm_variations(
+    client: TestClient, follow_up_text: str, expected_time: str
+) -> None:
+    """Parsing of 2 a.m., 2 p.m., 2 AM, 2 PM preserves date and duration."""
+    r1 = client.post(
+        "/conversation",
+        json={
+            "text": "I want to study math tomorrow at 2 for 1 hour.",
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    cid = r1.json()["conversation_id"]
+
+    r2 = client.post(
+        "/conversation",
+        json={
+            "text": follow_up_text,
+            "conversation_id": cid,
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["state"] == "awaiting_confirmation"
+    assert d2["pending_plan"]["time"] == expected_time
+    assert d2["pending_plan"]["date"] == "2026-10-29"
+    assert d2["pending_plan"]["duration_minutes"] == 60
+    assert "study" in d2["pending_plan"]["title"].lower()
+
+
+def test_duration_clarification_followed_by_thirty(
+    client: TestClient, engine: ConversationEngine, auth_user: AuthenticatedUser, store: InMemoryConversationStore
+) -> None:
+    """When the assistant asks for duration, 'Thirty' is interpreted in context as 30 minutes."""
+    # Simulate an active session where duration is missing and being clarified
+    cid = str(uuid.uuid4())
+    session = engine.process_message(
+        user=auth_user,
+        text="I want to study tomorrow at 5 PM.",
+        conversation_id=cid,
+        current_date=ANCHOR_DATE,
+        timezone_name=USER_TZ,
+        store=store,
+    )
+    # Explicitly set duration to None and clarify question for duration
+    sess = engine.get_session(cid)
+    assert sess is not None
+    sess.pending_plan.duration_minutes = None
+    sess.state = ConversationState.AWAITING_CLARIFICATION
+    sess.last_clarification_field = "duration"
+    sess.pending_plan.clarification_question = "How long would you like to schedule this for?"
+    sess.last_assistant_message = "How long would you like to schedule this for?"
+
+    # Turn 2: User responds with short answer "Thirty"
+    r2 = client.post(
+        "/conversation",
+        json={
+            "text": "Thirty",
+            "conversation_id": cid,
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["state"] == "awaiting_confirmation"
+    assert d2["pending_plan"]["duration_minutes"] == 30
+    assert d2["pending_plan"]["time"] == "17:00"
+    assert d2["pending_plan"]["date"] == "2026-10-29"
+    assert "30 minutes" in d2["reply_text"]
+
+
+def test_isolated_number_outside_duration_clarification_is_not_duration(
+    client: TestClient, engine: ConversationEngine
+) -> None:
+    """A standalone number such as 'Thirty' outside of a duration clarification is NOT interpreted as a plan duration."""
+    engine.clear_active_session_for_user(USER_ID)
+    r = client.post(
+        "/conversation",
+        json={"text": "Thirty", "current_date": ANCHOR_DATE, "timezone": USER_TZ},
+    )
+    assert r.status_code == 200
+    # Must be unsupported, not a plan with 30 min duration
+    assert r.json()["state"] == "unsupported"
+
+
+def test_new_conversation_does_not_inherit_old_pending_plan(
+    client: TestClient
+) -> None:
+    """A genuinely new conversation does not inherit an old pending plan."""
+    # Conversation 1: pending math study
+    r1 = client.post(
+        "/conversation",
+        json={
+            "text": "I want to study math tomorrow at 2 for 1 hour.",
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    assert r1.status_code == 200
+    cid1 = r1.json()["conversation_id"]
+
+    # Conversation 2: fresh conversation with new explicit conversation_id
+    cid2 = str(uuid.uuid4())
+    r2 = client.post(
+        "/conversation",
+        json={
+            "text": "I want to run on Friday at 5 PM.",
+            "conversation_id": cid2,
+            "current_date": ANCHOR_DATE,
+            "timezone": USER_TZ,
+        },
+    )
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["conversation_id"] == cid2
+    assert "run" in d2["pending_plan"]["title"].lower() or "workout" in d2["pending_plan"]["title"].lower()
+    assert d2["pending_plan"]["date"] == "2026-10-30"  # Friday
+    assert d2["pending_plan"]["time"] == "17:00"  # 5 PM
+    assert "math" not in d2["pending_plan"]["title"].lower()
+

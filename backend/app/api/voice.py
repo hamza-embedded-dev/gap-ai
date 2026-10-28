@@ -72,6 +72,7 @@ class VoicePlanResponse(BaseModel):
     plan: PlanResponse | None = None
     proposal: ProposalResponse | None = None
     spoken_recommendation: str | None = Field(default=None, max_length=240)
+    conversation_id: str | None = None
 
 
 class VoiceClarifyResponse(BaseModel):
@@ -79,6 +80,7 @@ class VoiceClarifyResponse(BaseModel):
 
     transcript: str
     parsed_plan: ParsedPlan
+    conversation_id: str | None = None
 
 
 async def _read_audio_stream_with_limit(audio: UploadFile, max_bytes: int = MAX_AUDIO_BYTES) -> bytes:
@@ -159,6 +161,7 @@ async def handle_voice_endpoint(
     timezone: str | None = Form(default=None),
     require_confirmation: bool = Form(default=False),
     conversation_id: str | None = Form(default=None),
+    x_conversation_id: str | None = Header(default=None, alias="X-Conversation-Id"),
     accept: str | None = Header(default=None),
     user: AuthenticatedUser = Depends(current_user),
     store: PlanStore = Depends(get_plan_store),
@@ -244,21 +247,49 @@ async def handle_voice_endpoint(
         if not transcript or not transcript.strip():
             raise APIError(422, "validation_error", "Audio transcription produced no intelligible text.")
 
-        # Natural language text parsing (strictly locked to English for ESP32 voice flow)
-        parsed_plan = parse_text(
-            text=transcript,
-            current_date=resolved_date,
-            timezone=user.timezone,
-            language=VOICE_LANGUAGE,
-            llm_client=llm_client,
+        effective_conv_id = conversation_id or x_conversation_id
+        active_session = (
+            engine.get_session(effective_conv_id)
+            if effective_conv_id
+            else engine.get_active_session_for_user(user.id)
         )
 
-        active_session = engine.get_active_session_for_user(user.id)
-        if _wants_wav(accept) or require_confirmation or active_session is not None or conversation_id:
+        parsed_plan: ParsedPlan | None = None
+
+        if effective_conv_id and active_session and active_session.state in (
+            ConversationState.AWAITING_CLARIFICATION,
+            ConversationState.AWAITING_CONFIRMATION,
+        ):
+            # Follow-up turn for an explicit active conversation session:
+            # Let the conversation engine handle clarification/confirmation context natively.
+            parsed_plan = None
+        else:
+            # Fresh plan request (or client without conversation ID):
+            parsed_plan = parse_text(
+                text=transcript,
+                current_date=resolved_date,
+                timezone=user.timezone,
+                language=VOICE_LANGUAGE,
+                llm_client=llm_client,
+            )
+
+            # If user provided a new activity or new plan intent, do not inherit an old session
+            new_title = parsed_plan.root.get("title")
+            if not effective_conv_id and new_title and active_session:
+                engine.clear_active_session_for_user(user.id)
+                active_session = None
+            elif not effective_conv_id and not new_title and active_session and active_session.state in (
+                ConversationState.AWAITING_CLARIFICATION,
+                ConversationState.AWAITING_CONFIRMATION,
+            ):
+                # Short follow-up answer without title (e.g. "2 AM", "Thirty"): continue active session
+                parsed_plan = None
+
+        if _wants_wav(accept) or require_confirmation or active_session is not None or effective_conv_id:
             turn_result = engine.process_message(
                 user=user,
                 text=transcript,
-                conversation_id=conversation_id or (active_session.id if active_session else None),
+                conversation_id=effective_conv_id or (active_session.id if active_session else None),
                 current_date=resolved_date,
                 timezone_name=user.timezone,
                 store=store,
@@ -313,6 +344,7 @@ async def handle_voice_endpoint(
                     proposal=ProposalResponse.model_validate(prop_record) if prop_record else None,
                     plan=None,
                     spoken_recommendation=spoken_text,
+                    conversation_id=str(turn_result.conversation_id),
                 )
 
             if turn_result.state == ConversationState.COMPLETED:
@@ -356,6 +388,7 @@ async def handle_voice_endpoint(
                     }),
                     plan=PlanResponse.model_validate(turn_result.plan) if turn_result.plan else None,
                     spoken_recommendation=spoken_text,
+                    conversation_id=str(turn_result.conversation_id),
                 )
 
             if turn_result.state == ConversationState.CANCELLED:
@@ -395,6 +428,7 @@ async def handle_voice_endpoint(
                         "clarification_question": None,
                         "confidence": 0.95,
                     }),
+                    conversation_id=str(turn_result.conversation_id),
                 )
 
             if turn_result.state in (ConversationState.AWAITING_CLARIFICATION, ConversationState.COLLECTING_DETAILS):
@@ -435,6 +469,7 @@ async def handle_voice_endpoint(
                         "clarification_question": clarify_q,
                         "confidence": 0.85,
                     }),
+                    conversation_id=str(turn_result.conversation_id),
                 )
 
             # UNSUPPORTED
@@ -448,6 +483,7 @@ async def handle_voice_endpoint(
                         "X-Reply-Text": _header_text(unsupported_msg),
                         "X-Intent": "unsupported",
                         "X-Needs-Button": "false",
+                        "X-Conversation-Id": str(turn_result.conversation_id),
                     }
                     return Response(
                         content=wav_bytes,
@@ -474,9 +510,18 @@ async def handle_voice_endpoint(
                     "clarification_question": None,
                     "confidence": 0.7,
                 }),
+                conversation_id=str(turn_result.conversation_id),
             )
 
         # 6. Legacy fallback for direct JSON requests where require_confirmation is False
+        if parsed_plan is None:
+            parsed_plan = parse_text(
+                text=transcript,
+                current_date=resolved_date,
+                timezone=user.timezone,
+                language=VOICE_LANGUAGE,
+                llm_client=llm_client,
+            )
         intent = parsed_plan.root.get("intent")
 
         # 7. Intent routing: create_plan
