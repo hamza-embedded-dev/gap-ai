@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 import logging
-from typing import Literal
+import re
+from typing import Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -83,6 +84,45 @@ class VoiceClarifyResponse(BaseModel):
     conversation_id: str | None = None
 
 
+class VoiceWeatherResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    transcript: str
+    reply: str
+    intent: Literal["weather"] = "weather"
+    weather: dict[str, Any] | None = None
+
+
+def is_weather_query(text: str) -> bool:
+    """Checks whether the user utterance is an informational weather inquiry."""
+    lower = text.lower().strip()
+    norm = (
+        lower.replace("ı", "i")
+        .replace("İ", "i")
+        .replace("ğ", "g")
+        .replace("ş", "s")
+        .replace("ç", "c")
+        .replace("ö", "o")
+        .replace("ü", "u")
+    )
+    norm = re.sub(r"[^\w\s]", " ", norm)
+    tokens = set(norm.split())
+
+    # Direct Turkish weather questions
+    if "hava" in tokens or "havayi" in tokens or "havanin" in tokens:
+        if any(w in tokens for w in ["nasil", "durumu", "durumunu", "soyle", "ogren", "raporu", "tahmini", "bilgisi", "guzel"]):
+            return True
+        if "bugun" in tokens or "yarin" in tokens:
+            return True
+
+    # Direct English weather questions
+    if "weather" in tokens:
+        if any(w in tokens for w in ["how", "whats", "what", "is", "tell", "check", "forecast", "report", "today"]):
+            return True
+
+    return False
+
+
 async def _read_audio_stream_with_limit(audio: UploadFile, max_bytes: int = MAX_AUDIO_BYTES) -> bytes:
     """Reads uploaded audio stream chunk-by-chunk to bound memory usage and enforce size limit.
 
@@ -150,7 +190,7 @@ VOICE_LANGUAGE: Literal["en"] = "en"
 
 @router.post(
     "/voice",
-    response_model=VoicePlanResponse | VoiceClarifyResponse,
+    response_model=VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def handle_voice_endpoint(
@@ -169,7 +209,7 @@ async def handle_voice_endpoint(
     llm_client: NebiusLLMClient = Depends(get_llm_client),
     tts_client: GroqTTSClient = Depends(get_tts_client),
     engine: ConversationEngine = Depends(get_conversation_engine),
-) -> Response | VoicePlanResponse | VoiceClarifyResponse:
+) -> Response | VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse:
 
     try:
         # 1. Timezone verification (D-010)
@@ -246,6 +286,54 @@ async def handle_voice_endpoint(
 
         if not transcript or not transcript.strip():
             raise APIError(422, "validation_error", "Audio transcription produced no intelligible text.")
+
+        # Intercept weather inquiry before plan processing
+        if is_weather_query(transcript):
+            from app.services.weather import (
+                DEFAULT_LATITUDE,
+                DEFAULT_LONGITUDE,
+                DEFAULT_TIMEZONE,
+                WeatherService,
+                generate_weather_speech,
+            )
+
+            weather_svc = WeatherService()
+            weather_data = weather_svc.get_current_weather(
+                latitude=DEFAULT_LATITUDE,
+                longitude=DEFAULT_LONGITUDE,
+                timezone_str=user.timezone or DEFAULT_TIMEZONE,
+            )
+            if weather_data and "current" in weather_data:
+                spoken_text = generate_weather_speech(weather_data["current"])
+            else:
+                spoken_text = "Hava durumu bilgisi şu anda alınamıyor."
+
+            if _wants_wav(accept) and get_settings().tts_enabled:
+                try:
+                    wav_bytes = tts_client.synthesize(spoken_text)
+                    headers = {
+                        "Content-Type": "audio/wav",
+                        "X-Transcript": _header_text(transcript),
+                        "X-Reply-Text": _header_text(spoken_text),
+                        "X-Intent": "weather",
+                        "X-Needs-Button": "false",
+                    }
+                    return Response(
+                        content=wav_bytes,
+                        status_code=status.HTTP_200_OK,
+                        media_type="audio/wav",
+                        headers=headers,
+                    )
+                except TTSError as exc:
+                    logger.warning("TTS failed on weather query, falling back to JSON: %s", exc)
+
+            response.status_code = status.HTTP_200_OK
+            return VoiceWeatherResponse(
+                transcript=transcript,
+                reply=spoken_text,
+                intent="weather",
+                weather=weather_data,
+            )
 
         effective_conv_id = conversation_id or x_conversation_id
         active_session = (

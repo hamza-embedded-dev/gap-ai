@@ -15,6 +15,7 @@ from app.api.suggestions import router as suggestions_router
 from app.api.upcoming import router as upcoming_router
 from app.api.voice import router as voice_router
 from app.api.conversation import router as conversation_router
+from app.api.weather import router as weather_router
 
 from app.config import get_settings
 
@@ -54,3 +55,4 @@ app.include_router(voice_router)
 app.include_router(suggestions_router)
 app.include_router(proposals_router)
 app.include_router(conversation_router)
+app.include_router(weather_router)
