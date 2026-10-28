@@ -1,0 +1,136 @@
+/* Overview Dashboard Component Styling */
+.overview-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.overview-welcome-card {
+  background: linear-gradient(135deg, rgba(26, 29, 39, 0.95) 0%, rgba(34, 38, 52, 0.85) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.overview-welcome-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.overview-welcome-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.overview-welcome-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.overview-welcome-subtitle {
+  font-size: 0.95rem;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.overview-session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Quick Navigation Cards Grid */
+.overview-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.overview-action-card {
+  background: rgba(26, 29, 39, 0.7);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.overview-action-card:hover {
+  background: rgba(34, 38, 52, 0.9);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.overview-action-icon-wrapper {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.action-icon-plans {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.action-icon-create {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.action-icon-insights {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.action-icon-coach {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+.overview-action-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.overview-action-desc {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}

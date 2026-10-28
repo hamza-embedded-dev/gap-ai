@@ -32,6 +32,7 @@ import {
 } from './utils/supabase';
 import { GoogleAuthButton } from './components/auth/GoogleAuthButton';
 import { PublicLanding } from './components/auth/PublicLanding';
+import { OverviewDashboard } from './components/dashboard/OverviewDashboard';
 import { AuthRequiredCard } from './components/auth/AuthRequiredCard';
 import { Insights } from './pages/Insights';
 import { PersonalAICoach } from './pages/PersonalAICoach';
@@ -331,15 +332,23 @@ function App() {
             </div>
           )}
 
-          {/* Public Overview / Landing Tab */}
+          {/* Overview Tab: Authenticated Dashboard vs Public Marketing Landing */}
           {activeTab === 'overview' && (
-            <PublicLanding
-              token={token}
-              onTryDemo={handleTryDemo}
-              onExploreDemoAuth={() => setActiveTab('demo')}
-              onError={(msg) => setErrorMessage(msg)}
-              isLoading={isLoading}
-            />
+            token ? (
+              <OverviewDashboard
+                token={token}
+                authUser={authUser}
+                authMethod={authMethod}
+                onNavigate={(tab) => setActiveTab(tab)}
+              />
+            ) : (
+              <PublicLanding
+                onTryDemo={handleTryDemo}
+                onExploreDemoAuth={() => setActiveTab('demo')}
+                onError={(msg) => setErrorMessage(msg)}
+                isLoading={isLoading}
+              />
+            )
           )}
 
           {/* Insights Analytics Tab */}

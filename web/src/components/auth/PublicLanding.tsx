@@ -9,10 +9,8 @@ import {
 } from 'lucide-react';
 import { GoogleAuthButton } from './GoogleAuthButton';
 import { isSupabaseConfigured } from '../../utils/supabase';
-import { WeatherCard } from '../weather/WeatherCard';
 
 interface PublicLandingProps {
-  token?: string | null;
   onTryDemo: () => void;
   onExploreDemoAuth: () => void;
   onError?: (msg: string) => void;
@@ -20,7 +18,6 @@ interface PublicLandingProps {
 }
 
 export const PublicLanding: React.FC<PublicLandingProps> = ({
-  token,
   onTryDemo,
   onExploreDemoAuth,
   onError,
@@ -30,9 +27,6 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
 
   return (
     <div className="public-landing-container" id="public-landing">
-      {/* Local Weather Forecast Card */}
-      <WeatherCard token={token} onRequireAuth={onExploreDemoAuth} />
-
       {/* Hero Section */}
       <section className="card landing-hero-card">
         <div className="hero-content">

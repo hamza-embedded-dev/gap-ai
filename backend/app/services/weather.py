@@ -24,6 +24,8 @@ OPEN_METEO_ATTRIBUTION: str = "Weather data by Open-Meteo.com"
 OPEN_METEO_SOURCE_URL: str = "https://open-meteo.com/"
 CACHE_TTL_SECONDS: int = 600  # 10 minutes cache
 
+DEFAULT_USER_AGENT: str = "GAP-AI/1.0 (https://github.com/hamza-embedded-dev/gap-ai)"
+
 WMO_TURKISH_DESCRIPTIONS: dict[int, str] = {
     0: "Açık",
     1: "Çoğunlukla Açık",
@@ -110,9 +112,12 @@ class WeatherService:
 
     _cache: dict[tuple[float, float, str], _CachedWeatherEntry] = {}
 
-    def __init__(self, client: httpx.Client | None = None, timeout: float = 5.0) -> None:
+    def __init__(self, client: httpx.Client | None = None, timeout: float = 10.0) -> None:
         self._external_client = client is not None
-        self._client = client or httpx.Client(timeout=timeout)
+        self._client = client or httpx.Client(
+            timeout=timeout,
+            headers={"User-Agent": DEFAULT_USER_AGENT},
+        )
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -164,11 +169,15 @@ class WeatherService:
         }
 
         try:
-            response = self._client.get(OPEN_METEO_FORECAST_URL, params=params)
+            response = self._client.get(
+                OPEN_METEO_FORECAST_URL,
+                params=params,
+                headers={"User-Agent": DEFAULT_USER_AGENT},
+            )
             response.raise_for_status()
             data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("Open-Meteo request failed: %s", exc)
+            logger.warning("Open-Meteo request failed (%s): %s", type(exc).__name__, exc)
             # If upstream fails, fall back to stale cache if available
             if cache_key in self._cache:
                 entry = self._cache[cache_key]
@@ -338,11 +347,15 @@ class WeatherService:
         }
 
         try:
-            response = self._client.get(OPEN_METEO_FORECAST_URL, params=params)
+            response = self._client.get(
+                OPEN_METEO_FORECAST_URL,
+                params=params,
+                headers={"User-Agent": DEFAULT_USER_AGENT},
+            )
             response.raise_for_status()
             data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("Open-Meteo request failed: %s", exc)
+            logger.warning("Open-Meteo request failed (%s): %s", type(exc).__name__, exc)
             return None
 
         if not isinstance(data, dict):
