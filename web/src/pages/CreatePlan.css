@@ -445,3 +445,93 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* Conversation Stream & Multi-turn Interactions */
+.conversation-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--color-border, #2d3142);
+  border-radius: 10px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.conversation-bubble {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.conversation-bubble-user {
+  align-self: flex-end;
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: var(--color-text-primary, #f0f2f5);
+  border-bottom-right-radius: 2px;
+}
+
+.conversation-bubble-assistant {
+  align-self: flex-start;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border, #2d3142);
+  color: var(--color-text-primary, #f0f2f5);
+  border-bottom-left-radius: 2px;
+}
+
+.bubble-sender {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  color: var(--color-text-secondary, #9aa0b0);
+}
+
+.confirmation-summary-box {
+  padding: 14px 18px;
+  background-color: rgba(59, 130, 246, 0.12);
+  border-left: 4px solid var(--color-accent, #3b82f6);
+  border-radius: 8px;
+  font-size: 1.05rem;
+  color: var(--color-text-primary, #f0f2f5);
+  font-weight: 600;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.correction-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  align-items: center;
+}
+
+.correction-input {
+  flex: 1;
+  padding: 10px 14px;
+  background-color: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--color-border, #2d3142);
+  border-radius: 8px;
+  color: var(--color-text-primary, #f0f2f5);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.correction-input:focus {
+  outline: none;
+  border-color: var(--color-accent, #3b82f6);
+}
+
+.correction-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, #9aa0b0);
+  margin-top: 6px;
+}
+

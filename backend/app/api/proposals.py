@@ -11,6 +11,8 @@ from app.ai.tts import GroqTTSClient, TTSError, get_tts_client
 from app.api.errors import APIError
 from app.api.plans import PlanResponse, current_user
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
+from app.schemas.conversation import ConversationState
+from app.services.conversation import get_conversation_engine
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,14 @@ def accept_proposal_endpoint(
             "No pending plan proposal found to accept.",
         ) from exc
 
+    conv_engine = get_conversation_engine()
+    active_sess = conv_engine.get_active_session_for_user(user.id)
+    if active_sess:
+        active_sess.state = ConversationState.COMPLETED
+        active_sess.created_plan_id = str(plan.get("id"))
+        active_sess.created_plan = plan
+        conv_engine.clear_active_session_for_user(user.id)
+
     title = plan.get("title", "Plan")
     time_part = plan.get("planned_start", "")[11:16]
     date_part = plan.get("planned_start", "")[:10]
@@ -136,6 +146,12 @@ def reject_proposal_endpoint(
             "not_found",
             "No pending plan proposal found to reject.",
         ) from exc
+
+    conv_engine = get_conversation_engine()
+    active_sess = conv_engine.get_active_session_for_user(user.id)
+    if active_sess:
+        active_sess.state = ConversationState.CANCELLED
+        conv_engine.clear_active_session_for_user(user.id)
 
     title = proposal.get("title", "Plan")
     spoken_reply = sanitize_for_speech(f"Okay, I have cancelled the draft for {title}.")

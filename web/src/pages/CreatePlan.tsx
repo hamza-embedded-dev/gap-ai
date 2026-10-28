@@ -9,8 +9,16 @@ import {
   ClipboardList,
   MessageCircleQuestion,
   Pencil,
+  Send,
 } from 'lucide-react';
-import { createPlan, parseNaturalLanguagePlan, validatePlanForCreation } from '../api/plans';
+import {
+  cancelConversation,
+  confirmConversation,
+  createPlan,
+  parseNaturalLanguagePlan,
+  sendConversationMessage,
+  validatePlanForCreation,
+} from '../api/plans';
 import type { ParsedPlan, Plan, PlanCategory } from '../types/plan';
 import { generateIdempotencyKey } from '../utils/idempotency';
 import './CreatePlan.css';
@@ -25,6 +33,13 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
   // Input and flow states
   const [inputText, setInputText] = useState<string>('');
   const [clarifyReply, setClarifyReply] = useState<string>('');
+  const [correctionText, setCorrectionText] = useState<string>('');
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [confirmationSummary, setConfirmationSummary] = useState<string | null>(null);
+  const [conversationTurns, setConversationTurns] = useState<
+    Array<{ sender: 'user' | 'assistant'; text: string }>
+  >([]);
+
   const [parsedPlan, setParsedPlan] = useState<ParsedPlan | null>(null);
   const [savedPlan, setSavedPlan] = useState<Plan | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
@@ -44,7 +59,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
   const SAMPLE_PROMPTS = [
     { label: 'Run tomorrow at 6 PM', text: 'I will go for a one-hour run in the park tomorrow at 18:00.', icon: Activity },
     { label: 'Code this Friday', text: 'I will work on the GAP-AI project this Friday from 2:30 PM to 4:30 PM.', icon: BookOpen },
-    { label: 'Needs clarification', text: 'I will go for a run tomorrow.', icon: CircleHelp },
+    { label: 'Needs clarification', text: 'I want to study tomorrow evening.', icon: CircleHelp },
     { label: 'Unsupported request', text: 'Hello, can you tell me a joke today?', icon: Ban },
   ];
 
@@ -54,7 +69,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
   };
 
   /**
-   * Submit: Send input text to the /parse endpoint.
+   * Submit: Send input text to the interactive conversation endpoint.
    */
   const handleParse = async (textToParse?: string) => {
     if (isParsing || isSaving) return;
@@ -76,31 +91,104 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
     setSavedPlan(null);
 
     try {
-      const result = await parseNaturalLanguagePlan(text, {
+      const updatedTurns = [...conversationTurns, { sender: 'user' as const, text }];
+      setConversationTurns(updatedTurns);
+
+      const convResponse = await sendConversationMessage(text, conversationId, {
         language: 'en',
         mockMode,
       });
 
-      setParsedPlan(result);
-      setIsEditing(false);
+      setConversationId(convResponse.conversation_id);
 
-      if (result.intent === 'create_plan') {
-        // Generate a fresh UUID idempotency key for this confirmation session:
-        setIdempotencyKey(generateIdempotencyKey());
-      } else {
+      if (convResponse.state === 'awaiting_clarification') {
+        const q = convResponse.clarification_question || convResponse.reply_text;
+        setConversationTurns([...updatedTurns, { sender: 'assistant' as const, text: q }]);
+        setParsedPlan({
+          intent: 'clarify',
+          title: convResponse.pending_plan?.title || 'Planned Activity',
+          category: convResponse.pending_plan?.category || 'other',
+          date: convResponse.pending_plan?.date || null,
+          time: convResponse.pending_plan?.time || null,
+          duration_minutes: convResponse.pending_plan?.duration_minutes ?? null,
+          recurrence: convResponse.pending_plan?.recurrence || null,
+          language: 'en',
+          needs_weather_check: convResponse.pending_plan?.needs_weather_check ?? false,
+          clarification_question: q,
+          confidence: 0.85,
+        });
+        setIsEditing(false);
         setIdempotencyKey(null);
+      } else if (convResponse.state === 'awaiting_confirmation') {
+        const summary = convResponse.confirmation_summary || convResponse.reply_text;
+        setConfirmationSummary(summary);
+        setConversationTurns([...updatedTurns, { sender: 'assistant' as const, text: summary }]);
+        setParsedPlan({
+          intent: 'create_plan',
+          title: convResponse.pending_plan?.title || 'Planned Activity',
+          category: convResponse.pending_plan?.category || 'other',
+          date: convResponse.pending_plan?.date || null,
+          time: convResponse.pending_plan?.time || null,
+          duration_minutes: convResponse.pending_plan?.duration_minutes ?? 60,
+          recurrence: convResponse.pending_plan?.recurrence || null,
+          language: 'en',
+          needs_weather_check: convResponse.pending_plan?.needs_weather_check ?? false,
+          clarification_question: null,
+          confidence: 0.95,
+        });
+        setIsEditing(false);
+        setIdempotencyKey(generateIdempotencyKey());
+      } else if (convResponse.state === 'completed' && convResponse.created_plan) {
+        setSavedPlan(convResponse.created_plan);
+        setParsedPlan(null);
+        setConfirmationSummary(null);
+        setConversationTurns([...updatedTurns, { sender: 'assistant' as const, text: convResponse.reply_text }]);
+      } else if (convResponse.state === 'cancelled') {
+        setParsedPlan(null);
+        setIsEditing(false);
+        setIdempotencyKey(null);
+        setConfirmationSummary(null);
+        setErrorMessage('Plan creation was cancelled. No plan was saved.');
+        setConversationTurns([...updatedTurns, { sender: 'assistant' as const, text: convResponse.reply_text }]);
+      } else if (convResponse.state === 'unsupported') {
+        setParsedPlan({
+          intent: 'unsupported',
+          title: null,
+          category: null,
+          date: null,
+          time: null,
+          duration_minutes: null,
+          recurrence: null,
+          language: 'en',
+          needs_weather_check: false,
+          clarification_question: null,
+          confidence: 0.98,
+        });
+        setIsEditing(false);
+        setIdempotencyKey(null);
+        setConfirmationSummary(null);
+        setConversationTurns([...updatedTurns, { sender: 'assistant' as const, text: convResponse.reply_text }]);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'An error occurred while parsing the text.';
+      const msg = err instanceof Error ? err.message : 'An error occurred while processing your request.';
       setErrorMessage(msg);
-      setParsedPlan(null);
+      // Fallback to direct parse if conversation endpoint is unavailable
+      try {
+        const fallbackResult = await parseNaturalLanguagePlan(text, { language: 'en', mockMode });
+        setParsedPlan(fallbackResult);
+        if (fallbackResult.intent === 'create_plan') {
+          setIdempotencyKey(generateIdempotencyKey());
+        }
+      } catch {
+        // preserve original error message
+      }
     } finally {
       setIsParsing(false);
     }
   };
 
   /**
-   * Clarify flow: Combine the user's answer with the original input and re-parse.
+   * Clarify flow: Send user's clarification answer within the active conversation.
    */
   const handleClarifySubmit = async () => {
     if (isParsing || isSaving) return;
@@ -111,15 +199,25 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
       return;
     }
 
-    // Contract rule: Combine original input with clarification answer
-    const combinedText = `${inputText.trim()}. ${reply}`;
-    setInputText(combinedText);
     setClarifyReply('');
-    await handleParse(combinedText);
+    await handleParse(reply);
   };
 
   /**
-   * Confirm and save the plan via POST /plans.
+   * Correction flow: Send user's correction to adjust fields in the pending plan.
+   */
+  const handleCorrectionSubmit = async () => {
+    if (isParsing || isSaving) return;
+
+    const correction = correctionText.trim();
+    if (!correction) return;
+
+    setCorrectionText('');
+    await handleParse(correction);
+  };
+
+  /**
+   * Confirm and save the plan via POST /conversation/confirm or POST /plans.
    */
   const handleSavePlan = async () => {
     if (isSaving || isParsing) return;
@@ -151,10 +249,24 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
     setErrorMessage(null);
 
     try {
-      // Idempotency key is preserved across retries of the exact same plan request:
-      const planResult = await createPlan(parsedPlan, idempotencyKey, { mockMode });
+      let planResult: Plan;
+      if (conversationId && !isEditing) {
+        const convRes = await confirmConversation(conversationId, {
+          mockMode,
+          idempotencyKey,
+        });
+        if (convRes.created_plan) {
+          planResult = convRes.created_plan;
+        } else {
+          throw new Error('Failed to create plan from conversation confirmation.');
+        }
+      } else {
+        // Idempotency key is preserved across retries of the exact same plan request:
+        planResult = await createPlan(parsedPlan, idempotencyKey, { mockMode });
+      }
       setSavedPlan(planResult);
       setParsedPlan(null);
+      setConfirmationSummary(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'An error occurred while saving the plan.';
       setErrorMessage(msg);
@@ -180,11 +292,15 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
   const handleResetFlow = () => {
     setInputText('');
     setClarifyReply('');
+    setCorrectionText('');
     setParsedPlan(null);
     setSavedPlan(null);
     setIdempotencyKey(null);
     setErrorMessage(null);
     setIsEditing(false);
+    setConversationId(null);
+    setConfirmationSummary(null);
+    setConversationTurns([]);
   };
 
   return (
@@ -229,17 +345,32 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
         </div>
       )}
 
+      {/* Conversation Thread History */}
+      {conversationTurns.length > 0 && !savedPlan && (
+        <div className="conversation-stream" id="conversation-stream" aria-label="Conversation history">
+          {conversationTurns.map((turn, idx) => (
+            <div
+              key={idx}
+              className={`conversation-bubble conversation-bubble-${turn.sender}`}
+            >
+              <span className="bubble-sender">{turn.sender === 'user' ? 'You' : 'GAP-AI Assistant'}</span>
+              <span className="bubble-text">{turn.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Step 1: Plan description */}
       {!savedPlan && (
         <section className="card plan-input-card">
           <div className="card-header">
             <h2>Describe your plan</h2>
-            <span className="badge">POST /parse</span>
+            <span className="badge">POST /conversation</span>
           </div>
 
           <p className="card-desc">
-            Describe your goal, date, and time in natural language. GAP-AI will parse your request
-            and present the plan for your review.
+            Describe your goal, date, and time in natural language. GAP-AI will parse your request,
+            ask any clarification questions if details are missing, and present a confirmation summary before saving.
           </p>
 
           <div className="samples-row">
@@ -265,7 +396,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
             <textarea
               id="plan-input-textarea"
               className="plan-textarea"
-              placeholder="Example: I will go for a one-hour run in the park tomorrow at 18:00."
+              placeholder="Example: I want to study tomorrow evening."
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               disabled={isParsing || isSaving}
@@ -273,7 +404,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
             />
             <div className="textarea-footer">
               <span>{inputText.length} characters</span>
-              <span>AI plan schema (ai/schema.json)</span>
+              <span>GAP-AI Conversation Orchestrator</span>
             </div>
           </div>
 
@@ -288,14 +419,14 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
               {isParsing ? (
                 <>
                   <span className="spinner" aria-hidden="true"></span>
-                  <span>Parsing...</span>
+                  <span>Processing...</span>
                 </>
               ) : (
-                'Parse Plan'
+                'Send Message'
               )}
             </button>
 
-            {(parsedPlan || inputText) && (
+            {(parsedPlan || inputText || conversationTurns.length > 0) && (
               <button
                 id="reset-plan-btn"
                 type="button"
@@ -319,7 +450,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
           </div>
 
           <p className="card-desc">
-            The plan was recognized, but some required details are missing or unclear. Please answer this clarification question:
+            The plan was recognized, but some required details are missing or ambiguous. Please answer this clarification question:
           </p>
 
           <div className="clarify-question-box" id="clarification-question-text">
@@ -331,7 +462,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
               type="text"
               id="clarify-reply-input"
               className="clarify-reply-input"
-              placeholder="Your answer (for example, 6:30 PM)"
+              placeholder="Your answer (e.g. 'At five', '5 PM', 'Tomorrow at 6 PM')"
               value={clarifyReply}
               onChange={(e) => setClarifyReply(e.target.value)}
               disabled={isParsing}
@@ -358,7 +489,7 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
                   <span>Submitting...</span>
                 </>
               ) : (
-                'Submit and Parse Again'
+                'Submit Reply'
               )}
             </button>
           </div>
@@ -395,11 +526,18 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
         <section className="card confirmation-card" id="plan-confirmation-card">
           <div className="card-header">
             <h2>Review Plan</h2>
-            <span className="status-pill pill-active">Ready</span>
+            <span className="status-pill pill-active">Awaiting Confirmation</span>
           </div>
 
+          {/* Explicit Confirmation Summary */}
+          {confirmationSummary && (
+            <div className="confirmation-summary-box" id="confirmation-summary-banner">
+              {confirmationSummary}
+            </div>
+          )}
+
           <p className="card-desc">
-            Review the parsed plan details. Your plan will be saved when you confirm.
+            Review the interpreted plan details. Explicit confirmation is required before any plan is saved to the database.
           </p>
 
           {!isEditing ? (
@@ -514,6 +652,40 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
             </div>
           )}
 
+          {/* Conversational Corrections Input */}
+          <div className="correction-container">
+            <div className="correction-input-row">
+              <input
+                type="text"
+                className="correction-input"
+                id="correction-input"
+                placeholder="Make a correction (e.g. 'Change the time to 8 PM', 'Make it two hours', 'Not tomorrow, Friday')"
+                value={correctionText}
+                onChange={(e) => setCorrectionText(e.target.value)}
+                disabled={isParsing || isSaving}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCorrectionSubmit();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                id="apply-correction-btn"
+                onClick={handleCorrectionSubmit}
+                disabled={isParsing || isSaving || !correctionText.trim()}
+              >
+                <Send size={14} aria-hidden="true" />
+                <span>Update</span>
+              </button>
+            </div>
+            <p className="correction-hint">
+              Natural language corrections update the pending plan in-place without restarting.
+            </p>
+          </div>
+
           {/* Idempotency key details */}
           <div className="idempotency-box">
             <span>Idempotency-Key (UUID v4):</span>
@@ -554,11 +726,19 @@ export function CreatePlan({ token, onRequireToken, onNavigatePlans }: CreatePla
               id="cancel-plan-btn"
               type="button"
               className="btn btn-secondary"
-              onClick={() => {
+              onClick={async () => {
+                if (conversationId) {
+                  try {
+                    await cancelConversation(conversationId, { mockMode });
+                  } catch {
+                    // Ignore cancel cleanup errors
+                  }
+                }
                 setParsedPlan(null);
                 setIsEditing(false);
                 setIdempotencyKey(null);
                 setErrorMessage(null);
+                setConfirmationSummary(null);
               }}
               disabled={isSaving}
             >
