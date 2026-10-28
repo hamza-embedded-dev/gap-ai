@@ -43,10 +43,22 @@ describe('WeatherCard & Overview Weather Integration', () => {
     assert.ok(content.includes('/weather/current'), 'Must call /weather/current endpoint');
   });
 
-  it('PublicLanding Overview renders WeatherCard with token prop', () => {
-    const landingPath = path.join(root, 'components/auth/PublicLanding.tsx');
-    const content = fs.readFileSync(landingPath, 'utf8');
-    assert.ok(content.includes('WeatherCard'), 'PublicLanding must import/render WeatherCard');
-    assert.ok(content.includes('<WeatherCard token={token}'), 'PublicLanding must pass token to WeatherCard');
+  it('OverviewDashboard renders WeatherCard with token prop for authenticated users', () => {
+    const dashPath = path.join(root, 'components/dashboard/OverviewDashboard.tsx');
+    assert.ok(fs.existsSync(dashPath), 'OverviewDashboard.tsx must exist');
+    const content = fs.readFileSync(dashPath, 'utf8');
+    assert.ok(content.includes('WeatherCard'), 'OverviewDashboard must import/render WeatherCard');
+    assert.ok(content.includes('<WeatherCard token={token}'), 'OverviewDashboard must pass token to WeatherCard');
+    assert.ok(content.includes('id="overview-dashboard"'), 'Must define #overview-dashboard');
+    assert.ok(content.includes('id="overview-weather-section"'), 'Must define #overview-weather-section');
+  });
+
+  it('App.tsx routes overview tab to OverviewDashboard when authenticated and PublicLanding when signed out', () => {
+    const appPath = path.join(root, 'App.tsx');
+    const content = fs.readFileSync(appPath, 'utf8');
+    assert.ok(content.includes('OverviewDashboard'), 'App.tsx must import OverviewDashboard');
+    assert.ok(content.includes("activeTab === 'overview'"), 'App.tsx must check overview tab');
+    assert.ok(content.includes('<OverviewDashboard'), 'App.tsx must render OverviewDashboard when token is present');
+    assert.ok(content.includes('<PublicLanding'), 'App.tsx must render PublicLanding when token is absent');
   });
 });
