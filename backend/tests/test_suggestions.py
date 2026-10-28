@@ -380,13 +380,13 @@ def test_weather_suggestion_generated_saved_and_retrieved_on_second_request(
     client, fake_store, mock_llm = test_setup
     headers = {"Authorization": f"Bearer {TOKEN_USER_ONE}"}
 
-    from app.services.weather import HourlyForecast
+    from app.services.weather import DEFAULT_LATITUDE, DEFAULT_LONGITUDE, HourlyForecast
     target_time_dt = datetime.now(timezone.utc) + timedelta(hours=2)
 
     # Mock rainy weather forecast from Open-Meteo
     def mock_rainy_forecast(*args, **kwargs):
-        assert kwargs.get("latitude") == 41.02052
-        assert kwargs.get("longitude") == 29.03461
+        assert kwargs.get("latitude") == DEFAULT_LATITUDE
+        assert kwargs.get("longitude") == DEFAULT_LONGITUDE
         return HourlyForecast(
             time=target_time_dt,
             precipitation_probability=85.0,

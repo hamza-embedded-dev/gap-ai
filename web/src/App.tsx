@@ -334,6 +334,7 @@ function App() {
           {/* Public Overview / Landing Tab */}
           {activeTab === 'overview' && (
             <PublicLanding
+              token={token}
               onTryDemo={handleTryDemo}
               onExploreDemoAuth={() => setActiveTab('demo')}
               onError={(msg) => setErrorMessage(msg)}
