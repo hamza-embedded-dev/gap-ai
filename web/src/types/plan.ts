@@ -117,3 +117,49 @@ export interface Plan {
 export interface PlanListResponse {
   items: Plan[];
 }
+
+export type ConversationState =
+  | 'collecting_details'
+  | 'awaiting_clarification'
+  | 'awaiting_confirmation'
+  | 'completed'
+  | 'cancelled'
+  | 'unsupported';
+
+export interface PendingPlan {
+  title: string | null;
+  category: PlanCategory;
+  date: string | null;
+  time: string | null;
+  duration_minutes: number | null;
+  recurrence: string | null;
+  needs_weather_check: boolean;
+}
+
+export interface ProposalSnapshot {
+  proposal_id: string;
+  user_id: string;
+  source: string;
+  parsed_plan: ParsedPlan;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface ConversationRequest {
+  message: string;
+  conversation_id?: string | null;
+  language?: 'en' | 'tr';
+}
+
+export interface ConversationResponse {
+  conversation_id: string;
+  state: ConversationState;
+  reply_text: string;
+  clarification_question: string | null;
+  confirmation_summary: string | null;
+  pending_plan: PendingPlan | null;
+  created_plan: Plan | null;
+  needs_confirmation: boolean;
+  proposal: ProposalSnapshot | null;
+}
+

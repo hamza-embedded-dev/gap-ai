@@ -9,6 +9,11 @@ import type {
   PlanListResponse,
   PlanOutcome,
   PlanUpdateRequest,
+  ConversationRequest,
+  ConversationResponse,
+  ConversationState,
+  PendingPlan,
+  ProposalSnapshot,
 } from '../types/plan.ts';
 import { generateIdempotencyKey, isValidUUID } from '../utils/idempotency.ts';
 
@@ -703,3 +708,561 @@ export async function reportPlanOutcome(
     body: JSON.stringify(payload),
   });
 }
+
+/**
+ * Interactive Conversation API for multi-turn plan scheduling.
+ * Shared backend conversation logic serving both Web and ESP32 clients.
+ */
+
+interface MockConversationSession {
+  conversation_id: string;
+  state: ConversationState;
+  pending_plan: PendingPlan | null;
+  created_plan: Plan | null;
+  needs_confirmation: boolean;
+  reply_text: string;
+  clarification_question: string | null;
+  confirmation_summary: string | null;
+  proposal: ProposalSnapshot | null;
+  awaiting_ampm_for_hour: number | null;
+  confirmed_once: boolean;
+}
+
+const mockConversationSessions = new Map<string, MockConversationSession>();
+let lastActiveMockConversationId: string | null = null;
+
+function formatTime12h(timeStr: string): string {
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parts[1] || '00';
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m} ${period}`;
+}
+
+function formatDurationEn(mins: number): string {
+  if (mins === 60) return 'one hour';
+  if (mins === 120) return 'two hours';
+  if (mins === 180) return 'three hours';
+  return `${mins} minutes`;
+}
+
+function formatDatePhraseEn(dateStr: string): string {
+  const today = getLocalCurrentDate();
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const dayName = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  const monthName = d.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+  const dayNum = d.getUTCDate();
+
+  const todayDate = new Date(`${today}T12:00:00Z`);
+  const diffDays = Math.round((d.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return `tomorrow, ${dayName}, ${monthName} ${dayNum}`;
+  return `${dayName}, ${monthName} ${dayNum}`;
+}
+
+function buildConfirmationSummary(pending: PendingPlan): string {
+  const task = pending.title || 'activity';
+  const datePhrase = pending.date ? formatDatePhraseEn(pending.date) : 'today';
+  const timePhrase = pending.time ? formatTime12h(pending.time) : 'at 6:00 PM';
+  const durationPhrase = formatDurationEn(pending.duration_minutes ?? 60);
+
+  return `Create a plan to ${task.toLowerCase()} ${datePhrase} at ${timePhrase} for ${durationPhrase}?`;
+}
+
+export function mockSendConversationMessage(
+  message: string,
+  conversationId?: string | null,
+  _options?: { language?: 'en' | 'tr' }
+): ConversationResponse {
+  const lower = message.toLowerCase().trim();
+  const convId = conversationId || lastActiveMockConversationId || generateIdempotencyKey();
+  let session = mockConversationSessions.get(convId);
+
+  if (!session) {
+    session = {
+      conversation_id: convId,
+      state: 'collecting_details',
+      pending_plan: null,
+      created_plan: null,
+      needs_confirmation: false,
+      reply_text: '',
+      clarification_question: null,
+      confirmation_summary: null,
+      proposal: null,
+      awaiting_ampm_for_hour: null,
+      confirmed_once: false,
+    };
+    mockConversationSessions.set(convId, session);
+    lastActiveMockConversationId = convId;
+  }
+
+  // 1. Check for cancellation
+  if (
+    /^(cancel|cancel that|stop|never mind|abort|no|dont save|don't save)$/i.test(lower) ||
+    lower.includes('cancel that')
+  ) {
+    session.state = 'cancelled';
+    session.pending_plan = null;
+    session.needs_confirmation = false;
+    session.clarification_question = null;
+    session.confirmation_summary = null;
+    session.reply_text = 'Plan creation has been cancelled. No plan was saved.';
+    return {
+      conversation_id: session.conversation_id,
+      state: session.state,
+      reply_text: session.reply_text,
+      clarification_question: null,
+      confirmation_summary: null,
+      pending_plan: null,
+      created_plan: null,
+      needs_confirmation: false,
+      proposal: null,
+    };
+  }
+
+  // 2. Check for explicit confirmation when awaiting confirmation
+  if (
+    session.state === 'awaiting_confirmation' &&
+    (/^(yes|confirm|sure|sounds good|yes please|create it|save it|looks good|correct|do it)$/i.test(lower) ||
+      lower === 'yes' || lower === 'confirm')
+  ) {
+    return mockConfirmConversation(session.conversation_id);
+  }
+
+  // 3. Ambiguous AM/PM resolution
+  if (session.awaiting_ampm_for_hour !== null) {
+    const hour = session.awaiting_ampm_for_hour;
+    let resolvedHour: number | null = null;
+    if (lower.includes('pm') || lower.includes('p.m.') || lower.includes('evening') || lower.includes('afternoon')) {
+      resolvedHour = hour < 12 ? hour + 12 : hour;
+    } else if (lower.includes('am') || lower.includes('a.m.') || lower.includes('morning')) {
+      resolvedHour = hour === 12 ? 0 : hour;
+    }
+
+    if (resolvedHour !== null && session.pending_plan) {
+      session.pending_plan.time = `${String(resolvedHour).padStart(2, '0')}:00`;
+      session.awaiting_ampm_for_hour = null;
+      session.state = 'awaiting_confirmation';
+      session.needs_confirmation = true;
+      session.clarification_question = null;
+      session.confirmation_summary = buildConfirmationSummary(session.pending_plan);
+      session.reply_text = session.confirmation_summary;
+      return {
+        conversation_id: session.conversation_id,
+        state: session.state,
+        reply_text: session.reply_text,
+        clarification_question: null,
+        confirmation_summary: session.confirmation_summary,
+        pending_plan: session.pending_plan,
+        created_plan: null,
+        needs_confirmation: true,
+        proposal: null,
+      };
+    }
+  }
+
+  // 4. Corrections while in awaiting_confirmation or pending state
+  if (session.pending_plan) {
+    let modified = false;
+
+    // Check time correction
+    const pmMatch = lower.match(/(?:at\s+)?(\d{1,2})\s*(?:pm|p\.m\.)/i);
+    const amMatch = lower.match(/(?:at\s+)?(\d{1,2})\s*(?:am|a\.m\.)/i);
+    const timeMatch24 = lower.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+
+    if (pmMatch) {
+      const h = parseInt(pmMatch[1], 10);
+      const h24 = h < 12 ? h + 12 : h;
+      session.pending_plan.time = `${String(h24).padStart(2, '0')}:00`;
+      modified = true;
+    } else if (amMatch) {
+      const h = parseInt(amMatch[1], 10);
+      const h24 = h === 12 ? 0 : h;
+      session.pending_plan.time = `${String(h24).padStart(2, '0')}:00`;
+      modified = true;
+    } else if (timeMatch24) {
+      session.pending_plan.time = `${String(parseInt(timeMatch24[1], 10)).padStart(2, '0')}:${timeMatch24[2]}`;
+      modified = true;
+    }
+
+    // Check duration correction
+    const durMatch = lower.match(/(\d+)\s*(?:hours?|hrs?|minutes?|mins?)/i);
+    if (durMatch) {
+      const val = parseInt(durMatch[1], 10);
+      if (lower.includes('hour') || lower.includes('hr')) {
+        session.pending_plan.duration_minutes = val * 60;
+      } else {
+        session.pending_plan.duration_minutes = val;
+      }
+      modified = true;
+    } else if (lower.includes('two hours')) {
+      session.pending_plan.duration_minutes = 120;
+      modified = true;
+    } else if (lower.includes('one hour')) {
+      session.pending_plan.duration_minutes = 60;
+      modified = true;
+    }
+
+    // Check date correction
+    if (lower.includes('friday')) {
+      // Find upcoming Friday
+      const now = new Date();
+      const currentDay = now.getUTCDay(); // 0 is Sun, 5 is Fri
+      let daysUntilFriday = (5 - currentDay + 7) % 7;
+      if (daysUntilFriday === 0) daysUntilFriday = 7;
+      const target = new Date(now.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000);
+      session.pending_plan.date = target.toISOString().split('T')[0];
+      modified = true;
+    } else if (lower.includes('tomorrow')) {
+      const now = new Date();
+      const target = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      session.pending_plan.date = target.toISOString().split('T')[0];
+      modified = true;
+    }
+
+    // Check bare hour (e.g. "at five", "five", "at 5") - negative lookahead prevents matching duration
+    const bareHourMatch = lower.match(
+      /\b(?:at\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})(?!\s*(?:hours?|hrs?|minutes?|mins?))\b/i
+    );
+    const wordNumbers: Record<string, number> = {
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+      seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12
+    };
+    if (bareHourMatch && !pmMatch && !amMatch && !timeMatch24 && !durMatch && !lower.includes('hour') && !lower.includes('minute')) {
+      const rawVal = bareHourMatch[1].toLowerCase();
+      const num = wordNumbers[rawVal] || parseInt(rawVal, 10);
+      if (num >= 1 && num <= 12) {
+        session.awaiting_ampm_for_hour = num;
+        session.state = 'awaiting_clarification';
+        session.needs_confirmation = false;
+        session.clarification_question = `Do you mean ${num} AM or ${num} PM?`;
+        session.reply_text = session.clarification_question;
+        return {
+          conversation_id: session.conversation_id,
+          state: session.state,
+          reply_text: session.reply_text,
+          clarification_question: session.clarification_question,
+          confirmation_summary: null,
+          pending_plan: session.pending_plan,
+          created_plan: null,
+          needs_confirmation: false,
+          proposal: null,
+        };
+      }
+    }
+
+    if (modified) {
+      session.state = 'awaiting_confirmation';
+      session.needs_confirmation = true;
+      session.clarification_question = null;
+      session.confirmation_summary = buildConfirmationSummary(session.pending_plan);
+      session.reply_text = session.confirmation_summary;
+      return {
+        conversation_id: session.conversation_id,
+        state: session.state,
+        reply_text: session.reply_text,
+        clarification_question: null,
+        confirmation_summary: session.confirmation_summary,
+        pending_plan: session.pending_plan,
+        created_plan: null,
+        needs_confirmation: true,
+        proposal: null,
+      };
+    }
+  }
+
+  // 5. Initial interpretation of user request
+  const parsed = mockParsePlan(message, { language: 'en' });
+  if (parsed.intent === 'unsupported') {
+    session.state = 'unsupported';
+    session.reply_text = "I couldn't identify an activity to schedule. Please specify a task you would like to plan.";
+    return {
+      conversation_id: session.conversation_id,
+      state: 'unsupported',
+      reply_text: session.reply_text,
+      clarification_question: null,
+      confirmation_summary: null,
+      pending_plan: null,
+      created_plan: null,
+      needs_confirmation: false,
+      proposal: null,
+    };
+  }
+
+  // Calculate target date (default tomorrow if "tomorrow" mentioned, else today)
+  let planDate = getLocalCurrentDate();
+  if (lower.includes('tomorrow')) {
+    const now = new Date();
+    const target = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    planDate = target.toISOString().split('T')[0];
+  } else if (lower.includes('friday')) {
+    const now = new Date();
+    const currentDay = now.getUTCDay();
+    let daysUntilFriday = (5 - currentDay + 7) % 7;
+    if (daysUntilFriday === 0) daysUntilFriday = 7;
+    const target = new Date(now.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000);
+    planDate = target.toISOString().split('T')[0];
+  }
+
+  // Initial title & category
+  const title = parsed.title || 'Study Session';
+  const category = parsed.category || 'study';
+
+  session.pending_plan = {
+    title,
+    category,
+    date: planDate,
+    time: null,
+    duration_minutes: parsed.duration_minutes ?? 60,
+    recurrence: null,
+    needs_weather_check: parsed.needs_weather_check,
+  };
+
+  // Check if time is specified
+  const hasTime = parsed.intent === 'create_plan' && parsed.time;
+  if (!hasTime) {
+    session.state = 'awaiting_clarification';
+    session.needs_confirmation = false;
+    session.clarification_question = 'What time would you like to start?';
+    session.reply_text = session.clarification_question;
+    return {
+      conversation_id: session.conversation_id,
+      state: session.state,
+      reply_text: session.reply_text,
+      clarification_question: session.clarification_question,
+      confirmation_summary: null,
+      pending_plan: session.pending_plan,
+      created_plan: null,
+      needs_confirmation: false,
+      proposal: null,
+    };
+  }
+
+  session.pending_plan.time = parsed.time;
+  session.state = 'awaiting_confirmation';
+  session.needs_confirmation = true;
+  session.clarification_question = null;
+  session.confirmation_summary = buildConfirmationSummary(session.pending_plan);
+  session.reply_text = session.confirmation_summary;
+
+  return {
+    conversation_id: session.conversation_id,
+    state: session.state,
+    reply_text: session.reply_text,
+    clarification_question: null,
+    confirmation_summary: session.confirmation_summary,
+    pending_plan: session.pending_plan,
+    created_plan: null,
+    needs_confirmation: true,
+    proposal: null,
+  };
+}
+
+export function mockConfirmConversation(
+  conversationId?: string | null,
+  idempotencyKey?: string
+): ConversationResponse {
+  const convId = conversationId || lastActiveMockConversationId;
+  const session = convId ? mockConversationSessions.get(convId) : null;
+
+  if (!session || !session.pending_plan) {
+    throw new ApiError('No active pending plan to confirm.', 400, 'bad_request');
+  }
+
+  if (session.state === 'completed' && session.created_plan) {
+    // Idempotent return of already created plan
+    return {
+      conversation_id: session.conversation_id,
+      state: 'completed',
+      reply_text: `I have already scheduled your plan: ${session.created_plan.title}.`,
+      clarification_question: null,
+      confirmation_summary: null,
+      pending_plan: session.pending_plan,
+      created_plan: session.created_plan,
+      needs_confirmation: false,
+      proposal: null,
+    };
+  }
+
+  const key = idempotencyKey || generateIdempotencyKey();
+  const created = mockSavePlan(
+    {
+      intent: 'create_plan',
+      title: session.pending_plan.title,
+      category: session.pending_plan.category,
+      date: session.pending_plan.date,
+      time: session.pending_plan.time,
+      duration_minutes: session.pending_plan.duration_minutes,
+      recurrence: session.pending_plan.recurrence,
+      language: 'en',
+      needs_weather_check: session.pending_plan.needs_weather_check,
+      clarification_question: null,
+      confidence: 1.0,
+    },
+    key
+  );
+
+  session.state = 'completed';
+  session.created_plan = created;
+  session.needs_confirmation = false;
+  session.reply_text = `I have scheduled your plan: ${created.title} on ${session.pending_plan.date} at ${formatTime12h(session.pending_plan.time || '18:00')}.`;
+
+  return {
+    conversation_id: session.conversation_id,
+    state: 'completed',
+    reply_text: session.reply_text,
+    clarification_question: null,
+    confirmation_summary: null,
+    pending_plan: session.pending_plan,
+    created_plan: created,
+    needs_confirmation: false,
+    proposal: null,
+  };
+}
+
+export function mockCancelConversation(conversationId?: string | null): ConversationResponse {
+  const convId = conversationId || lastActiveMockConversationId;
+  const session = convId ? mockConversationSessions.get(convId) : null;
+
+  if (!session) {
+    return {
+      conversation_id: convId || generateIdempotencyKey(),
+      state: 'cancelled',
+      reply_text: 'Plan creation has been cancelled. No plan was saved.',
+      clarification_question: null,
+      confirmation_summary: null,
+      pending_plan: null,
+      created_plan: null,
+      needs_confirmation: false,
+      proposal: null,
+    };
+  }
+
+  session.state = 'cancelled';
+  session.pending_plan = null;
+  session.needs_confirmation = false;
+  session.clarification_question = null;
+  session.confirmation_summary = null;
+  session.reply_text = 'Plan creation has been cancelled. No plan was saved.';
+
+  return {
+    conversation_id: session.conversation_id,
+    state: 'cancelled',
+    reply_text: session.reply_text,
+    clarification_question: null,
+    confirmation_summary: null,
+    pending_plan: null,
+    created_plan: null,
+    needs_confirmation: false,
+    proposal: null,
+  };
+}
+
+export function mockGetActiveConversation(): { active: boolean; conversation: ConversationResponse | null } {
+  if (!lastActiveMockConversationId) {
+    return { active: false, conversation: null };
+  }
+  const session = mockConversationSessions.get(lastActiveMockConversationId);
+  if (!session || session.state === 'completed' || session.state === 'cancelled') {
+    return { active: false, conversation: null };
+  }
+  return {
+    active: true,
+    conversation: {
+      conversation_id: session.conversation_id,
+      state: session.state,
+      reply_text: session.reply_text,
+      clarification_question: session.clarification_question,
+      confirmation_summary: session.confirmation_summary,
+      pending_plan: session.pending_plan,
+      created_plan: session.created_plan,
+      needs_confirmation: session.needs_confirmation,
+      proposal: session.proposal,
+    },
+  };
+}
+
+/**
+ * Sends a natural language message to the backend conversation orchestration engine.
+ */
+export async function sendConversationMessage(
+  message: string,
+  conversationId?: string | null,
+  options?: { mockMode?: boolean; language?: 'en' | 'tr' }
+): Promise<ConversationResponse> {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    throw new ApiError('Message cannot be empty.', 422, 'validation_error');
+  }
+
+  if (options?.mockMode) {
+    await new Promise((r) => setTimeout(r, 200));
+    return mockSendConversationMessage(trimmed, conversationId, options);
+  }
+
+  const payload: ConversationRequest = {
+    message: trimmed,
+    conversation_id: conversationId ?? null,
+    language: options?.language || 'en',
+  };
+
+  return apiFetch<ConversationResponse>('/conversation', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Confirms and persists the active pending plan.
+ */
+export async function confirmConversation(
+  conversationId?: string | null,
+  options?: { mockMode?: boolean; idempotencyKey?: string }
+): Promise<ConversationResponse> {
+  if (options?.mockMode) {
+    await new Promise((r) => setTimeout(r, 200));
+    return mockConfirmConversation(conversationId, options?.idempotencyKey);
+  }
+
+  return apiFetch<ConversationResponse>('/conversation/confirm', {
+    method: 'POST',
+    headers: options?.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : undefined,
+    body: JSON.stringify({ conversation_id: conversationId ?? null }),
+  });
+}
+
+/**
+ * Cancels the active pending plan.
+ */
+export async function cancelConversation(
+  conversationId?: string | null,
+  options?: { mockMode?: boolean }
+): Promise<ConversationResponse> {
+  if (options?.mockMode) {
+    await new Promise((r) => setTimeout(r, 200));
+    return mockCancelConversation(conversationId);
+  }
+
+  return apiFetch<ConversationResponse>('/conversation/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ conversation_id: conversationId ?? null }),
+  });
+}
+
+/**
+ * Gets the active pending conversation if one exists.
+ */
+export async function getActiveConversation(
+  options?: { mockMode?: boolean }
+): Promise<{ active: boolean; conversation: ConversationResponse | null }> {
+  if (options?.mockMode) {
+    return mockGetActiveConversation();
+  }
+
+  return apiFetch<{ active: boolean; conversation: ConversationResponse | null }>('/conversation/active', {
+    method: 'GET',
+  });
+}
+
