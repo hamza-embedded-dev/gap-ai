@@ -36,16 +36,33 @@ typedef struct {
     char intent[32];
     bool needs_button;
     char proposal_id[48];
+    char conversation_id[48];
 } reply_headers_t;
 
 #if BOARD_HAS_VOICE_HW
 
 static const char *TAG = "voice";
 static char s_active_proposal_id[48] = {0};
+static char s_active_conversation_id[48] = {0};
 
 bool voice_has_pending_proposal(void)
 {
     return s_active_proposal_id[0] != '\0';
+}
+
+bool voice_has_pending_conversation(void)
+{
+    return s_active_conversation_id[0] != '\0';
+}
+
+const char *voice_get_active_conversation_id(void)
+{
+    return s_active_conversation_id;
+}
+
+void voice_clear_active_conversation(void)
+{
+    s_active_conversation_id[0] = '\0';
 }
 
 esp_err_t voice_init(void)
@@ -214,6 +231,10 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
         strlcpy(h->proposal_id, evt->header_value, sizeof(h->proposal_id));
         strlcpy(s_active_proposal_id, evt->header_value, sizeof(s_active_proposal_id));
         ESP_LOGI(TAG, "Proposal ID registered: %s", s_active_proposal_id);
+    } else if (strcasecmp(evt->header_key, "X-Conversation-Id") == 0) {
+        strlcpy(h->conversation_id, evt->header_value, sizeof(h->conversation_id));
+        strlcpy(s_active_conversation_id, evt->header_value, sizeof(s_active_conversation_id));
+        ESP_LOGI(TAG, "Conversation ID registered: %s", s_active_conversation_id);
     }
     return ESP_OK;
 }
@@ -458,6 +479,12 @@ static void read_json_reply(esp_http_client_handle_t client, reply_headers_t *h)
             ESP_LOGI(TAG, "Proposal ID registered from JSON: %s", s_active_proposal_id);
         }
     }
+    const cJSON *cid = cJSON_GetObjectItemCaseSensitive(root, "conversation_id");
+    if (cJSON_IsString(cid) && cid->valuestring[0] != '\0') {
+        strlcpy(h->conversation_id, cid->valuestring, sizeof(h->conversation_id));
+        strlcpy(s_active_conversation_id, cid->valuestring, sizeof(s_active_conversation_id));
+        ESP_LOGI(TAG, "Conversation ID registered from JSON: %s", s_active_conversation_id);
+    }
     cJSON_Delete(root);
     free(body);
 }
@@ -498,6 +525,10 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
     esp_http_client_set_header(client, "Authorization", auth_header);
     esp_http_client_set_header(client, "Content-Type", "multipart/form-data; boundary=" BOUNDARY);
     esp_http_client_set_header(client, "Accept", "audio/wav, application/json");
+    if (s_active_conversation_id[0] != '\0') {
+        esp_http_client_set_header(client, "X-Conversation-Id", s_active_conversation_id);
+        ESP_LOGI(TAG, "Sending voice request with active X-Conversation-Id: %s", s_active_conversation_id);
+    }
 
     display_show("Sending...", NULL, NULL, NULL);
     int64_t t0 = esp_timer_get_time();
@@ -521,6 +552,9 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
                 esp_http_client_set_header(client, "Authorization", auth_header);
                 esp_http_client_set_header(client, "Content-Type", "multipart/form-data; boundary=" BOUNDARY);
                 esp_http_client_set_header(client, "Accept", "audio/wav, application/json");
+                if (s_active_conversation_id[0] != '\0') {
+                    esp_http_client_set_header(client, "X-Conversation-Id", s_active_conversation_id);
+                }
                 display_show("Sending...", NULL, NULL, NULL);
                 err = esp_http_client_open(client, total);
             }
@@ -594,6 +628,11 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
         }
     }
 
+    if (strcmp(h.intent, "plan_confirmed") == 0 || strcmp(h.intent, "plan_cancelled") == 0) {
+        s_active_conversation_id[0] = '\0';
+        ESP_LOGI(TAG, "Voice conversation finished with intent '%s', cleared active conversation ID", h.intent);
+    }
+
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
 }
@@ -660,6 +699,7 @@ void voice_accept_proposal(void)
     bool is_wav = strncmp(h.content_type, "audio/wav", 9) == 0;
     if (status == 200) {
         s_active_proposal_id[0] = '\0';
+        s_active_conversation_id[0] = '\0';
         show_text("Plan Confirmed!", h.reply[0] ? h.reply : "Saved to schedule");
         if (is_wav) {
             play_wav_stream(client);
@@ -671,6 +711,7 @@ void voice_accept_proposal(void)
         read_json_reply(client, &h);
         if (status == 404) {
             s_active_proposal_id[0] = '\0';
+            s_active_conversation_id[0] = '\0';
             show_text("No Proposal", "No plan waiting for acceptance");
             beep(400, 150);
         } else if (status == 401) {
@@ -748,6 +789,7 @@ void voice_reject_proposal(void)
     bool is_wav = strncmp(h.content_type, "audio/wav", 9) == 0;
     if (status == 200) {
         s_active_proposal_id[0] = '\0';
+        s_active_conversation_id[0] = '\0';
         show_text("Plan Cancelled", h.reply[0] ? h.reply : "Draft discarded");
         if (is_wav) {
             play_wav_stream(client);
@@ -759,6 +801,7 @@ void voice_reject_proposal(void)
         read_json_reply(client, &h);
         if (status == 404) {
             s_active_proposal_id[0] = '\0';
+            s_active_conversation_id[0] = '\0';
             show_text("No Proposal", "No plan waiting to cancel");
             beep(400, 150);
         } else if (status == 401) {
@@ -873,6 +916,20 @@ void voice_accept_proposal(void)
 }
 
 void voice_reject_proposal(void)
+{
+}
+
+bool voice_has_pending_conversation(void)
+{
+    return false;
+}
+
+const char *voice_get_active_conversation_id(void)
+{
+    return "";
+}
+
+void voice_clear_active_conversation(void)
 {
 }
 

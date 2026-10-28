@@ -39,6 +39,33 @@ NUMBER_WORDS = {
     "ten": 10, "eleven": 11, "twelve": 12,
 }
 
+DURATION_WORDS: dict[str, int] = {
+    "five": 5,
+    "ten": 10,
+    "fifteen": 15,
+    "twenty": 20,
+    "twenty five": 25,
+    "twenty-five": 25,
+    "thirty": 30,
+    "thirty five": 35,
+    "thirty-five": 35,
+    "forty": 40,
+    "forty five": 45,
+    "forty-five": 45,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy five": 75,
+    "seventy-five": 75,
+    "ninety": 90,
+    "one hundred twenty": 120,
+    "one hour": 60,
+    "an hour": 60,
+    "two hours": 120,
+    "three hours": 180,
+    "half an hour": 30,
+    "half hour": 30,
+}
+
 WEEKDAYS = {
     "monday": 0,
     "tuesday": 1,
@@ -74,6 +101,7 @@ class ConversationSession:
     created_plan: dict[str, Any] | None = None
     idempotency_key: str | None = None
     last_assistant_message: str | None = None
+    last_clarification_field: str | None = None
     ambiguous_hour: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -158,6 +186,45 @@ def extract_duration_minutes(text: str) -> int | None:
     return None
 
 
+def extract_contextual_duration(text: str) -> int | None:
+    """Extracts duration in minutes contextually when duration was specifically requested."""
+    # First check standard explicit duration expressions like "30 minutes", "for 2 hours", etc.
+    d = extract_duration_minutes(text)
+    if d is not None:
+        return d
+
+    clean = re.sub(r"[^\w\s-]", "", text.lower()).strip()
+    if clean.isdigit():
+        val = int(clean)
+        if 5 <= val <= 720:
+            return val
+
+    if clean in DURATION_WORDS:
+        return DURATION_WORDS[clean]
+
+    # Handle "about thirty", "around 45", "just 30"
+    m_word = re.search(r"\b(?:about|around|just|make it)?\s*([a-z-]+)\b", clean)
+    if m_word and m_word.group(1) in DURATION_WORDS:
+        return DURATION_WORDS[m_word.group(1)]
+
+    m_digit = re.search(r"\b(?:about|around|just|make it)?\s*(\d{1,3})\b", clean)
+    if m_digit:
+        val = int(m_digit.group(1))
+        if 5 <= val <= 720:
+            return val
+
+    return None
+
+
+def is_awaiting_duration_clarification(session: ConversationSession) -> bool:
+    if session.state != ConversationState.AWAITING_CLARIFICATION:
+        return False
+    if session.last_clarification_field == "duration":
+        return True
+    last_q = (session.pending_plan.clarification_question or session.last_assistant_message or "").lower()
+    return any(k in last_q for k in ["how long", "duration", "how many minutes", "how many hours", "length"])
+
+
 def extract_time_and_ambiguity(text: str) -> tuple[str | None, bool, int | None]:
     """Analyzes text for time expressions.
 
@@ -167,9 +234,11 @@ def extract_time_and_ambiguity(text: str) -> tuple[str | None, bool, int | None]
         - If is_ambiguous is True, returns True and the 12-hour digit (e.g. 5).
     """
     lower = text.lower()
+    # Normalize "a.m." -> "am", "p.m." -> "pm", "a.m" -> "am", "p.m" -> "pm"
+    lower = re.sub(r"\b([ap])\.m\.?", r"\1m", lower)
 
     # 1. Check for explicit AM/PM with digits or words:
-    # "5 PM", "5:00 PM", "5:30 pm", "5pm", "5 am", "5am"
+    # "5 PM", "5:00 PM", "5:30 pm", "5pm", "5 am", "5am", "2 a.m.", "2 p.m."
     m_ampm = re.search(r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", lower)
     if m_ampm:
         hour = int(m_ampm.group(1))
@@ -181,7 +250,7 @@ def extract_time_and_ambiguity(text: str) -> tuple[str | None, bool, int | None]
             hour = 0
         return f"{hour:02d}:{minute:02d}", False, None
 
-    # Words like "five pm", "five am"
+    # Words like "five pm", "five am", "two am", "two pm", "two a.m."
     m_word_ampm = re.search(
         r"\b(?:at\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)\b",
         lower,
@@ -306,18 +375,29 @@ class ConversationEngine:
     Serves both Web application and ESP32 voice interface with identical business rules.
     """
 
+    SESSION_TIMEOUT_SECONDS: int = 600
+
     def __init__(self) -> None:
         self._sessions: dict[str, ConversationSession] = {}
         self._user_active_sessions: dict[str, str] = {}  # user_id -> conversation_id
 
     def get_session(self, conversation_id: str) -> ConversationSession | None:
-        return self._sessions.get(conversation_id)
+        sess = self._sessions.get(conversation_id)
+        if not sess:
+            return None
+        now = datetime.now(timezone.utc)
+        if (now - sess.updated_at).total_seconds() > self.SESSION_TIMEOUT_SECONDS:
+            self._sessions.pop(conversation_id, None)
+            if self._user_active_sessions.get(sess.user_id) == conversation_id:
+                self._user_active_sessions.pop(sess.user_id, None)
+            return None
+        return sess
 
     def get_active_session_for_user(self, user_id: str) -> ConversationSession | None:
         cid = self._user_active_sessions.get(user_id)
         if not cid:
             return None
-        sess = self._sessions.get(cid)
+        sess = self.get_session(cid)
         if sess and sess.state in (
             ConversationState.COLLECTING_DETAILS,
             ConversationState.AWAITING_CLARIFICATION,
@@ -368,8 +448,8 @@ class ConversationEngine:
 
         # 2. Retrieve or Create Session
         session: ConversationSession | None = None
-        if conversation_id and conversation_id in self._sessions:
-            session = self._sessions[conversation_id]
+        if conversation_id:
+            session = self.get_session(conversation_id)
         elif not conversation_id:
             session = self.get_active_session_for_user(user.id)
 
@@ -454,51 +534,60 @@ class ConversationEngine:
 
         # C1. Check explicit "AM" or "PM" answer to previous AM/PM clarification
         if session.ambiguous_hour is not None:
-            if normalized in ("pm", "5 pm", "5pm", f"{session.ambiguous_hour} pm", f"{session.ambiguous_hour}pm") or "pm" in normalized:
+            # First check if text contains an explicit time like "2 AM", "2 PM", "2 a.m.", "2 p.m.", "3 PM"
+            resolved_t, resolved_ambig, _ = extract_time_and_ambiguity(clean_text)
+            if resolved_t is not None and not resolved_ambig:
+                session.pending_plan.time = resolved_t
+                session.pending_plan.time_is_ambiguous = False
+                session.ambiguous_hour = None
+                session.last_clarification_field = None
+                return self._evaluate_and_transition(session, user, store, ref_date)
+
+            ampm_norm = re.sub(r"\b([ap])\.m\.?", r"\1m", lower)
+            ampm_norm = re.sub(r"[^\w\s]", "", ampm_norm).strip()
+            if any(p in ampm_norm for p in ("pm", "afternoon", "evening", "night")):
                 h = session.ambiguous_hour
                 if h < 12:
                     h += 12
                 session.pending_plan.time = f"{h:02d}:00"
                 session.pending_plan.time_is_ambiguous = False
                 session.ambiguous_hour = None
+                session.last_clarification_field = None
                 return self._evaluate_and_transition(session, user, store, ref_date)
-            elif normalized in ("am", "5 am", "5am", f"{session.ambiguous_hour} am", f"{session.ambiguous_hour}am") or "am" in normalized:
+            elif any(p in ampm_norm for p in ("am", "morning")):
                 h = session.ambiguous_hour
                 if h == 12:
                     h = 0
                 session.pending_plan.time = f"{h:02d}:00"
                 session.pending_plan.time_is_ambiguous = False
                 session.ambiguous_hour = None
+                session.last_clarification_field = None
                 return self._evaluate_and_transition(session, user, store, ref_date)
 
-        # C2. Check time expression in text
+        # C2. Check contextual duration answer (e.g. "Thirty", "30", "forty-five")
+        if is_awaiting_duration_clarification(session):
+            dur_ctx = extract_contextual_duration(clean_text)
+            if dur_ctx is not None:
+                session.pending_plan.duration_minutes = dur_ctx
+                session.last_clarification_field = None
+                return self._evaluate_and_transition(session, user, store, ref_date)
+
+        # C3. Check time expression in text
         time_val, is_ambig, ambig_hour = extract_time_and_ambiguity(clean_text)
         if is_ambig:
             session.pending_plan.time_is_ambiguous = True
             session.ambiguous_hour = ambig_hour
-            session.state = ConversationState.AWAITING_CLARIFICATION
-            clarify_q = f"Do you mean {ambig_hour} AM or {ambig_hour} PM?"
-            session.pending_plan.clarification_question = clarify_q
-            session.last_assistant_message = clarify_q
-            return ConversationTurnResult(
-                conversation_id=session.id,
-                state=session.state,
-                reply_text=clarify_q,
-                prompt_type="clarification",
-                pending_plan=session.pending_plan.model_dump(),
-                needs_button=False,
-            )
         elif time_val is not None:
             session.pending_plan.time = time_val
             session.pending_plan.time_is_ambiguous = False
             session.ambiguous_hour = None
 
-        # C3. Check duration correction (e.g. "make it two hours", "for two hours")
+        # C4. Check duration correction (e.g. "make it two hours", "for two hours")
         dur_val = extract_duration_minutes(clean_text)
         if dur_val is not None:
             session.pending_plan.duration_minutes = dur_val
 
-        # C4. Check date correction (e.g. "not tomorrow, Friday", "change to Friday", "tomorrow")
+        # C5. Check date correction (e.g. "not tomorrow, Friday", "change to Friday", "tomorrow")
         date_val = resolve_relative_date(clean_text, ref_date)
         if date_val is not None:
             session.pending_plan.date = date_val.isoformat()
@@ -508,7 +597,7 @@ class ConversationEngine:
         if new_title:
             session.pending_plan.title = new_title
             session.pending_plan.category = parsed_plan.root.get("category", "other")
-        elif is_pending and (time_val is not None or dur_val is not None or date_val is not None):
+        elif is_pending and (time_val is not None or dur_val is not None or date_val is not None or is_ambig):
             return self._evaluate_and_transition(session, user, store, ref_date)
 
         # D. New Request or Full Utterance Extraction
@@ -558,6 +647,59 @@ class ConversationEngine:
                         pending_plan=None,
                         needs_button=False,
                     )
+            elif intent == "clarify":
+                if p_dict.get("title"):
+                    session.pending_plan.title = p_dict["title"]
+                if p_dict.get("category"):
+                    session.pending_plan.category = p_dict["category"]
+                if p_dict.get("date"):
+                    session.pending_plan.date = p_dict["date"]
+                elif date_val is not None:
+                    session.pending_plan.date = date_val.isoformat()
+                if p_dict.get("time"):
+                    session.pending_plan.time = p_dict["time"]
+                elif time_val is not None:
+                    session.pending_plan.time = time_val
+
+                if p_dict.get("duration_minutes"):
+                    session.pending_plan.duration_minutes = p_dict["duration_minutes"]
+                elif dur_val is not None:
+                    session.pending_plan.duration_minutes = dur_val
+                else:
+                    session.pending_plan.duration_minutes = None
+
+                if is_ambig:
+                    session.pending_plan.time_is_ambiguous = True
+                    session.ambiguous_hour = ambig_hour
+
+                if not session.pending_plan.title:
+                    self._fallback_extract(clean_text, session, ref_date)
+
+                if session.pending_plan.time_is_ambiguous and session.ambiguous_hour is not None:
+                    clarify_q = f"Do you mean {session.ambiguous_hour} AM or {session.ambiguous_hour} PM?"
+                    session.last_clarification_field = "time"
+                else:
+                    clarify_q = p_dict.get("clarification_question") or "Could you please provide more details?"
+                    lower_q = clarify_q.lower()
+                    if "duration" in lower_q or "how long" in lower_q or "minutes" in lower_q or "how many hours" in lower_q:
+                        session.last_clarification_field = "duration"
+                    elif "time" in lower_q or "when" in lower_q or "am or" in lower_q:
+                        session.last_clarification_field = "time"
+                    elif "day" in lower_q or "date" in lower_q:
+                        session.last_clarification_field = "date"
+
+                session.state = ConversationState.AWAITING_CLARIFICATION
+                session.pending_plan.clarification_question = clarify_q
+                session.last_assistant_message = clarify_q
+
+                return ConversationTurnResult(
+                    conversation_id=session.id,
+                    state=session.state,
+                    reply_text=clarify_q,
+                    prompt_type="clarification",
+                    pending_plan=session.pending_plan.model_dump(),
+                    needs_button=False,
+                )
 
             # Apply extracted fields to pending plan
             if p_dict.get("title"):
@@ -566,15 +708,19 @@ class ConversationEngine:
                 session.pending_plan.category = p_dict["category"]
             if p_dict.get("date"):
                 session.pending_plan.date = p_dict["date"]
+            elif date_val is not None:
+                session.pending_plan.date = date_val.isoformat()
             if p_dict.get("duration_minutes"):
                 session.pending_plan.duration_minutes = p_dict["duration_minutes"]
+            elif dur_val is not None:
+                session.pending_plan.duration_minutes = dur_val
             if p_dict.get("needs_weather_check") is not None:
                 session.pending_plan.needs_weather_check = p_dict["needs_weather_check"]
             if p_dict.get("recurrence"):
                 session.pending_plan.recurrence = p_dict["recurrence"]
 
             # Respect deterministic time check if we already extracted time above
-            if time_val is None and p_dict.get("time"):
+            if time_val is None and not is_ambig and p_dict.get("time"):
                 session.pending_plan.time = p_dict["time"]
 
             # If user text had ambiguous hour like "at 5"
@@ -584,6 +730,9 @@ class ConversationEngine:
             elif time_val is not None:
                 session.pending_plan.time = time_val
                 session.pending_plan.time_is_ambiguous = False
+
+            if not session.pending_plan.title:
+                self._fallback_extract(clean_text, session, ref_date)
         else:
             # Fallback deterministic extraction for offline/mock environments
             self._fallback_extract(clean_text, session, ref_date)
@@ -596,7 +745,10 @@ class ConversationEngine:
 
         # Extract title / task
         for task_word, cat in [
+            ("study math", "study"),
             ("study", "study"),
+            ("swimming", "sport"),
+            ("swim", "sport"),
             ("run", "sport"),
             ("workout", "sport"),
             ("meeting", "meeting"),
@@ -606,7 +758,7 @@ class ConversationEngine:
             ("lunch", "social"),
         ]:
             if task_word in lower:
-                session.pending_plan.title = task_word.capitalize()
+                session.pending_plan.title = task_word.title()
                 session.pending_plan.category = cat
                 break
         if not session.pending_plan.title:
@@ -645,6 +797,7 @@ class ConversationEngine:
         # 1. Ambiguous AM/PM check
         if pending.time_is_ambiguous and session.ambiguous_hour is not None:
             session.state = ConversationState.AWAITING_CLARIFICATION
+            session.last_clarification_field = "time"
             clarify_q = f"Do you mean {session.ambiguous_hour} AM or {session.ambiguous_hour} PM?"
             pending.clarification_question = clarify_q
             session.last_assistant_message = clarify_q
@@ -660,6 +813,7 @@ class ConversationEngine:
         # 2. Missing Start Time check
         if not pending.time:
             session.state = ConversationState.AWAITING_CLARIFICATION
+            session.last_clarification_field = "time"
             clarify_q = "What time would you like to start?"
             pending.clarification_question = clarify_q
             session.last_assistant_message = clarify_q
@@ -675,6 +829,7 @@ class ConversationEngine:
         # 3. Missing Date check
         if not pending.date:
             session.state = ConversationState.AWAITING_CLARIFICATION
+            session.last_clarification_field = "date"
             clarify_q = "What day would you like to schedule this for?"
             pending.clarification_question = clarify_q
             session.last_assistant_message = clarify_q
@@ -687,8 +842,25 @@ class ConversationEngine:
                 needs_button=False,
             )
 
-        # 4. All essential details are present -> Awaiting Confirmation
+        # 4. Missing Duration check (when pending.duration_minutes is None)
+        if pending.duration_minutes is None:
+            session.state = ConversationState.AWAITING_CLARIFICATION
+            session.last_clarification_field = "duration"
+            clarify_q = "How long would you like to schedule this for?"
+            pending.clarification_question = clarify_q
+            session.last_assistant_message = clarify_q
+            return ConversationTurnResult(
+                conversation_id=session.id,
+                state=session.state,
+                reply_text=clarify_q,
+                prompt_type="clarification",
+                pending_plan=pending.model_dump(),
+                needs_button=False,
+            )
+
+        # 5. All essential details are present -> Awaiting Confirmation
         session.state = ConversationState.AWAITING_CONFIRMATION
+        session.last_clarification_field = None
         pending.clarification_question = None
 
         # Regenerate fresh idempotency key for this specific plan configuration
