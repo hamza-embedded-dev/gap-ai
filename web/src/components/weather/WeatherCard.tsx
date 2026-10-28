@@ -74,12 +74,31 @@ export const WeatherCard: React.FC<WeatherCardProps> = ({
   }, [token]);
 
   useEffect(() => {
-    let active = true;
-    void loadWeather(false);
+    let isMounted = true;
+    void (async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const data = await fetchCurrentWeather(undefined, token);
+        if (isMounted) {
+          setWeather(data);
+        }
+      } catch (err) {
+        if (isMounted) {
+          const msg = err instanceof Error ? err.message : 'Unable to load weather forecast.';
+          setErrorMessage(msg);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    })();
+
     return () => {
-      active = false;
+      isMounted = false;
     };
-  }, [loadWeather]);
+  }, [token]);
 
   if (isLoading) {
     return (
