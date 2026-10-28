@@ -1318,7 +1318,7 @@ def test_voice_endpoint_falls_back_to_tts_ai_on_groq_429(
 
 
 def test_voice_multi_turn_exact_flow_study_math_tomorrow_at_2_then_2_am(
-    client: TestClient, fake_store: FakePlanStore
+    client: TestClient, fake_store: FakePlanStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verifies the exact multi-turn voice flow over /voice:
     1. 'I want to study math tomorrow at 2 for 1 hour.' -> Assistant asks 'Do you mean 2 AM or 2 PM?'
@@ -1336,7 +1336,21 @@ def test_voice_multi_turn_exact_flow_study_math_tomorrow_at_2_then_2_am(
     tts = FakeTTSClient()
     client.app.dependency_overrides[get_stt_client] = lambda: stt
     client.app.dependency_overrides[get_tts_client] = lambda: tts
-    client.app.dependency_overrides.pop(get_llm_client, None)
+
+    turn1_parsed_plan = {
+        "intent": "clarify",
+        "title": "Study math",
+        "category": "study",
+        "date": "2026-10-29",
+        "time": None,
+        "duration_minutes": 60,
+        "recurrence": None,
+        "language": "en",
+        "needs_weather_check": False,
+        "clarification_question": "Do you mean 2 AM or 2 PM?",
+        "confidence": 0.85,
+    }
+    monkeypatch.setattr("app.api.voice.parse_text", lambda **kwargs: ParsedPlan(turn1_parsed_plan))
 
     headers = dict(_auth_headers())
     headers["Accept"] = "audio/wav, application/json"
