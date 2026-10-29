@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 import logging
 import re
+import time as pytime
 from typing import Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -34,10 +35,19 @@ from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.schemas.conversation import ConversationState
 from app.schemas.parsed_plan import ParsedPlan
 from app.services.conversation import ConversationEngine, get_conversation_engine
+from app.services.greetings import (
+    get_deterministic_greeting,
+    get_deterministic_greeting_for_text,
+    is_standalone_greeting,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# In-memory caches for static/deterministic audio responses to eliminate latency
+_GREETING_AUDIO_CACHE: dict[tuple[str, str, str], bytes] = {}
+_MODE_ANNOUNCEMENT_AUDIO_CACHE: dict[tuple[str, str], bytes] = {}
 
 
 def _wants_wav(accept: str | None) -> bool:
@@ -46,6 +56,20 @@ def _wants_wav(accept: str | None) -> bool:
 
 def _header_text(text: str) -> str:
     return quote(text.strip(), safe="")
+
+
+def _timing_headers(
+    stt_ms: float,
+    tts_ms: float,
+    total_ms: float,
+    llm_bypassed: bool,
+) -> dict[str, str]:
+    return {
+        "X-STT-Duration-Ms": f"{stt_ms:.2f}",
+        "X-TTS-Duration-Ms": f"{tts_ms:.2f}",
+        "X-Total-Duration-Ms": f"{total_ms:.2f}",
+        "X-LLM-Bypassed": "true" if llm_bypassed else "false",
+    }
 
 
 def _synthesize_speech(tts_client: Any, text: str, voice: str | None = None) -> bytes:
@@ -108,6 +132,16 @@ class VoiceWeatherResponse(BaseModel):
     reply: str
     intent: Literal["weather"] = "weather"
     weather: dict[str, Any] | None = None
+
+
+class VoiceGreetingResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    transcript: str
+    reply: str
+    intent: Literal["greeting"] = "greeting"
+    mode: Literal["plan", "coach"]
+    conversation_id: str | None = None
 
 
 def is_weather_query(text: str) -> bool:
@@ -207,7 +241,7 @@ VOICE_LANGUAGE: Literal["en"] = "en"
 
 @router.post(
     "/voice",
-    response_model=VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse | VoiceCoachResponse,
+    response_model=VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse | VoiceCoachResponse | VoiceGreetingResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def handle_voice_endpoint(
@@ -228,7 +262,12 @@ async def handle_voice_endpoint(
     llm_client: NebiusLLMClient = Depends(get_llm_client),
     tts_client: GroqTTSClient = Depends(get_tts_client),
     engine: ConversationEngine = Depends(get_conversation_engine),
-) -> Response | VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse | VoiceCoachResponse:
+) -> Response | VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse | VoiceCoachResponse | VoiceGreetingResponse:
+
+    t_req_start = pytime.perf_counter()
+    stt_duration_ms: float = 0.0
+    tts_duration_ms: float = 0.0
+    llm_bypassed: bool = False
 
     try:
         # 1. Timezone verification (D-010)
@@ -276,6 +315,7 @@ async def handle_voice_endpoint(
                 raise APIError(422, "validation_error", str(exc)) from exc
 
         # 5. Speech-to-text conversion (B5-1) - strictly locked to English for ESP32 voice flow
+        t_stt_start = pytime.perf_counter()
         try:
             transcript = stt_client.transcribe(
                 audio_bytes,
@@ -302,12 +342,81 @@ async def handle_voice_endpoint(
         except STTError as exc:
             logger.warning("STT unexpected error: %s", exc)
             raise APIError(503, "llm_unavailable", "Speech-to-text service failed.") from exc
+        finally:
+            stt_duration_ms = (pytime.perf_counter() - t_stt_start) * 1000.0
 
         if not transcript or not transcript.strip():
             raise APIError(422, "validation_error", "Audio transcription produced no intelligible text.")
 
+        effective_conv_id = conversation_id or x_conversation_id
+        active_session = (
+            engine.get_session(effective_conv_id)
+            if effective_conv_id
+            else engine.get_active_session_for_user(user.id)
+        )
+
+        device_mode: Literal["plan", "coach"] = mode or x_device_mode or "plan"
+        if active_session and getattr(active_session, "mode", None):
+            if not mode and not x_device_mode:
+                device_mode = active_session.mode
+
+        active_tts_voice = (
+            get_settings().tts_coach_voice if device_mode == "coach" else get_settings().tts_voice
+        )
+
+        # 6. Intercept standalone greetings before LLM (Immediate deterministic response, sub-millisecond audio cache)
+        if is_standalone_greeting(transcript):
+            llm_bypassed = True
+            greeting_text, greeting_lang = get_deterministic_greeting_for_text(transcript, mode=device_mode)
+            cache_key = (device_mode, greeting_lang, active_tts_voice)
+            t_tts_start = pytime.perf_counter()
+            if cache_key in _GREETING_AUDIO_CACHE:
+                wav_bytes = _GREETING_AUDIO_CACHE[cache_key]
+            else:
+                wav_bytes = _synthesize_speech(tts_client, greeting_text, voice=active_tts_voice)
+                _GREETING_AUDIO_CACHE[cache_key] = wav_bytes
+            tts_duration_ms = (pytime.perf_counter() - t_tts_start) * 1000.0
+            total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
+
+            if _wants_wav(accept) and get_settings().tts_enabled:
+                headers = {
+                    "Content-Type": "audio/wav",
+                    "X-Transcript": _header_text(transcript),
+                    "X-Reply-Text": _header_text(greeting_text),
+                    "X-Intent": "greeting",
+                    "X-Device-Mode": device_mode,
+                    "X-Needs-Button": "true" if (active_session and active_session.state == ConversationState.AWAITING_CONFIRMATION) else "false",
+                    "X-LLM-Bypassed": "true",
+                    "X-STT-Duration-Ms": f"{stt_duration_ms:.2f}",
+                    "X-TTS-Duration-Ms": f"{tts_duration_ms:.2f}",
+                    "X-Total-Duration-Ms": f"{total_duration_ms:.2f}",
+                }
+                if effective_conv_id:
+                    headers["X-Conversation-Id"] = effective_conv_id
+                elif active_session:
+                    headers["X-Conversation-Id"] = str(active_session.id)
+                if active_session and active_session.proposal_id:
+                    headers["X-Proposal-Id"] = str(active_session.proposal_id)
+
+                return Response(
+                    content=wav_bytes,
+                    status_code=status.HTTP_200_OK,
+                    media_type="audio/wav",
+                    headers=headers,
+                )
+
+            response.status_code = status.HTTP_200_OK
+            return VoiceGreetingResponse(
+                transcript=transcript,
+                reply=greeting_text,
+                intent="greeting",
+                mode=device_mode,
+                conversation_id=str(active_session.id) if active_session else None,
+            )
+
         # Intercept weather inquiry before plan processing
         if is_weather_query(transcript):
+            llm_bypassed = True
             from app.services.weather import (
                 DEFAULT_LATITUDE,
                 DEFAULT_LONGITUDE,
@@ -327,26 +436,12 @@ async def handle_voice_endpoint(
             else:
                 spoken_text = "Hava durumu bilgisi şu anda alınamıyor."
 
-            # Resolve device mode and active TTS voice early
-            effective_conv_id = conversation_id or x_conversation_id
-            active_session = (
-                engine.get_session(effective_conv_id)
-                if effective_conv_id
-                else engine.get_active_session_for_user(user.id)
-            )
-
-            device_mode: Literal["plan", "coach"] = mode or x_device_mode or "plan"
-            if active_session and getattr(active_session, "mode", None):
-                if not mode and not x_device_mode:
-                    device_mode = active_session.mode
-
-            active_tts_voice = (
-                get_settings().tts_coach_voice if device_mode == "coach" else get_settings().tts_voice
-            )
-
             if _wants_wav(accept) and get_settings().tts_enabled:
                 try:
+                    t_tts_start = pytime.perf_counter()
                     wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                    tts_duration_ms = (pytime.perf_counter() - t_tts_start) * 1000.0
+                    total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                     headers = {
                         "Content-Type": "audio/wav",
                         "X-Transcript": _header_text(transcript),
@@ -354,6 +449,10 @@ async def handle_voice_endpoint(
                         "X-Intent": "weather",
                         "X-Device-Mode": device_mode,
                         "X-Needs-Button": "false",
+                        "X-LLM-Bypassed": "true",
+                        "X-STT-Duration-Ms": f"{stt_duration_ms:.2f}",
+                        "X-TTS-Duration-Ms": f"{tts_duration_ms:.2f}",
+                        "X-Total-Duration-Ms": f"{total_duration_ms:.2f}",
                     }
                     return Response(
                         content=wav_bytes,
@@ -371,22 +470,6 @@ async def handle_voice_endpoint(
                 intent="weather",
                 weather=weather_data,
             )
-
-        effective_conv_id = conversation_id or x_conversation_id
-        active_session = (
-            engine.get_session(effective_conv_id)
-            if effective_conv_id
-            else engine.get_active_session_for_user(user.id)
-        )
-
-        device_mode: Literal["plan", "coach"] = mode or x_device_mode or "plan"
-        if active_session and getattr(active_session, "mode", None):
-            if not mode and not x_device_mode:
-                device_mode = active_session.mode
-
-        active_tts_voice = (
-            get_settings().tts_coach_voice if device_mode == "coach" else get_settings().tts_voice
-        )
 
         parsed_plan: ParsedPlan | None = None
 
@@ -452,7 +535,10 @@ async def handle_voice_endpoint(
                 )
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -462,6 +548,7 @@ async def handle_voice_endpoint(
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=True))
                         if turn_result.recommendation and "id" in turn_result.recommendation:
                             headers["X-Recommendation-Id"] = str(turn_result.recommendation["id"])
                         return Response(
@@ -486,7 +573,10 @@ async def handle_voice_endpoint(
             if turn_result.prompt_type == "info":
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -496,6 +586,7 @@ async def handle_voice_endpoint(
                             "X-Needs-Button": "true" if turn_result.needs_button else "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=True))
                         if turn_result.proposal and "id" in turn_result.proposal:
                             headers["X-Proposal-Id"] = str(turn_result.proposal["id"])
                         return Response(
@@ -521,7 +612,10 @@ async def handle_voice_endpoint(
                 proposal_id = str(prop_record.get("id") or "")
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -533,6 +627,7 @@ async def handle_voice_endpoint(
                             "X-Needs-Button": "true",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=False))
                         if turn_result.recommendation and "id" in turn_result.recommendation:
                             headers["X-Recommendation-Id"] = str(turn_result.recommendation["id"])
                         return Response(
@@ -569,7 +664,10 @@ async def handle_voice_endpoint(
             if turn_result.state == ConversationState.COMPLETED:
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -579,6 +677,7 @@ async def handle_voice_endpoint(
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=True))
                         if turn_result.plan:
                             headers["X-Plan-Id"] = str(turn_result.plan.get("id"))
                         return Response(
@@ -614,7 +713,10 @@ async def handle_voice_endpoint(
             if turn_result.state == ConversationState.CANCELLED:
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -624,6 +726,7 @@ async def handle_voice_endpoint(
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=True))
                         return Response(
                             content=wav_bytes,
                             status_code=status.HTTP_200_OK,
@@ -656,7 +759,10 @@ async def handle_voice_endpoint(
                 clarify_q = turn_result.reply_text
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = _synthesize_speech(tts_client, clarify_q, voice=active_tts_voice)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -666,6 +772,7 @@ async def handle_voice_endpoint(
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=False))
                         return Response(
                             content=wav_bytes,
                             status_code=status.HTTP_200_OK,
@@ -698,7 +805,10 @@ async def handle_voice_endpoint(
             if _wants_wav(accept) and get_settings().tts_enabled:
                 unsupported_msg = spoken_text or "Sorry, I could not understand that plan request."
                 try:
+                    t_tts = pytime.perf_counter()
                     wav_bytes = _synthesize_speech(tts_client, unsupported_msg, voice=active_tts_voice)
+                    tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                    total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                     headers = {
                         "Content-Type": "audio/wav",
                         "X-Transcript": _header_text(transcript),
@@ -708,6 +818,7 @@ async def handle_voice_endpoint(
                         "X-Needs-Button": "false",
                         "X-Conversation-Id": str(turn_result.conversation_id),
                     }
+                    headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=True))
                     return Response(
                         content=wav_bytes,
                         status_code=status.HTTP_200_OK,
@@ -762,7 +873,10 @@ async def handle_voice_endpoint(
 
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
+                        t_tts = pytime.perf_counter()
                         wav_bytes = tts_client.synthesize(spoken_text)
+                        tts_duration_ms = (pytime.perf_counter() - t_tts) * 1000.0
+                        total_duration_ms = (pytime.perf_counter() - t_req_start) * 1000.0
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
@@ -772,6 +886,7 @@ async def handle_voice_endpoint(
                             "X-Proposal-Title": _header_text(prop_title),
                             "X-Needs-Button": "true",
                         }
+                        headers.update(_timing_headers(stt_duration_ms, tts_duration_ms, total_duration_ms, llm_bypassed=False))
                         return Response(
                             content=wav_bytes,
                             status_code=status.HTTP_201_CREATED,
@@ -884,16 +999,21 @@ async def get_mode_announcement(
 ) -> Response:
     settings = get_settings()
     if mode == "coach":
-        text = "Coach mode active. What would you like to explore today?"
+        text = "Coach Mode active."
         voice = settings.tts_coach_voice
     else:
-        text = "Plan mode active."
+        text = "Plan Mode active."
         voice = settings.tts_voice
 
-    try:
-        wav_bytes = _synthesize_speech(tts_client, text, voice=voice)
-    except TTSError as exc:
-        raise APIError(503, "tts_failed", f"Failed to synthesize mode announcement: {exc}") from exc
+    cache_key = (mode, voice)
+    if cache_key in _MODE_ANNOUNCEMENT_AUDIO_CACHE:
+        wav_bytes = _MODE_ANNOUNCEMENT_AUDIO_CACHE[cache_key]
+    else:
+        try:
+            wav_bytes = _synthesize_speech(tts_client, text, voice=voice)
+            _MODE_ANNOUNCEMENT_AUDIO_CACHE[cache_key] = wav_bytes
+        except TTSError as exc:
+            raise APIError(503, "tts_failed", f"Failed to synthesize mode announcement: {exc}") from exc
 
     return Response(
         content=wav_bytes,
