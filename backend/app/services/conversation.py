@@ -29,6 +29,7 @@ from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.recommendations import apply_policy, build_contextual_recommendations
 from app.schemas.conversation import ConversationState, PendingPlan
 from app.schemas.parsed_plan import ParsedPlan
+from app.services.greetings import get_deterministic_greeting_for_text, is_standalone_greeting
 
 logger = logging.getLogger(__name__)
 
@@ -515,6 +516,20 @@ class ConversationEngine:
                     needs_button=False,
                 )
 
+        # Check Standalone Greeting (Immediate deterministic response, bypass LLM)
+        if is_standalone_greeting(clean_text):
+            greeting_reply, _ = get_deterministic_greeting_for_text(clean_text, mode=session.mode)
+            session.last_assistant_message = greeting_reply
+            return ConversationTurnResult(
+                conversation_id=session.id,
+                state=session.state,
+                reply_text=greeting_reply,
+                prompt_type="greeting",
+                pending_plan=session.pending_plan.model_dump() if session.pending_plan and session.pending_plan.title else None,
+                proposal={"id": session.proposal_id} if session.proposal_id else None,
+                needs_button=(session.state == ConversationState.AWAITING_CONFIRMATION),
+            )
+
         # Check Coach Mode handling
         is_coach_active = (
             mode == "coach"
@@ -611,7 +626,7 @@ class ConversationEngine:
                 ConversationState.AWAITING_CLARIFICATION,
                 ConversationState.COLLECTING_DETAILS,
             ):
-                return self._handle_cancellation(session, user, store)
+                return self._handle_cancellation(session, user, store, source=source)
 
         # C. Check Corrections or Clarification Answers to an existing pending plan
         is_pending = session.state in (
@@ -1113,9 +1128,12 @@ class ConversationEngine:
                 logger.warning("Could not record accepted feedback for coach recommendation: %s", exc)
 
         time_12h = p_time.strftime("%I:%M %p").lstrip("0")
-        reply = sanitize_for_speech(
-            f"Great! Your plan to {pending.title.lower()} at {time_12h} has been confirmed and saved to your schedule."
-        )
+        if source == "voice":
+            reply = f"Plan confirmed: {pending.title} at {time_12h}."
+        else:
+            reply = sanitize_for_speech(
+                f"Great! Your plan to {pending.title.lower()} at {time_12h} has been confirmed and saved to your schedule."
+            )
         session.last_assistant_message = reply
 
         return ConversationTurnResult(
@@ -1134,6 +1152,7 @@ class ConversationEngine:
         session: ConversationSession,
         user: AuthenticatedUser,
         store: PlanStore,
+        source: str = "text",
     ) -> ConversationTurnResult:
         """Discards pending plan without saving to database."""
         session.state = ConversationState.CANCELLED
@@ -1147,7 +1166,10 @@ class ConversationEngine:
                 pass
 
         title = session.pending_plan.title or "plan"
-        reply = sanitize_for_speech(f"The plan draft for {title} has been cancelled.")
+        if source == "voice":
+            reply = f"Plan cancelled: {title}."
+        else:
+            reply = sanitize_for_speech(f"The plan draft for {title} has been cancelled.")
         session.last_assistant_message = reply
 
         return ConversationTurnResult(

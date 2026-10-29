@@ -1,4 +1,5 @@
 #include "api.h"
+#include "audio_feedback.h"
 #include "board_pins.h"
 #include "discover.h"
 #include "display.h"
@@ -73,8 +74,10 @@ static void check_or_discover_backend(void)
 
     if (api_check_health() == ESP_OK) {
         display_show("GAP-AI Ready", "Backend: Online", NULL, "Hold 38:Talk 1:OK 2:X");
+        audio_feedback_play(AUDIO_FEEDBACK_BACKEND_CONNECTED);
     } else {
         display_show("GAP-AI", "Backend Offline", "Check URL/Server", "Hold 1+2: Setup");
+        audio_feedback_play(AUDIO_FEEDBACK_BACKEND_UNAVAILABLE);
     }
 }
 
@@ -181,8 +184,11 @@ void app_main(void)
             online = connected;
             show_idle(online);
             if (online) {
+                audio_feedback_play(AUDIO_FEEDBACK_WIFI_CONNECTED);
                 check_or_discover_backend();
                 next_health = now + HEALTH_INTERVAL_MS;
+            } else {
+                audio_feedback_play(AUDIO_FEEDBACK_WIFI_DISCONNECTED);
             }
         }
         if (connected && now >= next_health) {

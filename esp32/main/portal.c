@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "audio_feedback.h"
 #include "display.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
@@ -298,6 +299,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     );
 
     display_show("GAP-AI Setup", "Settings Saved!", "Connecting Wi-Fi", "Restarting...");
+    audio_feedback_play(AUDIO_FEEDBACK_WIFI_SETUP_SUCCESS);
 
     const char *resp_html =
         "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -328,6 +330,7 @@ void portal_start(void)
     ESP_LOGI(TAG, "Entering Configuration Portal mode (SoftAP: GAP-AI-Setup)...");
 
     display_show("GAP-AI Config", "AP: GAP-AI-Setup", "Open Browser:", "http://192.168.4.1");
+    audio_feedback_play(AUDIO_FEEDBACK_WIFI_SETUP_OPENED);
 
     // Stop station Wi-Fi if running
     esp_wifi_stop();

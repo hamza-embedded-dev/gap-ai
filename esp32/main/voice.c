@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "api.h"
+#include "audio_feedback.h"
 #include "audio_play.h"
 #include "audio_record.h"
 #include "board_pins.h"
@@ -37,6 +38,10 @@ typedef struct {
     bool needs_button;
     char proposal_id[48];
     char conversation_id[48];
+    char stt_ms[16];
+    char tts_ms[16];
+    char total_ms[16];
+    char llm_bypassed[8];
 } reply_headers_t;
 
 #if BOARD_HAS_VOICE_HW
@@ -100,6 +105,7 @@ esp_err_t voice_init(void)
     esp_err_t err = gpio_config(&btn);
     if (err == ESP_OK) {
         err = audio_play_init();
+        audio_feedback_init();
     }
     // The mic channel is created once and kept, so the speaker always gets the other I2S port.
     audio_record_cfg_t mic = {
@@ -192,26 +198,12 @@ bool voice_serial_cancel_key(void)
 
 void voice_speaker_test(void);
 
-static void beep(float hz, int ms)
-{
-    if (audio_play_begin(16000) != ESP_OK) {
-        return;
-    }
-    int16_t buf[160];
-    int total = 16 * ms;
-    for (int done = 0; done < total; done += 160) {
-        for (int i = 0; i < 160; i++) {
-            buf[i] = (int16_t)(sinf(2.0f * (float)M_PI * hz * (done + i) / 16000.0f) * 10000.0f);
-        }
-        audio_play_write(buf, 160);
-    }
-    audio_play_end();
-}
+
 
 void voice_speaker_test(void)
 {
-    // Brief, gentle 70ms 440 Hz tone (A4) through the volume limiter instead of a sustained 1s blast
-    beep(440.0f, 70);
+    // Brief affirmation cue through volume limiter
+    audio_feedback_play(AUDIO_FEEDBACK_OPERATION_SUCCESS);
 }
 
 static void show_text(const char *title, const char *text)
@@ -266,6 +258,14 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
         } else if (strcasecmp(evt->header_value, "plan") == 0) {
             s_device_mode = GAP_MODE_PLAN;
         }
+    } else if (strcasecmp(evt->header_key, "X-STT-Duration-Ms") == 0) {
+        strlcpy(h->stt_ms, evt->header_value, sizeof(h->stt_ms));
+    } else if (strcasecmp(evt->header_key, "X-TTS-Duration-Ms") == 0) {
+        strlcpy(h->tts_ms, evt->header_value, sizeof(h->tts_ms));
+    } else if (strcasecmp(evt->header_key, "X-Total-Duration-Ms") == 0) {
+        strlcpy(h->total_ms, evt->header_value, sizeof(h->total_ms));
+    } else if (strcasecmp(evt->header_key, "X-LLM-Bypassed") == 0) {
+        strlcpy(h->llm_bypassed, evt->header_value, sizeof(h->llm_bypassed));
     }
     return ESP_OK;
 }
@@ -506,17 +506,7 @@ void voice_announce_mode(gap_mode_t mode)
     }
 
     if (!played) {
-        if (mode == GAP_MODE_COACH) {
-            beep(600, 70);
-            vTaskDelay(pdMS_TO_TICKS(30));
-            beep(900, 70);
-            vTaskDelay(pdMS_TO_TICKS(30));
-            beep(1200, 100);
-        } else {
-            beep(1000, 80);
-            vTaskDelay(pdMS_TO_TICKS(30));
-            beep(750, 100);
-        }
+        audio_feedback_play(mode == GAP_MODE_COACH ? AUDIO_FEEDBACK_MODE_COACH : AUDIO_FEEDBACK_MODE_PLAN);
     }
 }
 
@@ -697,6 +687,10 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
     int status = esp_http_client_get_status_code(client);
     ESP_LOGI(TAG, "POST /voice -> HTTP %d (%s) in %lld ms", status, h.content_type,
              (esp_timer_get_time() - t0) / 1000);
+    if (h.total_ms[0] != '\0') {
+        ESP_LOGI(TAG, "Latency: STT=%s ms, TTS=%s ms, BackendTotal=%s ms (LLM Bypassed=%s)",
+                 h.stt_ms, h.tts_ms, h.total_ms, h.llm_bypassed);
+    }
     if (hdr_len < 0 || status <= 0) {
         // No HTTP response at all (socket timeout / connection dropped): there is no body to parse.
         ESP_LOGE(TAG, "No response from /voice (fetch_headers=%lld, status=%d)", (long long)hdr_len, status);
@@ -710,6 +704,7 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
     if ((status == 200 || status == 201) && is_wav) {
         ESP_LOGI(TAG, "Transcript: %s | Reply: %s | Intent: %s", h.transcript, h.reply, h.intent);
         if (h.needs_button) {
+            audio_feedback_set_proposal_pending(true);
             display_show("Plan Drafted:", h.reply, NULL, "1: Accept  2: Cancel");
         } else if (strcmp(h.intent, "coach_recommendation") == 0) {
             display_show("Coach Idea:", h.reply, NULL, "1: Accept  2: Cancel");
@@ -718,40 +713,44 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
         } else {
             show_text(s_device_mode == GAP_MODE_COACH ? "GAP-AI Coach:" : "GAP-AI:", h.reply);
         }
+        audio_feedback_set_speech_active(true);
         if (play_wav_stream(client) != ESP_OK) {
             show_text(s_device_mode == GAP_MODE_COACH ? "GAP-AI Coach:" : "GAP-AI:", h.reply);
         }
+        audio_feedback_set_speech_active(false);
     } else {
         read_json_reply(client, &h);
         ESP_LOGI(TAG, "Transcript: %s | Reply: %s | Intent: %s", h.transcript, h.reply, h.intent);
         if (status == 200 || status == 201) {
             if (h.needs_button) {
+                audio_feedback_set_proposal_pending(true);
                 display_show("Plan Drafted:", h.reply, NULL, "1: Accept  2: Cancel");
-                beep(880, 80);
+                audio_feedback_play(AUDIO_FEEDBACK_RESPONSE_READY);
             } else if (strcmp(h.intent, "clarify") == 0) {
                 show_text("Clarification:", h.reply);
-                beep(700, 100);
+                audio_feedback_play(AUDIO_FEEDBACK_RESPONSE_READY);
             } else if (strcmp(h.intent, "unsupported") == 0) {
                 show_text("Not Understood", h.reply);
-                beep(400, 150);
+                audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
             } else {
                 show_text("GAP-AI:", h.reply);
-                // Audio confirmation tone: notifies user that plan was genuinely processed
-                beep(1200, 120);
+                audio_feedback_play(AUDIO_FEEDBACK_OPERATION_SUCCESS);
             }
         } else if (status == 401) {
             show_text("Auth Error", "Invalid DEVICE_TOKEN");
-            beep(400, 200);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         } else {
             char title[24];
             snprintf(title, sizeof(title), "HTTP %d Error", status);
             show_text(title, h.reply[0] ? h.reply : "Server failed");
-            beep(400, 200);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         }
     }
 
     if (strcmp(h.intent, "plan_confirmed") == 0 || strcmp(h.intent, "plan_cancelled") == 0) {
+        s_active_proposal_id[0] = '\0';
         s_active_conversation_id[0] = '\0';
+        audio_feedback_set_proposal_pending(false);
         ESP_LOGI(TAG, "Voice conversation finished with intent '%s', cleared active conversation ID", h.intent);
     }
 
@@ -766,7 +765,8 @@ void voice_accept_proposal(void)
         return;
     }
 
-    beep(1200, 80);
+    audio_feedback_set_proposal_pending(false);
+    audio_feedback_play(AUDIO_FEEDBACK_OPERATION_SUCCESS);
     display_show("Confirming...", NULL, NULL, NULL);
 
     reply_headers_t h = {0};
@@ -800,6 +800,7 @@ void voice_accept_proposal(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "POST %s failed to open: %s", url, esp_err_to_name(err));
         show_text("Network Error", "Connection failed");
+        audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         esp_http_client_cleanup(client);
         return;
     }
@@ -813,6 +814,7 @@ void voice_accept_proposal(void)
         ESP_LOGE(TAG, "No response from /plans/proposals/accept (hdr_len=%lld, status=%d)",
                  (long long)hdr_len, status);
         show_text("No Response", "Server timed out");
+        audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return;
@@ -824,10 +826,12 @@ void voice_accept_proposal(void)
         s_active_conversation_id[0] = '\0';
         show_text("Plan Confirmed!", h.reply[0] ? h.reply : "Saved to schedule");
         if (is_wav) {
+            audio_feedback_set_speech_active(true);
             play_wav_stream(client);
+            audio_feedback_set_speech_active(false);
         } else {
             read_json_reply(client, &h);
-            beep(1200, 120);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_SUCCESS);
         }
     } else {
         read_json_reply(client, &h);
@@ -835,13 +839,13 @@ void voice_accept_proposal(void)
             s_active_proposal_id[0] = '\0';
             s_active_conversation_id[0] = '\0';
             show_text("No Proposal", "No plan waiting for acceptance");
-            beep(400, 150);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         } else if (status == 401) {
             show_text("Auth Error", "Invalid DEVICE_TOKEN");
-            beep(400, 200);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         } else {
             show_text("Accept Failed", "Could not confirm plan");
-            beep(400, 200);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         }
     }
 
@@ -856,7 +860,8 @@ void voice_reject_proposal(void)
         return;
     }
 
-    beep(600, 80);
+    audio_feedback_set_proposal_pending(false);
+    audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
     display_show("Cancelling...", NULL, NULL, NULL);
 
     reply_headers_t h = {0};
@@ -890,6 +895,7 @@ void voice_reject_proposal(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "POST %s failed to open: %s", url, esp_err_to_name(err));
         show_text("Network Error", "Connection failed");
+        audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         esp_http_client_cleanup(client);
         return;
     }
@@ -903,6 +909,7 @@ void voice_reject_proposal(void)
         ESP_LOGE(TAG, "No response from /plans/proposals/reject (hdr_len=%lld, status=%d)",
                  (long long)hdr_len, status);
         show_text("No Response", "Server timed out");
+        audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return;
@@ -912,12 +919,14 @@ void voice_reject_proposal(void)
     if (status == 200) {
         s_active_proposal_id[0] = '\0';
         s_active_conversation_id[0] = '\0';
-        show_text("Plan Cancelled", h.reply[0] ? h.reply : "Draft discarded");
+        show_text("Plan Cancelled", "Plan cancelled.");
         if (is_wav) {
+            audio_feedback_set_speech_active(true);
             play_wav_stream(client);
+            audio_feedback_set_speech_active(false);
         } else {
             read_json_reply(client, &h);
-            beep(600, 80);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         }
     } else {
         read_json_reply(client, &h);
@@ -925,13 +934,13 @@ void voice_reject_proposal(void)
             s_active_proposal_id[0] = '\0';
             s_active_conversation_id[0] = '\0';
             show_text("No Proposal", "No plan waiting to cancel");
-            beep(400, 150);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         } else if (status == 401) {
             show_text("Auth Error", "Invalid DEVICE_TOKEN");
-            beep(400, 200);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         } else {
             show_text("Cancel Failed", "Could not cancel plan");
-            beep(400, 200);
+            audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         }
     }
 
@@ -946,10 +955,12 @@ void voice_run_turn(voice_trigger_t trigger)
         return;
     }
 
-    beep(880, 80); // listening cue
+    // Radio-inspired activation chirp (25ms) indicates listening without blocking speech
+    audio_feedback_play(AUDIO_FEEDBACK_PTT_START);
 
     if (audio_record_start(MAX_AUDIO_DURATION_SEC * 1000) != ESP_OK) {
         show_text("Error", "Mic initialization failed");
+        audio_feedback_play(AUDIO_FEEDBACK_OPERATION_ERROR);
         return;
     }
 
@@ -986,6 +997,9 @@ void voice_run_turn(voice_trigger_t trigger)
         show_text("To talk", "Hold the button");
         return;
     }
+
+    // Play subtle dispatch / submission cue (30ms descending chirp)
+    audio_feedback_play(AUDIO_FEEDBACK_RECORDING_SUBMITTED);
 
     ESP_LOGI(TAG, "Recorded %u bytes (%d ms)", (unsigned)wav_len, held_ms);
     send_and_reply(wav, wav_len);
