@@ -235,7 +235,13 @@ export function CoachView({ state, handlers }: CoachViewProps) {
 
       {state.status === 'error' && state.error && (
         <section className="coach-state coach-state-error" role="alert">
-          <h3>{requiresAuth ? 'Session required' : 'Ideas could not be loaded'}</h3>
+          <h3>
+            {requiresAuth
+              ? 'Session required'
+              : state.error.errorType === 'timeout_error' || state.error.statusCode === 408
+              ? 'Request timed out'
+              : 'Ideas could not be loaded'}
+          </h3>
           <p>{state.error.message}</p>
           <div className="coach-actions">
             {requiresAuth ? (

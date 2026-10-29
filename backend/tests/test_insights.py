@@ -862,6 +862,36 @@ def test_generate_coaching_narrative_with_llm() -> None:
     )
     assert narrative == "Great job finishing your study session! Keep up the habit on Thursday."
     assert mock_llm.complete.called
+    assert mock_llm.complete.call_args.kwargs.get("max_retries") == 0
+
+
+def test_generate_coaching_narrative_llm_timeout_triggers_fallback() -> None:
+    from app.api.insights import generate_coaching_narrative
+    from app.ai.llm import LLMUnavailableError
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm.complete.side_effect = LLMUnavailableError("LLM request timed out after 8.0s")
+
+    metrics = {
+        "period": "week",
+        "planned": 2,
+        "done": 1,
+        "postponed": 0,
+        "skipped": 0,
+        "adherence_pct": 50.0,
+    }
+    narrative = generate_coaching_narrative(
+        mock_llm,
+        metrics=metrics,
+        plans=[{"id": "p1", "title": "Run"}],
+        outcomes=[],
+        user_timezone="UTC",
+    )
+    assert narrative is not None
+    assert "50%" in narrative
+    assert mock_llm.complete.called
+    assert mock_llm.complete.call_args.kwargs.get("max_retries") == 0
 
 
 def test_generate_coaching_narrative_fallback_on_llm_error() -> None:

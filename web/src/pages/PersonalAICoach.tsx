@@ -46,12 +46,15 @@ export const PersonalAICoach: React.FC<PersonalAICoachProps> = ({ token, onRequi
     dispatch({ type: 'load_start' });
     fetchInsights('week')
       .then((data) => {
-        if (!cancelled) dispatch({ type: 'load_ok', cards: data.recommendations ?? [], insights: data });
+        if (!cancelled) {
+          dispatch({ type: 'load_ok', cards: data.recommendations ?? [], insights: data });
+        }
       })
       .catch((err: unknown) => {
         // A 401 clears the token (which cancels this effect); still surface it.
         if (cancelled && !(err instanceof ApiError && err.status === 401)) return;
         if (err instanceof ApiError) {
+          if (err.errorType === 'aborted') return;
           dispatch({ type: 'load_fail', error: { message: err.message, statusCode: err.status, errorType: err.errorType } });
         } else {
           dispatch({ type: 'load_fail', error: { message: err instanceof Error ? err.message : 'An unexpected error occurred while loading ideas.' } });

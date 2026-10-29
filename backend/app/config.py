@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         default=15.0,
         validation_alias="NEBIUS_TIMEOUT_SECONDS",
     )
+    nebius_coaching_timeout_seconds: float = Field(
+        default=5.0,
+        validation_alias="NEBIUS_COACHING_TIMEOUT_SECONDS",
+    )
     groq_api_key: SecretStr | None = Field(
         default=None, validation_alias="GROQ_API_KEY"
     )

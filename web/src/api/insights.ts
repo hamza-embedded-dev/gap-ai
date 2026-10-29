@@ -86,7 +86,8 @@ export async function fetchInsights(
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     return await apiFetch<InsightsResponse>(`/insights?period=${query}`, {
-      method: 'GET', signal: controller.signal,
+      method: 'GET',
+      signal: controller.signal,
     });
   } finally {
     clearTimeout(timeout);

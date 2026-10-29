@@ -2,6 +2,9 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 
 export async function load(url, context, nextLoad) {
+  if (url.endsWith('.css')) {
+    return { format: 'module', source: 'export default {};', shortCircuit: true };
+  }
   if (!url.endsWith('.ts') && !url.endsWith('.tsx')) {
     return nextLoad(url, context);
   }

@@ -70,6 +70,21 @@ export async function apiFetch<T>(
     });
   } catch (err) {
     const originalMessage = err instanceof Error ? err.message : 'Network error';
+    const isAbort =
+      (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) ||
+      (typeof DOMException !== 'undefined' &&
+        err instanceof DOMException &&
+        (err.name === 'AbortError' || err.name === 'TimeoutError')) ||
+      Boolean(options.signal?.aborted);
+
+    if (isAbort) {
+      throw new ApiError(
+        `Request timed out (${originalMessage}). The server took too long to respond.`,
+        408,
+        'timeout_error'
+      );
+    }
+
     throw new ApiError(
       `Unable to connect to server (${originalMessage}). Please ensure the backend service is running.`,
       0,

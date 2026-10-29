@@ -14,6 +14,7 @@ from app.analytics.insights import calculate_insights, calculate_recommendations
 from app.api.errors import APIError
 from app.api.plans import current_user
 from app.api.upcoming import get_system_time
+from app.config import get_settings
 from app.db.plans import AuthenticatedUser, PlanStore, get_plan_store
 from app.recommendations import apply_policy, build_contextual_recommendations
 from app.services.weather import DEFAULT_LATITUDE, DEFAULT_LONGITUDE, WeatherService
@@ -29,6 +30,7 @@ def generate_coaching_narrative(
     plans: list[dict[str, Any]],
     outcomes: list[dict[str, Any]],
     user_timezone: str,
+    timeout: float | None = None,
 ) -> str | None:
     """Generate a personalized AI coaching narrative from actual plans, outcomes, and metrics.
 
@@ -91,8 +93,20 @@ def generate_coaching_narrative(
         {"role": "user", "content": prompt_user},
     ]
 
+    resolved_timeout = timeout
+    if resolved_timeout is None:
+        try:
+            resolved_timeout = get_settings().nebius_coaching_timeout_seconds
+        except Exception:
+            resolved_timeout = 5.0
+
     try:
-        content = llm.complete(messages, timeout=5.0, temperature=0.3)
+        content = llm.complete(
+            messages,
+            timeout=resolved_timeout,
+            temperature=0.3,
+            max_retries=0,
+        )
         narrative = content.strip().strip('"').strip("'")
         if narrative and len(narrative) <= 500 and "\n\n" not in narrative:
             return narrative

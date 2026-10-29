@@ -159,6 +159,7 @@ class NebiusLLMClient:
         json_mode: bool = False,
         temperature: float = 0.0,
         timeout: float | None = None,
+        max_retries: int | None = None,
         extra_payload: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Low-level synchronous call to Nebius Token Factory /chat/completions.
@@ -200,7 +201,8 @@ class NebiusLLMClient:
         # A hung upstream must surface as a fast, controlled 503 well before the
         # device's own HTTP deadline, so transient stalls get one bounded retry and
         # connecting to a dead endpoint fails fast instead of eating the whole budget.
-        attempts = 1 + max(0, self._max_retries)
+        effective_retries = self._max_retries if max_retries is None else max(0, max_retries)
+        attempts = 1 + effective_retries
         started = time.monotonic()
         response: httpx.Response | None = None
         for attempt in range(1, attempts + 1):
@@ -276,6 +278,7 @@ class NebiusLLMClient:
         model: str | None = None,
         temperature: float = 0.0,
         timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> str:
         """Sends chat messages and returns the raw assistant message content as a string."""
         data = self.call(
@@ -284,6 +287,7 @@ class NebiusLLMClient:
             json_mode=False,
             temperature=temperature,
             timeout=timeout,
+            max_retries=max_retries,
         )
         return self._extract_content(data)
 
@@ -294,6 +298,7 @@ class NebiusLLMClient:
         model: str | None = None,
         temperature: float = 0.0,
         timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> dict[str, Any] | list[Any]:
         """Calls Nebius Token Factory in JSON mode and parses the assistant output as JSON.
 
@@ -308,6 +313,7 @@ class NebiusLLMClient:
             json_mode=True,
             temperature=temperature,
             timeout=timeout,
+            max_retries=max_retries,
         )
         content = self._extract_content(data)
 
