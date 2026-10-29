@@ -48,6 +48,13 @@ def _header_text(text: str) -> str:
     return quote(text.strip(), safe="")
 
 
+def _synthesize_speech(tts_client: Any, text: str, voice: str | None = None) -> bytes:
+    try:
+        return tts_client.synthesize(text, voice=voice)
+    except TypeError:
+        return tts_client.synthesize(text)
+
+
 # 320 KB in binary bytes (320 * 1024 = 327,680 bytes)
 # Provides headroom for standard WAV header while enforcing 10s audio limit.
 MAX_AUDIO_BYTES: int = 320 * 1024
@@ -81,6 +88,16 @@ class VoiceClarifyResponse(BaseModel):
 
     transcript: str
     parsed_plan: ParsedPlan
+    conversation_id: str | None = None
+
+
+class VoiceCoachResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    transcript: str
+    reply: str
+    intent: str = "coach_recommendation"
+    recommendation: dict[str, Any] | None = None
     conversation_id: str | None = None
 
 
@@ -190,13 +207,15 @@ VOICE_LANGUAGE: Literal["en"] = "en"
 
 @router.post(
     "/voice",
-    response_model=VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse,
+    response_model=VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse | VoiceCoachResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def handle_voice_endpoint(
     response: Response,
     audio: UploadFile = File(...),
     language: Literal["tr", "en"] | None = Form(default=VOICE_LANGUAGE),
+    mode: Literal["plan", "coach"] | None = Form(default=None),
+    x_device_mode: Literal["plan", "coach"] | None = Header(default=None, alias="X-Device-Mode"),
     current_date: str | None = Form(default=None),
     timezone: str | None = Form(default=None),
     require_confirmation: bool = Form(default=False),
@@ -209,7 +228,7 @@ async def handle_voice_endpoint(
     llm_client: NebiusLLMClient = Depends(get_llm_client),
     tts_client: GroqTTSClient = Depends(get_tts_client),
     engine: ConversationEngine = Depends(get_conversation_engine),
-) -> Response | VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse:
+) -> Response | VoicePlanResponse | VoiceClarifyResponse | VoiceWeatherResponse | VoiceCoachResponse:
 
     try:
         # 1. Timezone verification (D-010)
@@ -308,14 +327,32 @@ async def handle_voice_endpoint(
             else:
                 spoken_text = "Hava durumu bilgisi şu anda alınamıyor."
 
+            # Resolve device mode and active TTS voice early
+            effective_conv_id = conversation_id or x_conversation_id
+            active_session = (
+                engine.get_session(effective_conv_id)
+                if effective_conv_id
+                else engine.get_active_session_for_user(user.id)
+            )
+
+            device_mode: Literal["plan", "coach"] = mode or x_device_mode or "plan"
+            if active_session and getattr(active_session, "mode", None):
+                if not mode and not x_device_mode:
+                    device_mode = active_session.mode
+
+            active_tts_voice = (
+                get_settings().tts_coach_voice if device_mode == "coach" else get_settings().tts_voice
+            )
+
             if _wants_wav(accept) and get_settings().tts_enabled:
                 try:
-                    wav_bytes = tts_client.synthesize(spoken_text)
+                    wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
                     headers = {
                         "Content-Type": "audio/wav",
                         "X-Transcript": _header_text(transcript),
                         "X-Reply-Text": _header_text(spoken_text),
                         "X-Intent": "weather",
+                        "X-Device-Mode": device_mode,
                         "X-Needs-Button": "false",
                     }
                     return Response(
@@ -342,14 +379,28 @@ async def handle_voice_endpoint(
             else engine.get_active_session_for_user(user.id)
         )
 
+        device_mode: Literal["plan", "coach"] = mode or x_device_mode or "plan"
+        if active_session and getattr(active_session, "mode", None):
+            if not mode and not x_device_mode:
+                device_mode = active_session.mode
+
+        active_tts_voice = (
+            get_settings().tts_coach_voice if device_mode == "coach" else get_settings().tts_voice
+        )
+
         parsed_plan: ParsedPlan | None = None
 
         if effective_conv_id and active_session and active_session.state in (
             ConversationState.AWAITING_CLARIFICATION,
             ConversationState.AWAITING_CONFIRMATION,
+            ConversationState.COACH_RECOMMENDING,
+            ConversationState.COACH_AWAITING_TIME_CHANGE,
+            ConversationState.COACH_COLLECTING_TIME,
         ):
             # Follow-up turn for an explicit active conversation session:
             # Let the conversation engine handle clarification/confirmation context natively.
+            parsed_plan = None
+        elif device_mode == "coach":
             parsed_plan = None
         else:
             # Fresh plan request (or client without conversation ID):
@@ -373,7 +424,7 @@ async def handle_voice_endpoint(
                 # Short follow-up answer without title (e.g. "2 AM", "Thirty"): continue active session
                 parsed_plan = None
 
-        if _wants_wav(accept) or require_confirmation or active_session is not None or effective_conv_id:
+        if _wants_wav(accept) or require_confirmation or active_session is not None or effective_conv_id or device_mode == "coach":
             turn_result = engine.process_message(
                 user=user,
                 text=transcript,
@@ -384,8 +435,85 @@ async def handle_voice_endpoint(
                 llm_client=llm_client,
                 parsed_plan=parsed_plan,
                 source="voice",
+                mode=device_mode,
             )
             spoken_text = turn_result.reply_text
+
+            # Coach Mode recommendations & time prompt states
+            if turn_result.state in (
+                ConversationState.COACH_RECOMMENDING,
+                ConversationState.COACH_AWAITING_TIME_CHANGE,
+                ConversationState.COACH_COLLECTING_TIME,
+            ):
+                intent_name = (
+                    "coach_recommendation"
+                    if turn_result.state == ConversationState.COACH_RECOMMENDING
+                    else "coach_time_prompt"
+                )
+                if _wants_wav(accept) and get_settings().tts_enabled:
+                    try:
+                        wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        headers = {
+                            "Content-Type": "audio/wav",
+                            "X-Transcript": _header_text(transcript),
+                            "X-Reply-Text": _header_text(spoken_text),
+                            "X-Intent": intent_name,
+                            "X-Device-Mode": device_mode,
+                            "X-Needs-Button": "false",
+                            "X-Conversation-Id": str(turn_result.conversation_id),
+                        }
+                        if turn_result.recommendation and "id" in turn_result.recommendation:
+                            headers["X-Recommendation-Id"] = str(turn_result.recommendation["id"])
+                        return Response(
+                            content=wav_bytes,
+                            status_code=status.HTTP_200_OK,
+                            media_type="audio/wav",
+                            headers=headers,
+                        )
+                    except TTSError as exc:
+                        logger.warning("TTS failed on %s: %s", intent_name, exc)
+
+                response.status_code = status.HTTP_200_OK
+                return VoiceCoachResponse(
+                    transcript=transcript,
+                    reply=spoken_text,
+                    intent=intent_name,
+                    recommendation=turn_result.recommendation,
+                    conversation_id=str(turn_result.conversation_id),
+                )
+
+            # Informational queries (e.g. "Do I have pending plans?")
+            if turn_result.prompt_type == "info":
+                if _wants_wav(accept) and get_settings().tts_enabled:
+                    try:
+                        wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
+                        headers = {
+                            "Content-Type": "audio/wav",
+                            "X-Transcript": _header_text(transcript),
+                            "X-Reply-Text": _header_text(spoken_text),
+                            "X-Intent": "info",
+                            "X-Device-Mode": device_mode,
+                            "X-Needs-Button": "true" if turn_result.needs_button else "false",
+                            "X-Conversation-Id": str(turn_result.conversation_id),
+                        }
+                        if turn_result.proposal and "id" in turn_result.proposal:
+                            headers["X-Proposal-Id"] = str(turn_result.proposal["id"])
+                        return Response(
+                            content=wav_bytes,
+                            status_code=status.HTTP_200_OK,
+                            media_type="audio/wav",
+                            headers=headers,
+                        )
+                    except TTSError as exc:
+                        logger.warning("TTS failed on info: %s", exc)
+
+                response.status_code = status.HTTP_200_OK
+                return VoiceCoachResponse(
+                    transcript=transcript,
+                    reply=spoken_text,
+                    intent="info",
+                    conversation_id=str(turn_result.conversation_id),
+                )
 
             if turn_result.state == ConversationState.AWAITING_CONFIRMATION:
                 prop_record = turn_result.proposal or {}
@@ -393,17 +521,20 @@ async def handle_voice_endpoint(
                 proposal_id = str(prop_record.get("id") or "")
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
-                        wav_bytes = tts_client.synthesize(spoken_text)
+                        wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
                             "X-Reply-Text": _header_text(spoken_text),
                             "X-Intent": "propose_plan",
+                            "X-Device-Mode": device_mode,
                             "X-Proposal-Id": proposal_id,
                             "X-Proposal-Title": _header_text(prop_title),
                             "X-Needs-Button": "true",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
+                        if turn_result.recommendation and "id" in turn_result.recommendation:
+                            headers["X-Recommendation-Id"] = str(turn_result.recommendation["id"])
                         return Response(
                             content=wav_bytes,
                             status_code=status.HTTP_201_CREATED,
@@ -438,12 +569,13 @@ async def handle_voice_endpoint(
             if turn_result.state == ConversationState.COMPLETED:
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
-                        wav_bytes = tts_client.synthesize(spoken_text)
+                        wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
                             "X-Reply-Text": _header_text(spoken_text),
                             "X-Intent": "plan_confirmed",
+                            "X-Device-Mode": device_mode,
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
@@ -482,12 +614,13 @@ async def handle_voice_endpoint(
             if turn_result.state == ConversationState.CANCELLED:
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
-                        wav_bytes = tts_client.synthesize(spoken_text)
+                        wav_bytes = _synthesize_speech(tts_client, spoken_text, voice=active_tts_voice)
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
                             "X-Reply-Text": _header_text(spoken_text),
                             "X-Intent": "plan_cancelled",
+                            "X-Device-Mode": device_mode,
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
@@ -523,12 +656,13 @@ async def handle_voice_endpoint(
                 clarify_q = turn_result.reply_text
                 if _wants_wav(accept) and get_settings().tts_enabled:
                     try:
-                        wav_bytes = tts_client.synthesize(clarify_q)
+                        wav_bytes = _synthesize_speech(tts_client, clarify_q, voice=active_tts_voice)
                         headers = {
                             "Content-Type": "audio/wav",
                             "X-Transcript": _header_text(transcript),
                             "X-Reply-Text": _header_text(clarify_q),
                             "X-Intent": "clarify",
+                            "X-Device-Mode": device_mode,
                             "X-Needs-Button": "false",
                             "X-Conversation-Id": str(turn_result.conversation_id),
                         }
@@ -564,12 +698,13 @@ async def handle_voice_endpoint(
             if _wants_wav(accept) and get_settings().tts_enabled:
                 unsupported_msg = spoken_text or "Sorry, I could not understand that plan request."
                 try:
-                    wav_bytes = tts_client.synthesize(unsupported_msg)
+                    wav_bytes = _synthesize_speech(tts_client, unsupported_msg, voice=active_tts_voice)
                     headers = {
                         "Content-Type": "audio/wav",
                         "X-Transcript": _header_text(transcript),
                         "X-Reply-Text": _header_text(unsupported_msg),
                         "X-Intent": "unsupported",
+                        "X-Device-Mode": device_mode,
                         "X-Needs-Button": "false",
                         "X-Conversation-Id": str(turn_result.conversation_id),
                     }
@@ -740,3 +875,32 @@ async def handle_voice_endpoint(
 
     finally:
         await audio.close()
+
+
+@router.get("/voice/mode-announcement")
+async def get_mode_announcement(
+    mode: Literal["plan", "coach"] = "plan",
+    tts_client: GroqTTSClient = Depends(get_tts_client),
+) -> Response:
+    settings = get_settings()
+    if mode == "coach":
+        text = "Coach mode active. What would you like to explore today?"
+        voice = settings.tts_coach_voice
+    else:
+        text = "Plan mode active."
+        voice = settings.tts_voice
+
+    try:
+        wav_bytes = _synthesize_speech(tts_client, text, voice=voice)
+    except TTSError as exc:
+        raise APIError(503, "tts_failed", f"Failed to synthesize mode announcement: {exc}") from exc
+
+    return Response(
+        content=wav_bytes,
+        media_type="audio/wav",
+        headers={
+            "Content-Type": "audio/wav",
+            "X-Device-Mode": mode,
+            "X-Reply-Text": _header_text(text),
+        },
+    )

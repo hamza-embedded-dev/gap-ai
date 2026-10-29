@@ -985,7 +985,14 @@ class FallbackTTSClient(GroqTTSClient):
         t1 = time.monotonic()
         try:
             logger.info("Attempting fallback TTS provider=tts.ai")
-            audio = self._fallback.synthesize(text, timeout=timeout)
+            settings = get_settings()
+            fallback_voice = None
+            if voice:
+                if voice in (settings.tts_coach_voice, "troy", "austin"):
+                    fallback_voice = getattr(settings, "tts_ai_coach_voice", "am_adam")
+                elif voice in ("af_heart", "am_adam", "am_michael", "bm_george", "bm_lewis"):
+                    fallback_voice = voice
+            audio = self._fallback.synthesize(text, voice=fallback_voice, timeout=timeout)
             logger.info("Fallback TTS provider=tts.ai succeeded (duration=%.2fs)", time.monotonic() - t1)
             return audio
         except Exception as fb_exc:

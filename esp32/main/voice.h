@@ -11,6 +11,18 @@ typedef enum {
     VOICE_TRIGGER_SERIAL, // record until the next Enter on the serial console
 } voice_trigger_t;
 
+typedef enum {
+    GAP_MODE_PLAN = 0,
+    GAP_MODE_COACH = 1,
+} gap_mode_t;
+
+// Mode management
+gap_mode_t voice_get_mode(void);
+void voice_set_mode(gap_mode_t mode);
+gap_mode_t voice_toggle_mode(void);
+const char *voice_get_mode_str(void);
+void voice_announce_mode(gap_mode_t mode);
+
 // True while the talk button (PIN_BTN_RECORD / GPIO 38) is held down.
 bool voice_button_pressed(void);
 
