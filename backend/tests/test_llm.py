@@ -211,7 +211,11 @@ def test_provider_server_5xx_raises_llm_unavailable_error(status_code: int) -> N
 
 
 def test_timeout_raises_llm_unavailable_error() -> None:
+    call_count = 0
+
     def mock_handler(_: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
         raise httpx.ReadTimeout("Request timed out waiting for Nebius")
 
     transport = httpx.MockTransport(mock_handler)
@@ -219,6 +223,23 @@ def test_timeout_raises_llm_unavailable_error() -> None:
         client = NebiusLLMClient(api_key=TEST_API_KEY, http_client=http_client)
         with pytest.raises(LLMUnavailableError, match="timed out"):
             client.complete([{"role": "user", "content": "Hi"}])
+        assert call_count == 2, "Default max_retries=1 should perform initial call + 1 retry"
+
+
+def test_timeout_with_zero_retries_does_not_duplicate_call() -> None:
+    call_count = 0
+
+    def mock_handler(_: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        raise httpx.ReadTimeout("Request timed out waiting for Nebius")
+
+    transport = httpx.MockTransport(mock_handler)
+    with httpx.Client(transport=transport) as http_client:
+        client = NebiusLLMClient(api_key=TEST_API_KEY, http_client=http_client)
+        with pytest.raises(LLMUnavailableError, match="timed out"):
+            client.complete([{"role": "user", "content": "Hi"}], max_retries=0)
+        assert call_count == 1, "max_retries=0 must make exactly 1 attempt with no duplicate retries"
 
 
 def test_connect_error_raises_llm_unavailable_error() -> None:

@@ -25,17 +25,31 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   retryText = 'Retry Connection',
   onRequireAuth,
 }) => {
+  const isTimeout =
+    errorType === 'timeout_error' ||
+    statusCode === 408 ||
+    message.toLowerCase().includes('timed out') ||
+    message.toLowerCase().includes('timeout');
+
+  const isAborted = errorType === 'aborted';
+
   const isNetworkOrDown =
-    errorType === 'network_error' ||
-    statusCode === 0 ||
-    message.toLowerCase().includes('connect') ||
-    message.toLowerCase().includes('network') ||
-    message.toLowerCase().includes('offline');
+    !isTimeout &&
+    !isAborted &&
+    (errorType === 'network_error' ||
+      statusCode === 0 ||
+      message.toLowerCase().includes('connect') ||
+      message.toLowerCase().includes('network') ||
+      message.toLowerCase().includes('offline'));
 
   const resolvedTitle =
     title ||
     (statusCode === 401 || errorType === 'auth_required'
       ? 'Session Required'
+      : isTimeout
+      ? 'Request Timed Out'
+      : isAborted
+      ? 'Request Cancelled'
       : isNetworkOrDown
       ? 'Backend Service Offline'
       : statusCode
@@ -45,9 +59,13 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   const requiresAuth = statusCode === 401 || errorType === 'auth_required';
   const resolvedHint = requiresAuth
     ? 'Your session is missing or expired. Start a new demo session or provide a valid access token to continue.'
-    : isNetworkOrDown
-      ? 'Unable to reach the GAP-AI service. Check your internet connection and try again.'
-      : 'If this issue persists, refresh the page or contact your administrator.';
+    : isTimeout
+      ? 'The server took longer than expected to respond. Please try again.'
+      : isAborted
+        ? 'The request was cancelled before it could complete.'
+        : isNetworkOrDown
+          ? 'Unable to reach the GAP-AI service. Check your internet connection and try again.'
+          : 'If this issue persists, refresh the page or contact your administrator.';
 
   return (
     <section className="error-state-card" id={id} role="alert" aria-live="assertive">
