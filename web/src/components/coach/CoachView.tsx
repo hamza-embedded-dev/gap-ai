@@ -71,48 +71,46 @@ function CoachCard({ card, state, handlers }: { card: RecommendationCard; state:
       {whyOpen && (
         <p id={whyId} className="coach-why" role="note">
           {card.why}
-          {card.source === 'discovery' ? ' This is a neutral starter and uses no history.' : ''}
+          {card.source === 'discovery' ? ' This is a general starter suggestion and is not based on your history.' : ''}
         </p>
       )}
 
-      {card.source === 'discovery' && (
-        <div className="coach-schedule" role="group" aria-label={`Schedule for ${card.title}`}>
-          <div className="coach-schedule-field">
-            <label htmlFor={`coach-date-${card.id}`}>Date</label>
-            <input
-              id={`coach-date-${card.id}`}
-              type="date"
-              value={effectiveDate(card, state.scheduledDates)}
-              min={TODAY}
-              disabled={busy}
-              onChange={(e) => handlers.onDateInput(card, e.target.value)}
-            />
-          </div>
-          <div className="coach-schedule-field">
-            <label htmlFor={`coach-time-${card.id}`}>Start time</label>
-            <input
-              id={`coach-time-${card.id}`}
-              type="time"
-              value={effectiveTime(card, state.scheduledTimes)}
-              disabled={busy}
-              onChange={(e) => handlers.onTimeInput(card, e.target.value)}
-            />
-          </div>
-          <div className="coach-schedule-field coach-duration">
-            <label htmlFor={`coach-duration-${card.id}`}>Duration (minutes)</label>
-            <input
-              id={`coach-duration-${card.id}`}
-              type="number"
-              inputMode="numeric"
-              min={5}
-              max={1440}
-              value={effectiveDuration(card, state.durations)}
-              disabled={busy}
-              onChange={(e) => handlers.onDurationInput(card, Number(e.target.value))}
-            />
-          </div>
+      <div className="coach-schedule" role="group" aria-label={`Schedule for ${card.title}`}>
+        <div className="coach-schedule-field">
+          <label htmlFor={`coach-date-${card.id}`}>Date</label>
+          <input
+            id={`coach-date-${card.id}`}
+            type="date"
+            value={effectiveDate(card, state.scheduledDates)}
+            min={TODAY}
+            disabled={busy}
+            onChange={(e) => handlers.onDateInput(card, e.target.value)}
+          />
         </div>
-      )}
+        <div className="coach-schedule-field">
+          <label htmlFor={`coach-time-${card.id}`}>Start time</label>
+          <input
+            id={`coach-time-${card.id}`}
+            type="time"
+            value={effectiveTime(card, state.scheduledTimes)}
+            disabled={busy}
+            onChange={(e) => handlers.onTimeInput(card, e.target.value)}
+          />
+        </div>
+        <div className="coach-schedule-field coach-duration">
+          <label htmlFor={`coach-duration-${card.id}`}>Duration (minutes)</label>
+          <input
+            id={`coach-duration-${card.id}`}
+            type="number"
+            inputMode="numeric"
+            min={5}
+            max={1440}
+            value={effectiveDuration(card, state.durations)}
+            disabled={busy}
+            onChange={(e) => handlers.onDurationInput(card, Number(e.target.value))}
+          />
+        </div>
+      </div>
 
       <div className="coach-actions" role="group" aria-label={`Actions for ${card.title}`}>
         <button
@@ -146,16 +144,12 @@ function CoachCard({ card, state, handlers }: { card: RecommendationCard; state:
         <button type="button" className="coach-btn coach-btn-ghost" disabled={busy} onClick={() => handlers.onDismiss(card)}>
           Not interested
         </button>
-        {card.source === 'discovery' && (
-          <>
-            <button type="button" className="coach-btn coach-btn-secondary" disabled={busy} onClick={() => handlers.onSaveDuration(card)}>
-              Change duration
-            </button>
-            <button type="button" className="coach-btn coach-btn-primary" disabled={busy} onClick={() => handlers.onAddToPlans(card)}>
-              {state.busyId === card.id ? 'Working\u2026' : 'Add to My Plans'}
-            </button>
-          </>
-        )}
+        <button type="button" className="coach-btn coach-btn-secondary" disabled={busy} onClick={() => handlers.onSaveDuration(card)}>
+          Change duration
+        </button>
+        <button type="button" className="coach-btn coach-btn-primary" disabled={busy} onClick={() => handlers.onAddToPlans(card)}>
+          {state.busyId === card.id ? 'Working\u2026' : 'Add to My Plans'}
+        </button>
       </div>
     </article>
   );
@@ -171,7 +165,7 @@ export function CoachView({ state, handlers }: CoachViewProps) {
         <div>
           <h2 className="coach-title">Personal AI Coach</h2>
           <p className="coach-subtitle">
-            Evidence-based ideas drawn from your plan history and stated context. Rate them to shape what you see next.
+            Personalized analysis and actionable recommendations drawn from your plan history and voice activity.
           </p>
         </div>
         <button
@@ -188,6 +182,49 @@ export function CoachView({ state, handlers }: CoachViewProps) {
         {state.notice && <p role="status" className="coach-banner coach-banner-success">{state.notice}</p>}
       </div>
       {state.actionError && <p role="alert" className="coach-banner coach-banner-error">{state.actionError}</p>}
+
+      {state.insights?.narrative && (
+        <section className="coach-narrative-card" id="coach-narrative-section" aria-label="Personal AI Coach Analysis">
+          <span className="coach-narrative-badge">Personalized AI Coach Insight</span>
+          <p className="coach-narrative-text">{state.insights.narrative}</p>
+        </section>
+      )}
+
+      {state.insights && (
+        <section className="coach-history-summary" id="coach-history-summary" aria-label="Plan and Completion History">
+          <div className="coach-metric-card" id="coach-stat-adherence">
+            <span className="coach-metric-label">Adherence Rate</span>
+            <span className="coach-metric-value">
+              {state.insights.adherence_pct !== null && state.insights.adherence_pct !== undefined
+                ? `${Math.round(state.insights.adherence_pct)}%`
+                : '—'}
+            </span>
+            <span className="coach-metric-subtext">
+              {state.insights.adherence_pct !== null ? 'Completion of reported plans' : 'Log task outcomes to calculate'}
+            </span>
+          </div>
+          <div className="coach-metric-card" id="coach-stat-planned">
+            <span className="coach-metric-label">Planned</span>
+            <span className="coach-metric-value">{state.insights.planned}</span>
+            <span className="coach-metric-subtext">This period</span>
+          </div>
+          <div className="coach-metric-card" id="coach-stat-done">
+            <span className="coach-metric-label">Completed</span>
+            <span className="coach-metric-value">{state.insights.done}</span>
+            <span className="coach-metric-subtext">Tasks finished</span>
+          </div>
+          <div className="coach-metric-card" id="coach-stat-postponed">
+            <span className="coach-metric-label">Postponed</span>
+            <span className="coach-metric-value">{state.insights.postponed}</span>
+            <span className="coach-metric-subtext">Rescheduled tasks</span>
+          </div>
+          <div className="coach-metric-card" id="coach-stat-unreported">
+            <span className="coach-metric-label">Active / Pending</span>
+            <span className="coach-metric-value">{state.insights.unreported}</span>
+            <span className="coach-metric-subtext">Awaiting completion</span>
+          </div>
+        </section>
+      )}
 
       {state.status === 'loading' && (
         <div className="coach-grid" aria-busy="true" aria-label="Loading your ideas">

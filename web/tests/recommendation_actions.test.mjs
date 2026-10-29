@@ -173,11 +173,59 @@ describe('Coach view rendering (real component output)', () => {
     for (const label of ['Tell me why this was suggested', 'Useful', 'Not useful', 'Not interested', 'Change duration', 'Add to My Plans', 'Show another idea']) {
       assert.ok(html.includes(label), `missing ${label}`);
     }
-    assert.equal((html.match(/Add to My Plans/g) || []).length, 1, 'discovery only');
+    assert.equal((html.match(/Add to My Plans/g) || []).length, 3, 'all actionable cards support scheduling and adding to plans');
     assert.match(html, /Not based on your history/);
     assert.match(html, /type="date"/);
     assert.match(html, /type="time"/);
     assert.match(html, /Start time/);
+  });
+
+  it('renders AI coaching narrative and real plan history metrics when insights are present', () => {
+    const insights = {
+      period: 'week',
+      planned: 5,
+      done: 3,
+      postponed: 1,
+      skipped: 0,
+      unreported: 1,
+      adherence_pct: 75,
+      narrative: 'Strong momentum this week! You completed 3 tasks.',
+      recommendations: [discovery()],
+    };
+    const html = render(ready([discovery()], { insights }));
+    assert.match(html, /Personalized AI Coach Insight/);
+    assert.match(html, /Strong momentum this week/);
+    assert.match(html, /Adherence Rate/);
+    assert.match(html, /75%/);
+    assert.match(html, /Completed/);
+    assert.match(html, /Postponed/);
+    assert.match(html, /Active \/ Pending/);
+  });
+
+  it('schedules a behavior recommendation card for a future date and time upon confirmation', async () => {
+    const { deps, calls } = makeDeps();
+    const keys = new Map();
+    const futureDate = '2026-11-02';
+    const futureTime = '11:00';
+    const behaviorCard = card({ id: 'behavior-1', title: 'Adjust postponed workout' });
+    const msg = await addToPlans(deps, behaviorCard, 40, keys, { date: futureDate, time: futureTime });
+    assert.match(msg, /Added/);
+    assert.equal(calls.plans.length, 1);
+    assert.deepEqual(calls.plans[0].plan, {
+      intent: 'create_plan',
+      title: 'Adjust postponed workout',
+      category: 'personal',
+      date: '2026-11-02',
+      time: '11:00',
+      duration_minutes: 40,
+      recurrence: null,
+      language: 'en',
+      needs_weather_check: false,
+      clarification_question: null,
+      confidence: 1,
+    });
+    assert.match(calls.confirms[0], /Adjust postponed workout.*2026-11-02 at 11:00.*40 minutes/);
+    assert.deepEqual(calls.feedback, [{ recommendation_id: 'behavior-1', action: 'accepted' }]);
   });
 
   it('shows success notice, pressed rating, and the why panel when requested', () => {

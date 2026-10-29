@@ -74,6 +74,77 @@
   color: var(--coach-ink-soft);
 }
 
+/* AI Coach Narrative Card */
+.coach-narrative-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--coach-accent-soft) 0%, #ffffff 100%);
+  border: 1px solid #ddd6fe;
+  box-shadow: 0 1px 3px rgba(109, 40, 217, 0.08);
+}
+
+.coach-narrative-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: var(--coach-accent);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.coach-narrative-text {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--coach-ink);
+}
+
+/* History & Adherence Metrics Overview */
+.coach-history-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 12px;
+}
+
+.coach-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--coach-border);
+  border-radius: 12px;
+  background: var(--coach-surface-alt);
+}
+
+.coach-metric-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--coach-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.coach-metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--coach-ink);
+  line-height: 1.2;
+}
+
+.coach-metric-subtext {
+  font-size: 0.75rem;
+  color: var(--coach-ink-soft);
+}
+
 /* Cards */
 .coach-grid {
   display: grid;

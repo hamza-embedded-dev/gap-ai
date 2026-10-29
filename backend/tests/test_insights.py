@@ -833,3 +833,150 @@ def test_api_insights_pydantic_schema_extra_forbid() -> None:
     }
     with pytest.raises(Exception):
         InsightsResponse.model_validate(payload)
+
+
+def test_generate_coaching_narrative_with_llm() -> None:
+    from app.api.insights import generate_coaching_narrative
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = "Great job finishing your study session! Keep up the habit on Thursday."
+
+    metrics = {
+        "period": "week",
+        "planned": 3,
+        "done": 2,
+        "postponed": 1,
+        "skipped": 0,
+        "adherence_pct": 66.7,
+    }
+    plans = [{"id": "p1", "title": "Math study"}]
+    outcomes = [{"id": "o1", "plan_id": "p1", "status": "done"}]
+
+    narrative = generate_coaching_narrative(
+        mock_llm,
+        metrics=metrics,
+        plans=plans,
+        outcomes=outcomes,
+        user_timezone="Europe/Istanbul",
+    )
+    assert narrative == "Great job finishing your study session! Keep up the habit on Thursday."
+    assert mock_llm.complete.called
+
+
+def test_generate_coaching_narrative_fallback_on_llm_error() -> None:
+    from app.api.insights import generate_coaching_narrative
+    from app.ai.llm import LLMUnavailableError
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm.complete.side_effect = LLMUnavailableError("Nebius service unavailable")
+
+    metrics = {
+        "period": "week",
+        "planned": 4,
+        "done": 3,
+        "postponed": 1,
+        "skipped": 0,
+        "adherence_pct": 75.0,
+    }
+    narrative = generate_coaching_narrative(
+        mock_llm,
+        metrics=metrics,
+        plans=[{"id": "p1", "title": "Yoga"}],
+        outcomes=[],
+        user_timezone="Europe/Istanbul",
+    )
+    assert narrative is not None
+    assert "75%" in narrative
+    assert "3 of 4" in narrative
+
+
+def test_generate_coaching_narrative_deterministic_variants() -> None:
+    from app.api.insights import generate_coaching_narrative
+
+    # Variant 1: No plans at all
+    n_empty = generate_coaching_narrative(
+        None,
+        metrics={"period": "week", "planned": 0, "done": 0, "postponed": 0, "skipped": 0, "adherence_pct": None},
+        plans=[],
+        outcomes=[],
+        user_timezone="Europe/Istanbul",
+    )
+    assert "Welcome to your Personal AI Coach" in n_empty
+
+    # Variant 2: Plans created (e.g. via ESP32 voice) but not yet completed
+    n_pending = generate_coaching_narrative(
+        None,
+        metrics={"period": "week", "planned": 2, "done": 0, "postponed": 0, "skipped": 0, "adherence_pct": None},
+        plans=[{"id": "p1", "title": "Run"}, {"id": "p2", "title": "Read"}],
+        outcomes=[],
+        user_timezone="Europe/Istanbul",
+    )
+    assert "2 planned activities scheduled" in n_pending
+
+
+def test_api_insights_returns_narrative_and_isolates_user(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+    from app.ai.llm import get_llm_client
+
+    settings = SimpleNamespace(
+        token_hash_pepper=SecretStr(PEPPER),
+        allowed_origins=[],
+        supabase_url=None,
+        supabase_service_key=None,
+    )
+    monkeypatch.setattr("app.api.plans.get_settings", lambda: settings)
+
+    fake_store = FakeInsightsStore()
+    user_a = AuthenticatedUser("user-narrative-a", "Europe/Istanbul", False, None)
+    user_b = AuthenticatedUser("user-narrative-b", "Europe/Istanbul", False, None)
+    fake_store.tokens[HASH_USER_A] = (user_a, None)
+    fake_store.tokens[HASH_USER_B] = (user_b, None)
+
+    fake_store.add_plan(user_id="user-narrative-a", title="User A Private Run", start=datetime(2026, 10, 14, 10, 0, tzinfo=TZ_ISTANBUL))
+
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = "Keep moving, User A!"
+    app.dependency_overrides[get_plan_store] = lambda: fake_store
+    app.dependency_overrides[get_system_time] = lambda: FIXED_NOW
+    app.dependency_overrides[get_llm_client] = lambda: mock_llm
+
+    try:
+        client = TestClient(app)
+        resp_a = client.get("/insights", headers={"Authorization": f"Bearer {TOKEN_USER_A}"})
+        assert resp_a.status_code == 200
+        assert resp_a.json()["narrative"] == "Keep moving, User A!"
+
+        # User B should NOT see User A's narrative or plans
+        mock_llm.complete.return_value = "Welcome User B!"
+        resp_b = client.get("/insights", headers={"Authorization": f"Bearer {TOKEN_USER_B}"})
+        assert resp_b.status_code == 200
+        assert resp_b.json()["planned"] == 0
+        assert "User A Private Run" not in str(resp_b.json())
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_contextual_early_habit_signals_when_outcomes_under_three() -> None:
+    from app.recommendations import build_contextual_recommendations
+
+    plans = [
+        {"id": "p-done", "title": "Morning Walk", "category": "sport", "planned_start": "2026-10-15T09:00:00+03:00", "duration_minutes": 25},
+    ]
+    outcomes = [
+        {"id": "o-done", "plan_id": "p-done", "status": "done", "reported_at": "2026-10-15T09:30:00+03:00"},
+    ]
+    cards = build_contextual_recommendations(
+        profile={},
+        plans=plans,
+        now=FIXED_NOW,
+        timezone_name="Europe/Istanbul",
+        outcomes=outcomes,
+    )
+    early_done = [c for c in cards if c["id"].startswith("context-early-done")]
+    assert len(early_done) == 1
+    assert "Morning Walk" in early_done[0]["title"]
+    assert early_done[0]["label"] == "Early habit signal"
+    assert early_done[0]["duration_minutes"] == 25
+

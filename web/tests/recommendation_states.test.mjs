@@ -36,11 +36,11 @@ describe('recommendation state regression coverage', () => {
     assert.match(coachView, /Show another idea/);
   });
 
-  it('keeps coach-card plan creation limited to confirmed discovery ideas', () => {
-    assert.match(coachView, /card\.source === 'discovery' && \(\s*<>/);
+  it('allows actionable coach cards to be scheduled and added to plans after confirmation', () => {
     assert.match(coachView, /Add to My Plans/);
     assert.match(coachActions, /deps\.confirm\(`Add/);
     assert.match(coachView, /card\.label && /);
+    assert.match(coachView, /coach-narrative-card|coach-history-summary/);
   });
 
   it('loads plan-specific suggestions only on request and confirms time changes before PUT', () => {
