@@ -1,131 +1,181 @@
-# GAP-AI ESP32 Firmware
+# GAP-AI ESP32-S3 Firmware
 
-ESP-IDF tabanlı cihaz firmware'i. Şu an Wi-Fi'a bağlanıyor ve backend'e `GET /health` isteği atıyor (D1-1). Butonlar (D1-2), ekran (D1-3) ve mikrofon (D2) bu iskeletin üzerine eklenecek.
+GAP-AI cihaz firmware'i, ESP-IDF ile geliştirilmiştir. Wi-Fi bağlantısı,
+backend sağlık kontrolü, ses kaydı ve oynatma, cihaz butonları ve OLED
+arayüzünü destekler.
 
-## Desteklenen kartlar
+Bu doküman mevcut ESP32-S3 demo donanımını temel alır. Donanım veya yazılım
+revizyonlarına göre pinler ve yapılandırma değişebilir.
 
-Kod çipe özel bir şey kullanmıyor; hedef çip derleme sırasında seçiliyor.
+## Demo özellikleri
 
-| Çip | Hedef | Durum |
-|---|---|---|
-| ESP32 (classic) | `esp32` | Donanımda test edildi |
-| ESP32-S3 | `esp32s3` | Derleniyor |
-| ESP32-C3 | `esp32c3` | Desteklenmeli (RISC-V araç zinciri gerekir) |
-| ESP32-S2 / C6 | `esp32s2` / `esp32c6` | Desteklenmeli |
+- Wi-Fi bağlantısı ve backend bağlantı kontrolü (`GET /health`)
+- Push-to-talk ile ses kaydı
+- Kaydedilen sesin backend'e `POST /voice` isteğiyle gönderilmesi
+- Backend yanıtındaki konuşma metninin ve sesin işlenmesi
+- I2S üzerinden hoparlör ses çıkışı
+- OLED ekran desteği
+- Plan ve Coach modları
+- Kabul ve iptal butonlarıyla desteklenen öneri akışları
+- Bağlantı ve etkileşimler için sesli geri bildirim
+- Seri port üzerinden cihaz günlükleri
 
-Gereksinimler: en az **4 MB flash** ve **2.4 GHz** Wi-Fi (ESP32'ler 5 GHz ağlara bağlanamaz).
+Özelliklerin kullanılabilirliği backend yapılandırmasına, Wi-Fi bağlantısına,
+servis erişimine ve bağlı donanıma bağlıdır. Gelecekteki proaktif kişisel
+Coach deneyimini tamamlanmış bir özellik olarak değerlendirmeyin.
+
+## Desteklenen donanım
+
+Fiziksel demo kurulumu ESP32-S3 tabanlı kart için hazırlanmıştır.
+
+| Bileşen | Demo bağlantısı |
+|---|---|
+| OLED ekran | SSD1306, I2C, adres `0x3C` |
+| Mikrofon | INMP441, I2S |
+| Ses yükselteci | MAX98357A, I2S |
+| Kayıt / konuşma butonu | GPIO 38 |
+| Kabul butonu | GPIO 1 |
+| İptal butonu | GPIO 2 |
+
+### GPIO eşlemesi
+
+Pin tanımları `main/board_pins.h` dosyasındadır.
+
+| Sinyal | GPIO |
+|---|---:|
+| OLED SCL | 7 |
+| OLED SDA | 15 |
+| Mikrofon SCK | 4 |
+| Mikrofon WS | 5 |
+| Mikrofon SD | 6 |
+| Hoparlör BCLK | 11 |
+| Hoparlör LRC | 12 |
+| Hoparlör DIN | 13 |
+| Amplifikatör SD | 14 |
+| Kayıt / konuşma butonu | 38 |
+| Kabul butonu | 1 |
+| İptal butonu | 2 |
+
+Butonlar GND'ye bağlanır ve dahili pull-up kullanır. Bağlantıları değiştirmeden
+önce `main/board_pins.h` dosyasını ve kullandığın kartın pin özelliklerini kontrol et.
+
+## Gereksinimler
+
+- ESP-IDF v5.1 veya daha yeni; v5.3 önerilir
+- ESP32-S3 demo kartı
+- 2.4 GHz Wi-Fi ağı
+- Uygun USB veri kablosu
+- Demo devresine uygun I2S mikrofon, amplifikatör, hoparlör ve OLED
+- Çalışan backend ve gerekli servis yapılandırması
 
 ## ESP-IDF kurulumu
 
-**ESP-IDF v5.3** kullanıyoruz (en az v5.1). Ekipte herkes aynı ana sürümü kullansın.
+Resmî kurulum yönergeleri:
+https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/
 
-### Windows
-
-1. [ESP-IDF Windows Installer](https://dl.espressif.com/dl/esp-idf/) ile **v5.3.x** kur. Kurulumda kendi kartının çipini de seç (ör. ESP32-S3 kullanıyorsan `esp32s3`).
-2. Repoyu **kısa, boşluksuz ve Türkçe karakter içermeyen** bir yola klonla, ör. `C:\dev\gap-ai`. `C:\Users\Şükrü\Masaüstü\...` gibi yollar ESP-IDF derlemesini bozar.
-3. Komutları Başlat menüsündeki **"ESP-IDF 5.3 PowerShell"** (veya CMD) penceresinden çalıştır; normal PowerShell'de `idf.py` bulunmaz.
-4. Kart görünmüyorsa USB-seri sürücüsünü kur: CP210x (Silicon Labs) veya CH340 (WCH). Port **Aygıt Yöneticisi → Bağlantı noktaları (COM ve LPT)** altında `COM3` gibi görünür.
-
-### Linux
-
-```bash
-mkdir -p ~/esp && cd ~/esp
-git clone -b release/v5.3 --recursive https://github.com/espressif/esp-idf.git
-./esp-idf/install.sh esp32,esp32s3,esp32c3
-```
-
-Her yeni terminalde ortamı yükle:
+Linux'ta ESP-IDF kurulumundan sonra her yeni terminalde ortamı yükle:
 
 ```bash
 . ~/esp/esp-idf/export.sh
 ```
 
-Port genelde `/dev/ttyUSB0` (CP210x/CH340) veya `/dev/ttyACM0` (dahili USB'li S3/C3). Erişim izni yoksa kullanıcını `dialout` (Debian/Ubuntu) veya `uucp` (Arch) grubuna ekleyip oturumu yeniden aç.
+ESP-IDF başka bir dizine kurulduysa komutu o konuma göre değiştir.
+
+USB seri cihazı Linux'ta `/dev/ttyACM0` veya `/dev/ttyUSB0` olarak görünebilir.
+Port adı bilgisayara ve karta göre değişir.
 
 ## İlk kurulum
 
-1. Ayar dosyasını kopyala ve kendi bilgilerini yaz:
+Komutları depo kökündeki `esp32/` dizininden çalıştır.
 
-   ```bash
-   cp main/secrets.example.h main/secrets.h
-   ```
-
-   Windows'ta: `copy main\secrets.example.h main\secrets.h`
-
-   `secrets.h` gitignore'da; **asla commit etme**. Dosya yoksa derleme açıklayıcı bir hatayla durur.
-
-2. Kartının çipini seç (her klonda bir kez, ya da kart değiştirince):
-
-   ```bash
-   idf.py set-target esp32
-   ```
-
-   ESP32-S3 için `esp32s3`, ESP32-C3 için `esp32c3`. `set-target` derleme klasörünü sıfırlar.
-
-## Derle, yükle, izle
-
-Bütün komutlar `esp32/` klasöründen çalışır.
+Önce yerel gizli ayar dosyasını oluştur:
 
 ```bash
+cp main/secrets.example.h main/secrets.h
+```
+
+`main/secrets.h` yerel yapılandırma içindir. Gerçek Wi-Fi bilgilerini, API
+anahtarlarını veya diğer sırları Git'e eklemeyin. `secrets.h` dosyasının
+gitignore kapsamını kontrol edin.
+
+Backend adresi, Wi-Fi bilgileri ve gerekli diğer ayarları kaynak kod ve
+yapılandırma dosyalarına göre düzenleyin. Örnek dosyadaki değişken adlarının
+gerçek yapılandırmayla eşleştiğini doğrulayın.
+
+## Derleme ve yükleme
+
+```bash
+cd ~/Desktop/gap-ai/esp32
+idf.py set-target esp32s3
 idf.py build
 ```
 
-Linux:
+`set-target` derleme yapılandırmasını sıfırlayabilir. Hedefi yalnızca gerekli
+olduğunda seçin.
+
+Linux'ta cihazı yüklemek ve seri monitörü açmak için:
 
 ```bash
-idf.py -p /dev/ttyUSB0 flash monitor
+idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-Windows:
+Portun farklı olması durumunda doğru portu kullanın. Monitörden çıkmak için
+`Ctrl+]`.
 
-```powershell
-idf.py -p COM3 flash monitor
-```
+## Çalışma akışı
 
-Monitörden çıkmak için `Ctrl+]`. Yükleme bağlanamazsa kart üzerindeki **BOOT** tuşuna basılı tutup yüklemeyi tekrar başlat.
+1. Cihaz açılır ve Wi-Fi bağlantısı kurulur.
+2. Backend bağlantısı kontrol edilir.
+3. Kullanıcı konuşma butonunu kullanarak ses kaydını başlatır.
+4. Firmware kaydı işler ve backend'e gönderir.
+5. Backend yanıtı işlenir; mevcut yanıt türüne göre cihaz ses çıkışı üretir.
+6. Gerektiğinde kullanıcı öneriyi ilgili butonlarla kabul eder veya iptal eder.
 
-Beklenen çıktı:
+Gerçek davranış, backend'in yanıtına ve cihaz moduna göre değişebilir.
 
-```text
-I (...) gap: GAP device starting on esp32 (rev 3.1, 2 core(s)), ESP-IDF v5.3.6
-I (...) net: Connecting to "MyWifi"...
-I (...) net: Connected, IP: 192.168.1.42
-I (...) api: GET /health -> HTTP 200 {"status":"ok","version":"0.1.0"}
-```
+## Backend bağlantı sorunları
 
-`/health` her 30 saniyede bir tekrarlanır. Wi-Fi koparsa cihaz artan aralıklarla (1 sn → 30 sn) yeniden bağlanmayı dener.
+- Bilgisayarda çalışan backend için cihazın erişebileceği yerel IP adresini
+  kullanın; cihazdan `localhost` kullanılamaz.
+- Bilgisayar ile cihazın aynı erişilebilir ağa bağlı olduğunu doğrulayın.
+- Backend sağlık kontrolünü ve bilgisayarın güvenlik duvarı kurallarını kontrol edin.
+- Wi-Fi, HTTP durum kodları ve ses işleme günlüklerini seri monitörden inceleyin.
+- HTTP 200 yanıtı tek başına hoparlörden ses duyulduğunu kanıtlamaz.
+- Ses duyulmuyorsa I2S pinlerini, amplifikatör beslemesini, hoparlör bağlantısını
+  ve firmware ses günlüklerini kontrol edin.
+- HTTPS kullanıldığında sunucu sertifikası doğrulamasının yapılandırılmış
+  ortamda çalıştığını doğrulayın.
 
-## Backend'e bağlanma
+## Kaynak dosyaları
 
-`BACKEND_BASE_URL` sonunda `/` olmadan yazılır.
+`esp32/main/` altındaki başlıca dosyalar:
 
-- **Kendi bilgisayarındaki backend (HTTP):** cihaz `localhost`'a erişemez, bilgisayarın yerel IP'sini yaz (ör. `http://192.168.1.50:8000`). Backend'i ağa açık başlat:
+- `main.c` — Başlatma, bağlantı yönetimi ve cihaz etkileşimleri
+- `wifi.c` / `wifi.h` — Wi-Fi bağlantısı
+- `api.c` / `api.h` — Backend HTTP istemcisi
+- `voice.c` / `voice.h` — Ses isteği ve yanıt akışı
+- `audio_record.c` / `audio_record.h` — Mikrofon kaydı
+- `audio_play.c` / `audio_play.h` — I2S ses oynatma
+- `audio_feedback.c` / `audio_feedback.h` — Kısa sesli geri bildirimler
+- `audio_limiter.c` / `audio_limiter.h` — Ses seviyesi sınırlama
+- `display.c` / `display.h` — OLED ekran
+- `gesture.c` / `gesture.h` — Buton hareketleri
+- `board_pins.h` — Donanım pinleri
+- `settings.c` / `settings.h` — Cihaz ayarları
+- `portal.c` / `portal.h` — Yapılandırma portalı
+- `discover.c` / `discover.h` — Backend keşif desteği
+- `secrets.example.h` — Yerel gizli ayarlar için şablon
 
-  ```bash
-  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
-  ```
+Kaynak dosyalar eklerken `main/CMakeLists.txt` içindeki bileşen tanımını
+kontrol edin.
 
-  Windows'ta Güvenlik Duvarı izin isterse **Özel ağlar** için izin ver. Linux'ta firewalld açıksa portu geçici olarak aç (yeniden başlatınca kapanır): `sudo firewall-cmd --add-port=8000/tcp`; ufw kullanıyorsan `sudo ufw allow 8000/tcp`. Cihaz logunda `ESP_ERR_HTTP_CONNECT` görürsen ilk bakılacak yer güvenlik duvarıdır. IP'ni Windows'ta `ipconfig`, Linux'ta `ip -4 addr` ile bulabilirsin. Bilgisayar ve kart aynı ağda olmalı.
+## Güvenlik ve ekip kuralları
 
-- **Staging (HTTPS):** `https://...` adresi yazman yeterli. Sunucu sertifikası ESP-IDF'in dahili kök CA paketiyle doğrulanır; ayrıca sertifika dosyası gerekmez.
-
-## Dosya yapısı
-
-```text
-esp32/
-├── CMakeLists.txt         ESP-IDF proje tanımı
-├── sdkconfig.defaults     Ekip için ortak ayarlar (flash, TLS)
-└── main/
-    ├── main.c             Açılış: NVS, Wi-Fi, periyodik /health
-    ├── wifi.c / wifi.h    Wi-Fi bağlantısı ve yeniden bağlanma
-    ├── api.c / api.h      Backend HTTP(S) istemcisi
-    └── secrets.example.h  secrets.h şablonu
-```
-
-ESP-IDF'te kaynak kodlar `main/` altında durur. Görev planında geçen `esp32/src/...` yolları burada `esp32/main/...` olarak karşılık bulur (ör. `src/buttons.*` → `main/buttons.*`). Yeni bir `.c` dosyası eklediğinde `main/CMakeLists.txt` içindeki `SRCS` listesine de ekle.
-
-## Ekip için kurallar
-
-- `sdkconfig` commit edilmez; çipe ve makineye özeldir. Herkese lazım olan bir ayar varsa `sdkconfig.defaults`'a ekle.
-- GPIO pinlerini koda sabit gömme; kartlar arasında farklılar. Pinler eklenirken (D1-2, D2) tek bir başlık dosyasında toplanacak.
-- Log mesajlarını ASCII tut. Türkçe karakterler Windows konsolunda bozuk görünebilir.
+- Gizli anahtarları ve gerçek kullanıcı bilgilerini commit etmeyin.
+- `main/secrets.h` dosyasını paylaşmayın.
+- Yerel `sdkconfig` dosyasını incelemeden commit etmeyin; makineye özgü
+  ayarlar içerebilir.
+- Donanım bağlantılarını değiştirmeden önce pin tanımlarını ve kart
+  dokümantasyonunu kontrol edin.
+- Başarılı derlemeyi, başarılı yüklemeyi ve fiziksel ses testini ayrı
+  doğrulama adımları olarak değerlendirin.

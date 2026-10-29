@@ -1,67 +1,125 @@
 # GAP-AI
 
-GAP-AI is a personal planning assistant that records plans and outcomes, summarizes patterns in follow-through, and presents behavior, contextual, and discovery recommendations.
+GAP-AI is a personal AI planning assistant that helps users turn natural
+language into plans, record outcomes, review follow-through, and explore
+contextual and behavior-based recommendations.
 
-## Project status
+The project combines a web application, a FastAPI backend, AI service
+integrations, and an ESP32-S3 voice device.
 
-This section describes what is present in the repository. Code being present does not by itself confirm a live deployment or a successful end-to-end run against external services.
+## Project Status
 
-### Implemented in the repository
+**Development target: v1.4.0 — Documentation and Demo Improvements**
 
-- **Backend (`backend/`):** FastAPI routes for health, demo sessions, profiles, plan creation/listing, outcomes, text parsing, voice transcription, upcoming plans, insights, and suggestions.
-- **Plan flow:** Text is parsed into the shared `ParsedPlan` schema, can be reviewed in the web app, then saved with an optional idempotency key. Plans can be listed and outcome events recorded.
-- **AI integrations:** Nebius Token Factory/Nemotron client for structured plan parsing and suggestion wording; Groq Whisper client for voice transcription. Provider use requires valid runtime credentials and has not been verified by this repository status description.
-- **Analytics:** A deterministic backend analytics module calculates adherence and plan/outcome breakdowns; the web app has an insights dashboard.
-- **Personalization:** Users can manage an explicit, user-scoped profile and onboarding answers. Insights may use entered deadlines/goals and availability, upcoming plans, and the existing weather forecast; cards state their basis. No inferred calendar entries or continuous monitoring are used.
-- **Recommendations:** The Insights policy balances behavior, contextual, and neutral discovery cards (maximum three), applies persisted feedback and a 30-day dismissal window, and makes no LLM call for these cards. Plan-specific suggestions remain in My Plans, are requested on demand, and reuse saved suggestions. Proposed time changes require confirmation.
-- **Database:** PostgreSQL/Supabase migrations define plans, outcomes, saved suggestions, personalization profiles, and recommendation feedback. The backend includes a Supabase PostgREST adapter. Migrations in `database/migrations/` must be reviewed and applied through the deployment process; repository status does not confirm they are applied to any live database.
-- **Demo data:** `POST /demo/session` creates an isolated demo user and seeds it from `demo/seed/demo_plans.json`.
-- **ESP32:** ESP-IDF firmware connects to Wi-Fi and checks `GET /health`. An I2S WAV recording module is present, but device upload to `/voice`, outcome buttons, and display integration are not implemented in the current firmware flow.
+The `v1.3.0` tag represents the frozen demo baseline. This branch contains
+documentation improvements and preparation for the next development version.
+The existing `v1.3.0` tag will not be changed.
 
-### Not implemented in the current backend
+### Implemented Features
 
-The API contract also describes `POST /plans/{id}/reschedule`, `GET /me/export`, and `DELETE /me/data`; these routes are not currently registered in the FastAPI application. See the implementation notes in [docs/api-contract.md](docs/api-contract.md).
+- **Natural-language planning:** Turn text into structured plans and review
+  them before saving.
+- **Voice interaction:** Send recorded audio to the backend for transcription
+  and processing, then play supported spoken responses on the device.
+- **Plan and outcome tracking:** Create plans and record outcomes.
+- **Insights:** Review plan-follow-through analytics and available recommendations.
+- **Personalization:** Configure an explicit user profile and onboarding preferences.
+- **Recommendations:** Provide behavior-based, contextual, and discovery suggestions
+  according to the implemented recommendation policy.
+- **Voice modes:** Switch between Plan and Coach modes on the device.
+- **ESP32-S3 interface:** Firmware support for an OLED, push-to-talk, accept
+  and cancel buttons, I2S microphone input, speaker output, and audio feedback.
+- **Demo sessions:** Support isolated demo sessions using demo seed data.
 
-`DELETE /me/profile/fields/{field}` clears one profile answer, while `DELETE /me/profile` removes only the personalization profile row and keeps the account, plans, outcomes, suggestions, and feedback. `DELETE /me/data` is not implemented; the contract describes its intended user-data cleanup scope. No phase migration is applied automatically. Before deployment, review and apply the required migrations in order, including `20261013_001_gate1_core.sql`, `20261018_002_suggestions.sql`, `20261026_003_refresh_suggestions.sql`, `20261026_003_personalization_profile.sql`, and `20261026_004_recommendation_feedback.sql`, then verify them against the target database. The current GitHub migration job applies only core, suggestions, and refresh migrations; profile and feedback migrations still require explicit verification.
+Feature availability depends on configuration, provider credentials, and
+database migration status.
 
-The repository does not establish that the web app or backend is currently deployed, nor that the live Supabase, Nebius, Groq, or ESP32 hardware flows have passed end-to-end verification. See [docs/DEPLOY.md](docs/DEPLOY.md) for the staging setup and verification procedure.
+### Current Limitations
 
-## Architecture and specifications
+- The future personalized, proactive Coach experience is still planned work;
+  it must not be presented as a completed capability.
+- `POST /plans/{id}/reschedule`, `GET /me/export`, and `DELETE /me/data`
+  are documented but are not implemented backend routes.
+- Database migrations must be reviewed and verified for the target environment.
+- Short device feedback tones still require further acoustic verification
+  on the physical demo hardware.
+- Repository code alone does not prove that external services or production
+  deployments are currently available.
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — intended architecture and component flow.
-- [docs/api-contract.md](docs/api-contract.md) — API payload contract, with route implementation status.
-- [ai/schema.json](ai/schema.json) — runtime source of truth for `ParsedPlan` validation.
-- [docs/decisions.md](docs/decisions.md) — recorded architectural decisions.
-- [docs/TASKS.md](docs/TASKS.md) — current repository-based task status and remaining work.
+## Architecture
 
-## Repository layout
+- **Backend:** FastAPI and Python.
+- **Web:** React, TypeScript, and Vite.
+- **AI and speech:** Nebius Token Factory/Nemotron and Groq Whisper integrations.
+- **Database:** PostgreSQL/Supabase integration.
+- **Device:** ESP-IDF firmware for ESP32-S3, with I2S audio and OLED support.
 
-- `backend/` — FastAPI application, Supabase adapter, AI clients, analytics, and backend tests.
-- `web/` — React, TypeScript, and Vite client.
-- `ai/` — `ParsedPlan` schema, prompt, and parsing evaluation cases.
-- `database/` — PostgreSQL migrations, SQL verification scripts, and schema references.
-- `esp32/` — ESP-IDF firmware and I2S recording module.
-- `demo/` — synthetic seed data for isolated demo sessions.
-- `docs/` — architecture, API contract, deployment guidance, decisions, and task status.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for architecture details and
+[docs/api-contract.md](docs/api-contract.md) for endpoint contracts.
 
-## Development
+## Repository Layout
 
-Do not commit secrets. Copy `.env.example` to `.env` and configure the variables needed for the services you run.
+- `backend/` — FastAPI application and backend tests.
+- `web/` — React and TypeScript application.
+- `esp32/` — ESP-IDF device firmware.
+- `ai/` — AI schemas and specifications.
+- `database/` — Database migrations and SQL verification files.
+- `demo/` — Demo seed data.
+- `docs/` — Architecture, API contracts, deployment guidance, and project notes.
 
-Run backend tests from the repository root (requires [uv](https://docs.astral.sh/uv/)):
+## Development Setup
+
+Do not commit secrets or local configuration files.
+
+### Backend
+
+Install [uv](https://docs.astral.sh/uv/) and configure the environment
+variables required by the services you want to run.
+
+From the repository root:
 
 ```bash
 uv run --directory backend --extra dev pytest
 ```
 
-Run the web client from `web/`:
+See [backend/README.md](backend/README.md) for backend setup details.
+
+### Web Application
 
 ```bash
+cd web
 npm install
 npm run dev
 ```
 
-The web package also defines `npm test` and `npm run build`. The backend and frontend setup details are in [backend/README.md](backend/README.md) and [docs/DEPLOY.md](docs/DEPLOY.md).
+Run frontend tests and build the production bundle from the `web/` directory:
+
+```bash
+npm test
+npm run build
+```
+
+### ESP32 Firmware
+
+The firmware uses ESP-IDF. See [esp32/README.md](esp32/README.md) for wiring,
+configuration, build, flashing, and serial-monitor instructions.
+
+### Deployment
+
+See [docs/DEPLOY.md](docs/DEPLOY.md) for deployment configuration and migration
+checks. Verify the target environment before assuming database migrations
+or external services are ready.
+
+## API and Data Notes
+
+An endpoint documented in the API contract is not necessarily implemented.
+Check [docs/api-contract.md](docs/api-contract.md) before relying on a route.
+
+## Roadmap
+
+Potential follow-up work includes personalized proactive coaching, further
+physical-device audio verification, and implementation of API capabilities
+currently marked as unavailable.
 
 ## License
 
