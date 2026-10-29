@@ -15,7 +15,7 @@ static void test_default_scale_and_init(void)
 
     assert(fabsf(audio_limiter_get_scale(&lim) - 0.35f) < 0.001f);
     assert(lim.sample_rate == 16000);
-    assert(lim.high_pass_hz == 250.0f);
+    assert(fabsf(lim.high_pass_hz - 80.0f) < 0.01f);
     assert(lim.hp_alpha > 0.0f && lim.hp_alpha < 1.0f);
     printf("PASS: test_default_scale_and_init\n");
 }
@@ -182,6 +182,43 @@ static void test_fade_in_profile(void)
     printf("PASS: test_fade_in_profile\n");
 }
 
+// Test 10: High-pass filter configuration, custom cutoff, and zero-bypass
+static void test_high_pass_configuration_and_bypass(void)
+{
+    audio_limiter_t lim;
+    audio_limiter_init(&lim, 0.35f, 16000);
+    lim.fade_done = lim.fade_total; // bypass fade-in
+
+    // 10a: Setting custom cutoff
+    audio_limiter_set_high_pass(&lim, 120.0f);
+    assert(fabsf(audio_limiter_get_high_pass(&lim) - 120.0f) < 0.01f);
+    assert(lim.hp_alpha > 0.0f && lim.hp_alpha < 1.0f);
+
+    // 10b: Bypass mode (hp_hz <= 0.0f)
+    audio_limiter_set_high_pass(&lim, 0.0f);
+    assert(audio_limiter_get_high_pass(&lim) == 0.0f);
+    assert(lim.hp_alpha == 1.0f);
+
+    // In bypass mode with constant input, output remains constant (no high-pass decay to 0)
+    int16_t expected_constant = (int16_t)roundf(10000.0f * 0.35f);
+    for (int i = 0; i < 100; i++) {
+        int16_t out = audio_limiter_process_sample(&lim, 10000);
+        assert(abs(out - expected_constant) <= 1);
+    }
+
+    // 10c: Re-enabling 80Hz HPF decays DC offset toward zero over time
+    audio_limiter_set_high_pass(&lim, 80.0f);
+    assert(fabsf(audio_limiter_get_high_pass(&lim) - 80.0f) < 0.01f);
+    for (int i = 0; i < 2000; i++) {
+        audio_limiter_process_sample(&lim, 10000);
+    }
+    // After 2000 samples (~125 ms) of constant DC, high-pass output must decay near 0
+    int16_t decayed = audio_limiter_process_sample(&lim, 10000);
+    assert(abs(decayed) < 100);
+
+    printf("PASS: test_high_pass_configuration_and_bypass\n");
+}
+
 int main(void)
 {
     printf("Running firmware host audio limiter tests for 0.5W 8-ohm speaker protection...\n");
@@ -194,6 +231,7 @@ int main(void)
     test_beep_path_bounded();
     test_stereo_interleaving();
     test_fade_in_profile();
-    printf("All 9 audio limiter host tests PASSED successfully!\n");
+    test_high_pass_configuration_and_bypass();
+    printf("All 10 audio limiter host tests PASSED successfully!\n");
     return 0;
 }

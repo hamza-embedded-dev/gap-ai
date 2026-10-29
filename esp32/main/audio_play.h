@@ -34,3 +34,20 @@ void audio_play_end(void);
 // Configurable digital volume limiter functions
 float audio_play_get_volume_limit(void);
 void audio_play_set_volume_limit(float limit);
+
+// Configurable high-pass filter cutoff in Hz (default 80.0 Hz; <= 0 disables HPF)
+void audio_play_set_high_pass(float hp_hz);
+float audio_play_get_high_pass(void);
+
+// Playback diagnostics and underrun tracking
+typedef struct {
+    uint32_t total_frames_written;
+    uint32_t total_bytes_sent;
+    uint32_t write_errors;
+    uint32_t underrun_count;
+    int32_t peak_amplitude;
+    uint32_t sample_rate;
+} audio_play_stats_t;
+
+audio_play_stats_t audio_play_get_stats(void);
+void audio_play_reset_stats(void);

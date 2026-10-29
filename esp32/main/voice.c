@@ -347,48 +347,77 @@ header_ready:
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    ESP_LOGI(TAG, "Streaming audio playback: %u Hz, %u ch, declared data_size=%u",
-             (unsigned)rate, channels, (unsigned)data_size);
+    if (data_size == 0xFFFFFFFF) {
+        ESP_LOGI(TAG, "Streaming audio playback: %u Hz, %u ch, declared data_size=0xFFFFFFFF (live stream)",
+                 (unsigned)rate, channels);
+    } else {
+        ESP_LOGI(TAG, "Streaming audio playback: %u Hz, %u ch, declared data_size=%u bytes",
+                 (unsigned)rate, channels, (unsigned)data_size);
+    }
+
+    const int frame_bytes = 2 * channels;
+    #define STREAM_CHUNK_FRAMES 512
+    #define STREAM_PREBUFFER_BYTES 12288
+    static int16_t mono_buf[STREAM_CHUNK_FRAMES];
+    static uint8_t s_prebuffer[STREAM_PREBUFFER_BYTES];
+    static uint8_t raw_pcm[STREAM_CHUNK_FRAMES * 4];
+
+    // Jitter pre-buffering: accumulate ~250ms of audio before starting I2S TX
+    // to prevent DMA underruns caused by Wi-Fi packet latency / burst arrivals.
+    int prebuf_len = 0;
+    if (hdr_bytes > data_start) {
+        int init_bytes = hdr_bytes - data_start;
+        if (init_bytes > (int)sizeof(s_prebuffer)) {
+            init_bytes = (int)sizeof(s_prebuffer);
+        }
+        memcpy(s_prebuffer, hdr + data_start, init_bytes);
+        prebuf_len = init_bytes;
+    }
+
+    while (prebuf_len < (int)sizeof(s_prebuffer)) {
+        int to_read = (int)sizeof(s_prebuffer) - prebuf_len;
+        int n = esp_http_client_read(client, (char *)s_prebuffer + prebuf_len, to_read);
+        if (n <= 0) {
+            break; // Stream ended or EOF during prebuffering
+        }
+        prebuf_len += n;
+    }
+
+    if (prebuf_len == 0) {
+        ESP_LOGW(TAG, "No audio payload received from stream");
+        return ESP_FAIL;
+    }
 
     esp_err_t err = audio_play_begin(rate);
     if (err != ESP_OK) {
         return err;
     }
 
-    const int frame_bytes = 2 * channels;
-    #define STREAM_CHUNK_FRAMES 512
-    static int16_t mono_buf[STREAM_CHUNK_FRAMES];
-    uint8_t raw_pcm[STREAM_CHUNK_FRAMES * 4];
-
     int total_frames_played = 0;
     int residual_bytes = 0;
 
-    // First play any PCM samples that arrived inside hdr after data_start
-    if (hdr_bytes > data_start) {
-        int initial_pcm_bytes = hdr_bytes - data_start;
-        int initial_frames = initial_pcm_bytes / frame_bytes;
-        const uint8_t *p = hdr + data_start;
-        for (int i = 0; i < initial_frames; i += STREAM_CHUNK_FRAMES) {
-            int batch = initial_frames - i;
-            if (batch > STREAM_CHUNK_FRAMES) batch = STREAM_CHUNK_FRAMES;
-            for (int f = 0; f < batch; f++) {
-                const uint8_t *sp = p + (i + f) * frame_bytes;
-                int32_t s = (int16_t)le16(sp);
-                if (channels == 2) {
-                    s = (s + (int16_t)le16(sp + 2)) / 2;
-                }
-                mono_buf[f] = (int16_t)s;
+    // Play all pre-buffered audio in safe batches of STREAM_CHUNK_FRAMES
+    int prebuf_frames = prebuf_len / frame_bytes;
+    for (int i = 0; i < prebuf_frames; i += STREAM_CHUNK_FRAMES) {
+        int batch = prebuf_frames - i;
+        if (batch > STREAM_CHUNK_FRAMES) batch = STREAM_CHUNK_FRAMES;
+        for (int f = 0; f < batch; f++) {
+            const uint8_t *sp = s_prebuffer + (i + f) * frame_bytes;
+            int32_t s = (int16_t)le16(sp);
+            if (channels == 2) {
+                s = (s + (int16_t)le16(sp + 2)) / 2;
             }
-            audio_play_write(mono_buf, batch);
-            total_frames_played += batch;
+            mono_buf[f] = (int16_t)s;
         }
-        residual_bytes = initial_pcm_bytes % frame_bytes;
-        if (residual_bytes > 0) {
-            memcpy(raw_pcm, hdr + data_start + initial_frames * frame_bytes, residual_bytes);
-        }
+        audio_play_write(mono_buf, batch);
+        total_frames_played += batch;
+    }
+    residual_bytes = prebuf_len % frame_bytes;
+    if (residual_bytes > 0) {
+        memcpy(raw_pcm, s_prebuffer + prebuf_frames * frame_bytes, residual_bytes);
     }
 
-    // Stream remaining audio chunks from HTTP client without fixed buffer limits
+    // Stream remaining audio chunks from HTTP client without buffer overflows
     while (true) {
         // Button responsiveness: if accept or cancel button is pressed during playback, stop early
         if (voice_accept_button_pressed() || voice_cancel_button_pressed()) {
@@ -405,24 +434,34 @@ header_ready:
         int frames = available / frame_bytes;
         residual_bytes = available % frame_bytes;
 
-        for (int f = 0; f < frames; f++) {
-            const uint8_t *sp = raw_pcm + f * frame_bytes;
-            int32_t s = (int16_t)le16(sp);
-            if (channels == 2) {
-                s = (s + (int16_t)le16(sp + 2)) / 2;
+        for (int i = 0; i < frames; i += STREAM_CHUNK_FRAMES) {
+            int batch = frames - i;
+            if (batch > STREAM_CHUNK_FRAMES) batch = STREAM_CHUNK_FRAMES;
+            for (int f = 0; f < batch; f++) {
+                const uint8_t *sp = raw_pcm + (i + f) * frame_bytes;
+                int32_t s = (int16_t)le16(sp);
+                if (channels == 2) {
+                    s = (s + (int16_t)le16(sp + 2)) / 2;
+                }
+                mono_buf[f] = (int16_t)s;
             }
-            mono_buf[f] = (int16_t)s;
+            audio_play_write(mono_buf, batch);
+            total_frames_played += batch;
         }
-        audio_play_write(mono_buf, frames);
-        total_frames_played += frames;
 
         if (residual_bytes > 0) {
             memmove(raw_pcm, raw_pcm + frames * frame_bytes, residual_bytes);
         }
     }
 
+    audio_play_stats_t stats = audio_play_get_stats();
     audio_play_end();
-    ESP_LOGI(TAG, "Reply played: %.1f s (%d frames)", (double)total_frames_played / rate, total_frames_played);
+    ESP_LOGI(TAG, "Reply played: %.1f s (%d frames, %u bytes), underruns=%u, write_errors=%u",
+             (double)total_frames_played / rate,
+             total_frames_played,
+             (unsigned)stats.total_bytes_sent,
+             (unsigned)stats.underrun_count,
+             (unsigned)stats.write_errors);
     return ESP_OK;
 }
 
