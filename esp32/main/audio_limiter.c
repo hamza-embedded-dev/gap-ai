@@ -21,9 +21,13 @@ void audio_limiter_init(audio_limiter_t *lim, float initial_scale, uint32_t samp
     }
     lim->scale = initial_scale;
 
-    float rc = 1.0f / (2.0f * (float)M_PI * lim->high_pass_hz);
-    float dt = 1.0f / (float)lim->sample_rate;
-    lim->hp_alpha = rc / (rc + dt);
+    if (lim->high_pass_hz > 0.0f) {
+        float rc = 1.0f / (2.0f * (float)M_PI * lim->high_pass_hz);
+        float dt = 1.0f / (float)lim->sample_rate;
+        lim->hp_alpha = rc / (rc + dt);
+    } else {
+        lim->hp_alpha = 1.0f;
+    }
     lim->hp_prev_in = 0.0f;
     lim->hp_prev_out = 0.0f;
     lim->fade_total = lim->sample_rate * AUDIO_LIMITER_DEFAULT_FADE_MS / 1000;
@@ -59,6 +63,26 @@ float audio_limiter_get_scale(const audio_limiter_t *lim)
     return lim ? lim->scale : AUDIO_LIMITER_DEFAULT_SCALE;
 }
 
+void audio_limiter_set_high_pass(audio_limiter_t *lim, float hp_hz)
+{
+    if (!lim) {
+        return;
+    }
+    lim->high_pass_hz = hp_hz;
+    if (hp_hz > 0.0f) {
+        float rc = 1.0f / (2.0f * (float)M_PI * hp_hz);
+        float dt = 1.0f / (float)lim->sample_rate;
+        lim->hp_alpha = rc / (rc + dt);
+    } else {
+        lim->hp_alpha = 1.0f;
+    }
+}
+
+float audio_limiter_get_high_pass(const audio_limiter_t *lim)
+{
+    return lim ? lim->high_pass_hz : AUDIO_LIMITER_DEFAULT_HP_HZ;
+}
+
 int16_t audio_limiter_process_sample(audio_limiter_t *lim, int16_t sample)
 {
     if (!lim) {
@@ -66,10 +90,14 @@ int16_t audio_limiter_process_sample(audio_limiter_t *lim, int16_t sample)
     }
 
     float x = (float)sample;
-    // 1-pole high-pass filter (RC / (RC + dt))
-    float y = lim->hp_alpha * (lim->hp_prev_out + x - lim->hp_prev_in);
-    lim->hp_prev_in = x;
-    lim->hp_prev_out = y;
+    float y;
+    if (lim->high_pass_hz > 0.0f) {
+        y = lim->hp_alpha * (lim->hp_prev_out + x - lim->hp_prev_in);
+        lim->hp_prev_in = x;
+        lim->hp_prev_out = y;
+    } else {
+        y = x;
+    }
 
     // Apply digital volume scaling and optional fade-in
     float gain = lim->scale;
