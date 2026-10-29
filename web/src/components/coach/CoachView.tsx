@@ -254,9 +254,19 @@ export function CoachView({ state, handlers }: CoachViewProps) {
       )}
 
       {state.status === 'ready' && cards.length === 0 && (
-        <section className="coach-state">
+        <section className="coach-state" id="coach-empty-state">
           <h3>No ideas right now</h3>
           <p>No ideas are available right now. Refresh to try again.</p>
+          <div className="coach-actions">
+            <button
+              type="button"
+              className="coach-btn coach-btn-primary"
+              id="coach-empty-refresh-btn"
+              onClick={handlers.onRefresh}
+            >
+              Refresh ideas
+            </button>
+          </div>
         </section>
       )}
 

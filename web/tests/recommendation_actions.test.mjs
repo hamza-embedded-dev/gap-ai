@@ -302,3 +302,96 @@ describe('Navigation, Insights separation and layout', () => {
     assert.match(css, /min-height: 44px/);
   });
 });
+
+describe('Refresh and recommendation flow state transitions', () => {
+  it('handles refresh success state transitions and updates cards', () => {
+    let s = initialCoachState;
+    // Step 1: refresh starts
+    s = coachReducer(s, { type: 'load_start' });
+    assert.equal(s.status, 'loading');
+    assert.equal(s.error, null);
+
+    // Step 2: load_ok arrives with new cards and insights
+    const newCards = [
+      card({ id: 'c-new-1', title: 'New plan slot' }),
+      discovery(),
+    ];
+    const insights = {
+      period: 'week', planned: 5, done: 4, postponed: 1, skipped: 0, unreported: 0,
+      adherence_pct: 80, narrative: 'Great adherence this week!',
+    };
+    s = coachReducer(s, { type: 'load_ok', cards: newCards, insights });
+    assert.equal(s.status, 'ready');
+    assert.equal(s.cards.length, 2);
+    assert.equal(s.insights?.narrative, 'Great adherence this week!');
+
+    const html = render(s);
+    assert.match(html, /New plan slot/);
+    assert.match(html, /Great adherence this week!/);
+    assert.match(html, /80%/);
+    assert.match(html, /Show another idea/);
+  });
+
+  it('handles empty recommendation results with actionable refresh button and hides Show another idea', () => {
+    let s = initialCoachState;
+    s = coachReducer(s, { type: 'load_start' });
+    assert.equal(s.status, 'loading');
+
+    // Backend returns empty recommendations (e.g. all dismissed or frequency off)
+    s = coachReducer(s, { type: 'load_ok', cards: [] });
+    assert.equal(s.status, 'ready');
+    assert.equal(s.cards.length, 0);
+
+    const html = render(s);
+    assert.match(html, /No ideas right now/);
+    assert.match(html, /No ideas are available right now\. Refresh to try again\./);
+    assert.match(html, /id="coach-empty-refresh-btn"/);
+    // Show another idea cannot be rendered when cards is empty
+    assert.doesNotMatch(html, /Show another idea/);
+  });
+
+  it('handles timeout error state transitions with Retry action', () => {
+    let s = initialCoachState;
+    s = coachReducer(s, { type: 'load_start' });
+    assert.equal(s.status, 'loading');
+
+    // Request times out
+    s = coachReducer(s, {
+      type: 'load_fail',
+      error: { message: 'Request timed out (The server took too long).', statusCode: 408, errorType: 'timeout_error' },
+    });
+    assert.equal(s.status, 'error');
+    assert.equal(s.cards.length, 0);
+
+    const html = render(s);
+    assert.match(html, /Request timed out/);
+    assert.match(html, /The server took too long/);
+    assert.match(html, />Retry</);
+    assert.doesNotMatch(html, /Show another idea/);
+  });
+
+  it('handles Show another idea rotation state transitions across multiple cards', () => {
+    const c1 = card({ id: 'c1', title: 'Card One' });
+    const c2 = card({ id: 'c2', title: 'Card Two' });
+    const c3 = card({ id: 'c3', title: 'Card Three' });
+    let s = ready([c1, c2, c3]);
+
+    assert.deepEqual(s.cards.map((c) => c.id), ['c1', 'c2', 'c3']);
+    assert.deepEqual(visibleCards(s.cards).map((c) => c.id), ['c1', 'c2', 'c3']);
+
+    // Rotate 1: c1 moves to end
+    s = coachReducer(s, { type: 'rotate' });
+    assert.deepEqual(s.cards.map((c) => c.id), ['c2', 'c3', 'c1']);
+    assert.deepEqual(visibleCards(s.cards).map((c) => c.id), ['c2', 'c3', 'c1']);
+
+    // Rotate 2: c2 moves to end
+    s = coachReducer(s, { type: 'rotate' });
+    assert.deepEqual(s.cards.map((c) => c.id), ['c3', 'c1', 'c2']);
+    assert.deepEqual(visibleCards(s.cards).map((c) => c.id), ['c3', 'c1', 'c2']);
+
+    // Rotate 3: c3 moves to end (full cycle back to initial order)
+    s = coachReducer(s, { type: 'rotate' });
+    assert.deepEqual(s.cards.map((c) => c.id), ['c1', 'c2', 'c3']);
+    assert.deepEqual(visibleCards(s.cards).map((c) => c.id), ['c1', 'c2', 'c3']);
+  });
+});
