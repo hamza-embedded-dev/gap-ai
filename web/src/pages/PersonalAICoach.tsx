@@ -46,7 +46,7 @@ export const PersonalAICoach: React.FC<PersonalAICoachProps> = ({ token, onRequi
     dispatch({ type: 'load_start' });
     fetchInsights('week')
       .then((data) => {
-        if (!cancelled) dispatch({ type: 'load_ok', cards: data.recommendations ?? [] });
+        if (!cancelled) dispatch({ type: 'load_ok', cards: data.recommendations ?? [], insights: data });
       })
       .catch((err: unknown) => {
         // A 401 clears the token (which cancels this effect); still surface it.

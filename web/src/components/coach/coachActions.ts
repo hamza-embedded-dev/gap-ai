@@ -1,4 +1,4 @@
-import type { RecommendationCard, RecommendationFeedbackRequest } from '../../api/insights.ts';
+import type { InsightsResponse, RecommendationCard, RecommendationFeedbackRequest } from '../../api/insights.ts';
 import type { ParsedPlan, Plan } from '../../types/plan.ts';
 
 /** Minimal API surface the Coach needs; real implementations are injected by the page. */
@@ -157,6 +157,7 @@ export interface CoachErrorData {
 export interface CoachState {
   status: 'loading' | 'ready' | 'error';
   cards: RecommendationCard[];
+  insights: InsightsResponse | null;
   ratings: Record<string, CoachRating>;
   durations: Record<string, number>;
   scheduledDates: Record<string, string>;
@@ -170,7 +171,7 @@ export interface CoachState {
 
 export type CoachEvent =
   | { type: 'load_start' }
-  | { type: 'load_ok'; cards: RecommendationCard[] }
+  | { type: 'load_ok'; cards: RecommendationCard[]; insights?: InsightsResponse | null }
   | { type: 'load_fail'; error: CoachErrorData }
   | { type: 'action_start'; id: string }
   | { type: 'action_ok'; notice: string | null }
@@ -186,6 +187,7 @@ export type CoachEvent =
 export const initialCoachState: CoachState = {
   status: 'loading',
   cards: [],
+  insights: null,
   ratings: {},
   durations: {},
   scheduledDates: {},
@@ -200,11 +202,11 @@ export const initialCoachState: CoachState = {
 export function coachReducer(state: CoachState, event: CoachEvent): CoachState {
   switch (event.type) {
     case 'load_start':
-      return { ...state, status: 'loading', error: null, notice: null, actionError: null };
+      return { ...state, status: 'loading', error: null, notice: null, actionError: null, insights: null };
     case 'load_ok':
-      return { ...state, status: 'ready', cards: event.cards, error: null };
+      return { ...state, status: 'ready', cards: event.cards, insights: event.insights ?? null, error: null };
     case 'load_fail':
-      return { ...state, status: 'error', cards: [], error: event.error };
+      return { ...state, status: 'error', cards: [], insights: null, error: event.error };
     case 'action_start':
       return { ...state, busyId: event.id, notice: null, actionError: null };
     case 'action_ok':

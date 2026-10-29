@@ -30,6 +30,7 @@ def build_contextual_recommendations(
     now: datetime,
     timezone_name: str,
     weather_forecast: Any = None,
+    outcomes: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build contextual cards only from explicitly stored profile and plan data."""
     from zoneinfo import ZoneInfo
@@ -71,6 +72,7 @@ def build_contextual_recommendations(
             "next_step": next_step,
             "source": "contextual",
             "label": f"Based on the {kind_label} you entered",
+            "duration_minutes": 30,
         })
 
     upcoming: list[dict[str, Any]] = []
@@ -92,6 +94,14 @@ def build_contextual_recommendations(
         start = plan["_context_start"]
         plan_id = str(plan.get("id", ""))
         plan_title = str(plan.get("title", "Plan"))
+        plan_dur = plan.get("duration_minutes")
+        if plan_dur is None and plan.get("planned_end") and plan.get("planned_start"):
+            try:
+                end_raw = plan["planned_end"]
+                end_dt = end_raw if isinstance(end_raw, datetime) else datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+                plan_dur = max(5, int((end_dt - start).total_seconds() // 60))
+            except Exception:
+                plan_dur = 30
         cards.append({
             "id": f"context-plan-{plan_id}",
             "title": "Your next planned activity",
@@ -102,6 +112,7 @@ def build_contextual_recommendations(
             "next_step": "Review this plan in My Plans; confirm before changing its time.",
             "source": "contextual",
             "label": "Based on your upcoming plan",
+            "duration_minutes": plan_dur or 30,
         })
         if weather_forecast is not None and getattr(weather_forecast, "is_rainy", False):
             probability = getattr(weather_forecast, "precipitation_probability", None)
@@ -123,7 +134,54 @@ def build_contextual_recommendations(
                 "next_step": "Review the forecast in My Plans; confirm before changing the plan.",
                 "source": "contextual",
                 "label": "Weather context · app default location",
+                "duration_minutes": plan_dur or 30,
             })
+
+    # Early habit signals for users with 1-2 reported outcomes (before full pattern threshold)
+    if outcomes:
+        by_plan: dict[str, list[dict[str, Any]]] = {}
+        for o in outcomes:
+            by_plan.setdefault(str(o.get("plan_id", "")), []).append(o)
+        latest_reported = [
+            max(rows, key=lambda row: str(row.get("reported_at", "")))
+            for rows in by_plan.values()
+            if rows and max(rows, key=lambda row: str(row.get("reported_at", ""))).get("status") in {"done", "postponed", "skipped"}
+        ]
+        if 0 < len(latest_reported) < 3:
+            plan_map = {str(p.get("id", "")): p for p in plans}
+            last_out = sorted(latest_reported, key=lambda o: str(o.get("reported_at", "")))[-1]
+            last_plan = plan_map.get(str(last_out.get("plan_id", "")))
+            if last_plan:
+                p_title = str(last_plan.get("title", "Plan"))
+                p_cat = str(last_plan.get("category", "personal"))
+                st = last_out.get("status")
+                dur = last_plan.get("duration_minutes") or 30
+                if st == "done":
+                    cards.append({
+                        "id": f"context-early-done-{last_out.get('id', '1')}",
+                        "title": f"Build on completing “{p_title}”",
+                        "message": f"You completed “{p_title}”. Schedule your next session to maintain habit consistency.",
+                        "why": "Based on your recently completed activity.",
+                        "evidence": {"status": "done", "completed_plan": p_title, "sample_size": len(latest_reported)},
+                        "confidence": "moderate",
+                        "next_step": f"Schedule another {p_cat} session.",
+                        "source": "contextual",
+                        "label": "Early habit signal",
+                        "duration_minutes": dur,
+                    })
+                elif st == "postponed":
+                    cards.append({
+                        "id": f"context-early-postponed-{last_out.get('id', '1')}",
+                        "title": f"Reschedule “{p_title}”",
+                        "message": f"“{p_title}” was postponed. Pick an open time slot that fits your day better.",
+                        "why": "Based on your recently postponed activity.",
+                        "evidence": {"status": "postponed", "plan": p_title, "sample_size": len(latest_reported)},
+                        "confidence": "moderate",
+                        "next_step": "Choose an open time slot and confirm in My Plans.",
+                        "source": "contextual",
+                        "label": "Early habit signal",
+                        "duration_minutes": dur,
+                    })
 
     availability = [v.strip() for v in (profile.get("typical_availability") or []) if isinstance(v, str) and v.strip()]
     if availability:
@@ -138,6 +196,7 @@ def build_contextual_recommendations(
             "next_step": "Review your availability and create a plan only if it suits you.",
             "source": "contextual",
             "label": "Based on your stated availability",
+            "duration_minutes": 30,
         })
     return cards
 
@@ -193,5 +252,7 @@ def apply_policy(
     used = {item["id"] for item in chosen}
     chosen.extend([r for r in behavior + contextual + discovery if r["id"] not in used][:3-len(chosen)])
     for item in chosen:
+        if "duration_minutes" not in item:
+            item["duration_minutes"] = None
         item["dedup_key"] = dedup_key(item)
     return chosen[:3]
