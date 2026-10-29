@@ -14,6 +14,9 @@ DISCOVERY_IDEAS = [
     {"id": "discovery-project", "title": "Make a tiny project", "message": "Choose a simple idea and build its first small piece.", "duration_minutes": 30},
     {"id": "discovery-break", "title": "Take a healthy break", "message": "Step away for 10 minutes, stretch, and rest your eyes.", "duration_minutes": 10},
     {"id": "discovery-experience", "title": "Try a nearby experience", "message": "Pick a place or activity you have not tried before.", "duration_minutes": 45},
+    {"id": "discovery-read", "title": "Read a short article", "message": "Spend 15 minutes reading about a subject you are curious about.", "duration_minutes": 15},
+    {"id": "discovery-hydrate", "title": "Hydrate and stretch", "message": "Drink a glass of water and do gentle stretches for 5 minutes.", "duration_minutes": 5},
+    {"id": "discovery-organize", "title": "Tidy your workspace", "message": "Take 10 minutes to clear and organize your desk or digital space.", "duration_minutes": 10},
 ]
 
 
@@ -222,8 +225,11 @@ def apply_policy(
     expired_dismissals: set[str] = set()
     useful = set()
     not_useful = set()
+    dismissal_times: dict[str, datetime] = {}
     for entry in feedback:
         rid = entry.get("recommendation_id")
+        if not rid:
+            continue
         if entry.get("action") == "dismissed":
             try:
                 created = datetime.fromisoformat(str(entry["created_at"]).replace("Z", "+00:00"))
@@ -231,6 +237,8 @@ def apply_policy(
                 continue
             if created > now - timedelta(days=DISMISSAL_DAYS):
                 hidden.add(rid)
+                if rid not in dismissal_times or created > dismissal_times[rid]:
+                    dismissal_times[rid] = created
             else:
                 expired_dismissals.add(rid)
         if entry.get("rating") == "useful":
@@ -251,6 +259,40 @@ def apply_policy(
     # Fill unused slots from either pool while preserving the default balance when possible.
     used = {item["id"] for item in chosen}
     chosen.extend([r for r in behavior + contextual + discovery if r["id"] not in used][:3-len(chosen)])
+
+    # When unhidden candidates across behavior, contextual, and discovery are exhausted (e.g. when
+    # all starter ideas have been dismissed within 30 days), fall back to the discovery starter pool
+    # (which requires no historical evidence) sorted by least-recently dismissed (oldest dismissal first).
+    # This prevents users from being permanently locked into an empty recommendation state on refresh,
+    # while strictly preserving evidence rules (never fabricating fake behavior or contextual cards).
+    if len(chosen) < 3:
+        used = {item["id"] for item in chosen}
+        fallback_discovery = [
+            dict(
+                i,
+                source="discovery",
+                label="Not based on your history",
+                why="Starter idea; not based on your history.",
+                confidence="none",
+                evidence={},
+                next_step=i["message"],
+            )
+            for i in DISCOVERY_IDEAS
+            if i["id"] not in used
+        ]
+        fallback_discovery.sort(
+            key=lambda item: (
+                item["id"] in dismissal_times,
+                dismissal_times.get(item["id"], datetime.min.replace(tzinfo=timezone.utc)),
+                item["id"],
+            )
+        )
+        for item in fallback_discovery:
+            if len(chosen) >= 3:
+                break
+            chosen.append(item)
+            used.add(item["id"])
+
     for item in chosen:
         if "duration_minutes" not in item:
             item["duration_minutes"] = None

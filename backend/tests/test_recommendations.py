@@ -137,3 +137,58 @@ def test_insights_contextual_card_is_user_profile_scoped_and_frequency_off_suppr
     suppressed = get_insights(user=user, store=store, period="all", current_time=FIXED_NOW)
     assert suppressed["recommendations"] == []
 
+
+def test_policy_exhausted_dismissals_fallback_to_least_recently_dismissed_discovery():
+    from app.recommendations import DISCOVERY_IDEAS
+
+    now = datetime.now(timezone.utc)
+    # Dismiss all discovery ideas at distinct timestamps within the 30-day window
+    feedback = []
+    for idx, idea in enumerate(DISCOVERY_IDEAS):
+        feedback.append({
+            "recommendation_id": idea["id"],
+            "action": "dismissed",
+            # idx=0 was dismissed 10 days ago (oldest); later indices were dismissed more recently
+            "created_at": (now - timedelta(days=10 - idx)).isoformat(),
+        })
+
+    cards = apply_policy([], feedback, now=now)
+    assert len(cards) == 3
+    # All cards must be discovery starter ideas
+    assert all(c["source"] == "discovery" for c in cards)
+    assert all(c["label"] == "Not based on your history" for c in cards)
+    # The oldest dismissed ideas should resurface first (DISCOVERY_IDEAS[0], [1], [2])
+    assert cards[0]["id"] == DISCOVERY_IDEAS[0]["id"]
+    assert cards[1]["id"] == DISCOVERY_IDEAS[1]["id"]
+    assert cards[2]["id"] == DISCOVERY_IDEAS[2]["id"]
+
+
+def test_policy_untouched_discovery_prioritized_over_dismissed_fallback():
+    from app.recommendations import DISCOVERY_IDEAS
+
+    now = datetime.now(timezone.utc)
+    # Dismiss the first 6 ideas, leaving the remaining untouched
+    feedback = [
+        {"recommendation_id": idea["id"], "action": "dismissed", "created_at": (now - timedelta(days=2)).isoformat()}
+        for idea in DISCOVERY_IDEAS[:6]
+    ]
+
+    cards = apply_policy([], feedback, now=now)
+    assert len(cards) == 3
+    card_ids = [c["id"] for c in cards]
+    # The untouched ideas (indices 6 and 7) must be included before any dismissed fallback
+    assert DISCOVERY_IDEAS[6]["id"] in card_ids
+    assert DISCOVERY_IDEAS[7]["id"] in card_ids
+    # The third slot is filled by the least-recently dismissed idea
+    assert any(c["id"] in [i["id"] for i in DISCOVERY_IDEAS[:6]] for c in cards)
+
+
+def test_policy_never_fabricates_behavior_or_contextual_cards_without_evidence():
+    now = datetime.now(timezone.utc)
+    # Without behavior outcomes or contextual input, only neutral starter discovery cards are returned
+    cards = apply_policy([], [], contextual=[], now=now)
+    assert len(cards) == 3
+    assert all(c["source"] == "discovery" for c in cards)
+    assert not any(c["source"] == "behavior" for c in cards)
+    assert not any(c["source"] == "contextual" for c in cards)
+
