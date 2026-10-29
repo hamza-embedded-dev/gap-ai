@@ -28,6 +28,9 @@ class ConversationState(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     UNSUPPORTED = "unsupported"
+    COACH_RECOMMENDING = "coach_recommending"
+    COACH_AWAITING_TIME_CHANGE = "coach_awaiting_time_change"
+    COACH_COLLECTING_TIME = "coach_collecting_time"
 
 
 class PendingPlan(BaseModel):

@@ -191,29 +191,37 @@ Geçerli bir "Authorization: Bearer <token>" gerektirir. Doğal dildeki metni do
 
 Yanıt, "ai/schema.json" dosyasındaki "ParsedPlan" biçimindedir. "intent" değeri "clarify" ise istemci "clarification_question" alanını gösterir ve plan oluşturmaz.
 
-"POST /voice" — Backend'de uygulanmıştır; ESP32 firmware'inde yükleme/TTS entegrasyonu yoktur.
+"POST /voice" — Backend ve ESP32 entegrasyonu tamamlanmıştır.
 
-Kimlik doğrulaması gerekir. Backend bu endpoint'te yüklenen sesi işler. Mevcut ESP32 firmware'i `/health` kontrolü yapar; kaydı `/voice` endpoint'ine yüklemez.
+Kimlik doğrulaması gerekir. Backend bu endpoint'te yüklenen sesi işler.
 
-İstek "multipart/form-data" biçimindedir: "audio", isteğe bağlı "language", "current_date" ve "timezone".
+İstek "multipart/form-data" biçimindedir:
+- "audio": Mono PCM/WAV, 16 kHz, 16-bit, <= 10 saniye (en fazla 320 KB).
+- "mode": "plan" | "coach" (Form alanı veya "X-Device-Mode" başlığı).
+- "conversation_id": Aktif çok turlu konuşma kimliği (Form alanı veya "X-Conversation-Id" başlığı).
+- "current_date": İsteğe bağlı geçerli takvim tarihi (YYYY-MM-DD).
+- "timezone": İsteğe bağlı kullanıcının kayıtlı saat dilimi.
+- "Accept": "audio/wav" gönderildiğinde backend yanıtı WAV ses akışı olarak döndürür.
 
-Ses biçimi mono PCM/WAV, 16 kHz, 16-bit olmalı ve en fazla 10 saniye (yaklaşık 320 KB) sürmelidir.
+Cihaz Modları:
+1. **Plan Mode ("plan"):** Kullanıcıyla konuşarak plan oluşturur, eksik bilgileri netleştirir, planı özetler ve açık onayla (Donanım Buton 1 veya sözlü onay) kaydeder.
+2. **Coach Mode ("coach"):** Web uygulamasındaki kişiselleştirilmiş öneri motorunu (`apply_policy`) kullanır. Önerileri erkek sesle (`troy` / `am_adam`) okur. Kullanıcı "I like it" diyerek tarih/saat seçebilir veya "I don't like it" / "Something else" diyerek sonraki öneriye geçebilir. Beğenilmeyen öneriler veritabanına `dismissed` olarak kaydedilir; onaylanan öneriler `accepted` olarak işaretlenip plana dönüştürülür.
 
-Ses metne çevrilir ve sonuç "ai/schema.json" dosyasına göre doğrulanır. "intent" değeri "create_plan" ise backend planı kaydeder. Plan yanıtı, yeterli geçmiş varsa aynı öneri kaydından "spoken_recommendation" metni de içerir; bu alan boş geçmişte veya öneri üretilemediğinde "null" olur. Firmware tarafında bu alanı konuşmaya dönüştüren bir hoparlör/TTS akışı henüz uygulanmamıştır.
+WAV yanıt başlıkları:
+- `X-Transcript`: Sesin metne dönüştürülmüş hali.
+- `X-Reply-Text`: Asistanın sözlü yanıtı.
+- `X-Intent`: "plan_proposal", "clarification", "coach_recommendation", "coach_time_prompt", "info", vb.
+- `X-Device-Mode`: "plan" | "coach".
+- `X-Conversation-Id`: Aktif konuşma kimliği.
+- `X-Proposal-Id`: Bekleyen plan taslağı kimliği (varsa).
+- `X-Recommendation-Id`: Sunulan koçluk önerisi kimliği (varsa).
 
-Plan oluşturulduğunda yanıt, transkriptin ve "ParsedPlan" sonucunun yanında kaydedilmiş planı da içerir:
+"GET /voice/mode-announcement"
 
-{
-  "transcript": "Yarın 18'de koşuya çıkacağım.",
-  "parsed_plan": {
-    "...": "ai/schema.json ile uyumlu create_plan sonucu"
-  },
-  "plan": {
-    "...": "oluşturulan Plan"
-  }
-}
+Cihaz Plan Mode ve Coach Mode arasında geçiş yaptığında yerel sesli bildirim oynatmak için kullanılır.
+- Parametre: `mode=plan` veya `mode=coach`
+- Yanıt: "audio/wav" (Plan Mode için "Plan mode active.", Coach Mode için erkek sesle "Coach mode active. What would you like to explore today?")
 
-"intent" değeri "clarify" veya "unsupported" ise plan kaydedilmez; yanıt transkript ve "ParsedPlan" içerir.
 
 "POST /plans"
 

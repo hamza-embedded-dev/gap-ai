@@ -65,6 +65,30 @@ void voice_clear_active_conversation(void)
     s_active_conversation_id[0] = '\0';
 }
 
+static gap_mode_t s_device_mode = GAP_MODE_PLAN;
+
+gap_mode_t voice_get_mode(void)
+{
+    return s_device_mode;
+}
+
+void voice_set_mode(gap_mode_t mode)
+{
+    s_device_mode = mode;
+}
+
+gap_mode_t voice_toggle_mode(void)
+{
+    s_device_mode = (s_device_mode == GAP_MODE_PLAN) ? GAP_MODE_COACH : GAP_MODE_PLAN;
+    ESP_LOGI(TAG, "Mode toggled to: %s", s_device_mode == GAP_MODE_COACH ? "COACH" : "PLAN");
+    return s_device_mode;
+}
+
+const char *voice_get_mode_str(void)
+{
+    return (s_device_mode == GAP_MODE_COACH) ? "coach" : "plan";
+}
+
 esp_err_t voice_init(void)
 {
     // Configure Push-to-Talk (GPIO 38), Accept (GPIO 1), and Cancel (GPIO 2) buttons
@@ -177,7 +201,7 @@ static void beep(float hz, int ms)
     int total = 16 * ms;
     for (int done = 0; done < total; done += 160) {
         for (int i = 0; i < 160; i++) {
-            buf[i] = (int16_t)(sinf(2.0f * (float)M_PI * hz * (done + i) / 16000.0f) * 12000.0f);
+            buf[i] = (int16_t)(sinf(2.0f * (float)M_PI * hz * (done + i) / 16000.0f) * 10000.0f);
         }
         audio_play_write(buf, 160);
     }
@@ -186,7 +210,8 @@ static void beep(float hz, int ms)
 
 void voice_speaker_test(void)
 {
-    beep(1000.0f, 1000);
+    // Brief, gentle 70ms 440 Hz tone (A4) through the volume limiter instead of a sustained 1s blast
+    beep(440.0f, 70);
 }
 
 static void show_text(const char *title, const char *text)
@@ -235,6 +260,12 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
         strlcpy(h->conversation_id, evt->header_value, sizeof(h->conversation_id));
         strlcpy(s_active_conversation_id, evt->header_value, sizeof(s_active_conversation_id));
         ESP_LOGI(TAG, "Conversation ID registered: %s", s_active_conversation_id);
+    } else if (strcasecmp(evt->header_key, "X-Device-Mode") == 0) {
+        if (strcasecmp(evt->header_value, "coach") == 0) {
+            s_device_mode = GAP_MODE_COACH;
+        } else if (strcasecmp(evt->header_value, "plan") == 0) {
+            s_device_mode = GAP_MODE_PLAN;
+        }
     }
     return ESP_OK;
 }
@@ -262,36 +293,27 @@ static uint16_t le16(const uint8_t *p)
     return p[0] | (p[1] << 8);
 }
 
-#define MAX_REPLY_WAV_BYTES (768 * 1024) // 768 KB: allocated automatically from 8MB Octal PSRAM
-
 static esp_err_t play_wav_stream(esp_http_client_handle_t client)
 {
-    // Allocate buffer for complete incoming WAV response from PSRAM
-    uint8_t *wav_buf = (uint8_t *)malloc(MAX_REPLY_WAV_BYTES);
-    if (wav_buf == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate audio buffer for playback");
-        return ESP_ERR_NO_MEM;
-    }
-
-    int total_bytes = 0;
-    while (total_bytes < MAX_REPLY_WAV_BYTES) {
-        int n = esp_http_client_read(client, (char *)wav_buf + total_bytes, MAX_REPLY_WAV_BYTES - total_bytes);
-        if (n <= 0) {
-            break;
+    // Read header into a small stack buffer (1024 bytes) without allocating large RAM
+    uint8_t hdr[1024];
+    int hdr_bytes = 0;
+    while (hdr_bytes < (int)sizeof(hdr)) {
+        int n = esp_http_client_read(client, (char *)hdr + hdr_bytes, sizeof(hdr) - hdr_bytes);
+        if (n <= 0) break;
+        hdr_bytes += n;
+        if (hdr_bytes >= 44 && memcmp(hdr, "RIFF", 4) == 0) {
+            for (int i = 12; i + 8 <= hdr_bytes; i++) {
+                if (memcmp(hdr + i, "data", 4) == 0) {
+                    goto header_ready;
+                }
+            }
         }
-        total_bytes += n;
     }
 
-    ESP_LOGI(TAG, "Downloaded WAV response: %d bytes into RAM", total_bytes);
-    if (total_bytes < 44) {
-        ESP_LOGE(TAG, "WAV too short (%d bytes)", total_bytes);
-        free(wav_buf);
-        return ESP_FAIL;
-    }
-
-    if (memcmp(wav_buf, "RIFF", 4) != 0 || memcmp(wav_buf + 8, "WAVE", 4) != 0) {
-        ESP_LOGE(TAG, "Response is not RIFF/WAVE");
-        free(wav_buf);
+header_ready:
+    if (hdr_bytes < 44 || memcmp(hdr, "RIFF", 4) != 0 || memcmp(hdr + 8, "WAVE", 4) != 0) {
+        ESP_LOGE(TAG, "Response is not valid RIFF/WAVE header (bytes=%d)", hdr_bytes);
         return ESP_FAIL;
     }
 
@@ -301,13 +323,13 @@ static esp_err_t play_wav_stream(esp_http_client_handle_t client)
     uint32_t data_size = 0;
 
     int pos = 12;
-    while (pos + 8 <= total_bytes) {
-        uint32_t chunk_size = le32(wav_buf + pos + 4);
-        if (memcmp(wav_buf + pos, "fmt ", 4) == 0 && pos + 8 + 16 <= total_bytes) {
-            channels = le16(wav_buf + pos + 10);
-            rate = le32(wav_buf + pos + 12);
-            bits = le16(wav_buf + pos + 22);
-        } else if (memcmp(wav_buf + pos, "data", 4) == 0) {
+    while (pos + 8 <= hdr_bytes) {
+        uint32_t chunk_size = le32(hdr + pos + 4);
+        if (memcmp(hdr + pos, "fmt ", 4) == 0 && pos + 8 + 16 <= hdr_bytes) {
+            channels = le16(hdr + pos + 10);
+            rate = le32(hdr + pos + 12);
+            bits = le16(hdr + pos + 22);
+        } else if (memcmp(hdr + pos, "data", 4) == 0) {
             data_start = pos + 8;
             data_size = chunk_size;
             break;
@@ -315,94 +337,148 @@ static esp_err_t play_wav_stream(esp_http_client_handle_t client)
         pos += 8 + (int)chunk_size + (int)(chunk_size & 1);
     }
 
-    if (data_start < 0 || data_start >= total_bytes) {
-        ESP_LOGE(TAG, "No data chunk found in WAV");
-        free(wav_buf);
+    if (data_start < 0 || data_start >= hdr_bytes) {
+        ESP_LOGE(TAG, "No data chunk found in WAV header buffer");
         return ESP_FAIL;
     }
 
     if (bits != 16 || channels < 1 || channels > 2 || rate < 8000 || rate > 48000) {
-        ESP_LOGE(TAG, "Unsupported WAV: %u ch, %u bit, %u Hz", channels, bits, (unsigned)rate);
-        free(wav_buf);
+        ESP_LOGE(TAG, "Unsupported WAV format: %u ch, %u bit, %u Hz", channels, bits, (unsigned)rate);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    int available_data = total_bytes - data_start;
-    if (available_data <= 0) {
-        ESP_LOGE(TAG, "No audio payload available (total_bytes=%d, data_start=%d)", total_bytes, data_start);
-        free(wav_buf);
-        return ESP_FAIL;
-    }
+    ESP_LOGI(TAG, "Streaming audio playback: %u Hz, %u ch, declared data_size=%u",
+             (unsigned)rate, channels, (unsigned)data_size);
 
-    if (data_size == 0 || data_size > (uint32_t)available_data) {
-        data_size = (uint32_t)available_data;
-    }
-
-    ESP_LOGI(TAG, "Playing reply from RAM: %u Hz, %u ch, %u bytes PCM", (unsigned)rate, channels, (unsigned)data_size);
     esp_err_t err = audio_play_begin(rate);
     if (err != ESP_OK) {
-        free(wav_buf);
         return err;
     }
 
     const int frame_bytes = 2 * channels;
-    if (frame_bytes <= 0) {
-        audio_play_end();
-        free(wav_buf);
-        return ESP_FAIL;
+    #define STREAM_CHUNK_FRAMES 512
+    static int16_t mono_buf[STREAM_CHUNK_FRAMES];
+    uint8_t raw_pcm[STREAM_CHUNK_FRAMES * 4];
+
+    int total_frames_played = 0;
+    int residual_bytes = 0;
+
+    // First play any PCM samples that arrived inside hdr after data_start
+    if (hdr_bytes > data_start) {
+        int initial_pcm_bytes = hdr_bytes - data_start;
+        int initial_frames = initial_pcm_bytes / frame_bytes;
+        const uint8_t *p = hdr + data_start;
+        for (int i = 0; i < initial_frames; i += STREAM_CHUNK_FRAMES) {
+            int batch = initial_frames - i;
+            if (batch > STREAM_CHUNK_FRAMES) batch = STREAM_CHUNK_FRAMES;
+            for (int f = 0; f < batch; f++) {
+                const uint8_t *sp = p + (i + f) * frame_bytes;
+                int32_t s = (int16_t)le16(sp);
+                if (channels == 2) {
+                    s = (s + (int16_t)le16(sp + 2)) / 2;
+                }
+                mono_buf[f] = (int16_t)s;
+            }
+            audio_play_write(mono_buf, batch);
+            total_frames_played += batch;
+        }
+        residual_bytes = initial_pcm_bytes % frame_bytes;
+        if (residual_bytes > 0) {
+            memcpy(raw_pcm, hdr + data_start + initial_frames * frame_bytes, residual_bytes);
+        }
     }
 
-    int total_frames = (int)(data_size / frame_bytes);
-
-    #define PLAY_BATCH_FRAMES 512
-    static int16_t mono[PLAY_BATCH_FRAMES];
-
-    int frames_played = 0;
-    esp_err_t play_err = ESP_OK;
-
-    while (frames_played < total_frames) {
-        int batch = total_frames - frames_played;
-        if (batch > PLAY_BATCH_FRAMES) {
-            batch = PLAY_BATCH_FRAMES;
-        }
-
-        int current_offset = data_start + frames_played * frame_bytes;
-        int batch_bytes = batch * frame_bytes;
-        if (current_offset + batch_bytes > total_bytes) {
-            ESP_LOGE(TAG, "Buffer overrun prevented: offset=%d, batch_bytes=%d, total=%d",
-                     current_offset, batch_bytes, total_bytes);
-            play_err = ESP_ERR_INVALID_SIZE;
+    // Stream remaining audio chunks from HTTP client without fixed buffer limits
+    while (true) {
+        // Button responsiveness: if accept or cancel button is pressed during playback, stop early
+        if (voice_accept_button_pressed() || voice_cancel_button_pressed()) {
+            ESP_LOGI(TAG, "Playback interrupted by user button press");
             break;
         }
 
-        const uint8_t *p = wav_buf + current_offset;
-        for (int f = 0; f < batch; f++) {
-            const uint8_t *sample_p = p + f * frame_bytes;
-            int32_t s = (int16_t)le16(sample_p);
+        int to_read = (int)sizeof(raw_pcm) - residual_bytes;
+        int n = esp_http_client_read(client, (char *)raw_pcm + residual_bytes, to_read);
+        if (n <= 0) {
+            break;
+        }
+        int available = residual_bytes + n;
+        int frames = available / frame_bytes;
+        residual_bytes = available % frame_bytes;
+
+        for (int f = 0; f < frames; f++) {
+            const uint8_t *sp = raw_pcm + f * frame_bytes;
+            int32_t s = (int16_t)le16(sp);
             if (channels == 2) {
-                s = (s + (int16_t)le16(sample_p + 2)) / 2;
+                s = (s + (int16_t)le16(sp + 2)) / 2;
             }
-            mono[f] = (int16_t)s;
+            mono_buf[f] = (int16_t)s;
         }
+        audio_play_write(mono_buf, frames);
+        total_frames_played += frames;
 
-        esp_err_t werr = audio_play_write(mono, batch);
-        if (werr != ESP_OK) {
-            ESP_LOGE(TAG, "audio_play_write failed: %s", esp_err_to_name(werr));
-            play_err = werr;
-            break;
+        if (residual_bytes > 0) {
+            memmove(raw_pcm, raw_pcm + frames * frame_bytes, residual_bytes);
         }
-        frames_played += batch;
     }
 
     audio_play_end();
-    if (play_err == ESP_OK) {
-        ESP_LOGI(TAG, "Reply played: %.1f s", (double)frames_played / rate);
+    ESP_LOGI(TAG, "Reply played: %.1f s (%d frames)", (double)total_frames_played / rate, total_frames_played);
+    return ESP_OK;
+}
+
+void voice_announce_mode(gap_mode_t mode)
+{
+    if (mode == GAP_MODE_COACH) {
+        display_show("GAP-AI Coach", "Coach Mode Active", "Ask: Hey Coach...", "Hold 38: Talk");
     } else {
-        ESP_LOGW(TAG, "Playback stopped early after %d frames due to error (%s)",
-                 frames_played, esp_err_to_name(play_err));
+        display_show("GAP-AI Planner", "Plan Mode Active", "Schedule your plans", "Hold 38: Talk");
     }
-    free(wav_buf);
-    return play_err;
+
+    bool played = false;
+    const char *base_url = settings_get_backend_url();
+    if (base_url && strlen(base_url) > 0 && strcmp(base_url, "auto") != 0) {
+        char url[256];
+        snprintf(url, sizeof(url), "%s/voice/mode-announcement?mode=%s", base_url,
+                 mode == GAP_MODE_COACH ? "coach" : "plan");
+        esp_http_client_config_t cfg;
+        api_client_config(&cfg, url);
+        cfg.method = HTTP_METHOD_GET;
+        cfg.timeout_ms = 5000;
+        cfg.buffer_size = 4096;
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (client != NULL) {
+            char auth_header[192];
+            snprintf(auth_header, sizeof(auth_header), "Bearer %s", settings_get_device_token());
+            esp_http_client_set_header(client, "Authorization", auth_header);
+            esp_http_client_set_header(client, "Accept", "audio/wav");
+            esp_err_t err = esp_http_client_open(client, 0);
+            if (err == ESP_OK) {
+                int64_t hdr_len = esp_http_client_fetch_headers(client);
+                int st = esp_http_client_get_status_code(client);
+                if (hdr_len >= 0 && st == 200) {
+                    if (play_wav_stream(client) == ESP_OK) {
+                        played = true;
+                    }
+                }
+                esp_http_client_close(client);
+            }
+            esp_http_client_cleanup(client);
+        }
+    }
+
+    if (!played) {
+        if (mode == GAP_MODE_COACH) {
+            beep(600, 70);
+            vTaskDelay(pdMS_TO_TICKS(30));
+            beep(900, 70);
+            vTaskDelay(pdMS_TO_TICKS(30));
+            beep(1200, 100);
+        } else {
+            beep(1000, 80);
+            vTaskDelay(pdMS_TO_TICKS(30));
+            beep(750, 100);
+        }
+    }
 }
 
 static void read_json_reply(esp_http_client_handle_t client, reply_headers_t *h)
@@ -525,9 +601,13 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
     esp_http_client_set_header(client, "Authorization", auth_header);
     esp_http_client_set_header(client, "Content-Type", "multipart/form-data; boundary=" BOUNDARY);
     esp_http_client_set_header(client, "Accept", "audio/wav, application/json");
+    esp_http_client_set_header(client, "X-Device-Mode", voice_get_mode_str());
     if (s_active_conversation_id[0] != '\0') {
         esp_http_client_set_header(client, "X-Conversation-Id", s_active_conversation_id);
-        ESP_LOGI(TAG, "Sending voice request with active X-Conversation-Id: %s", s_active_conversation_id);
+        ESP_LOGI(TAG, "Sending voice request (mode=%s) with active X-Conversation-Id: %s",
+                 voice_get_mode_str(), s_active_conversation_id);
+    } else {
+        ESP_LOGI(TAG, "Sending voice request (mode=%s)", voice_get_mode_str());
     }
 
     display_show("Sending...", NULL, NULL, NULL);
@@ -552,6 +632,7 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
                 esp_http_client_set_header(client, "Authorization", auth_header);
                 esp_http_client_set_header(client, "Content-Type", "multipart/form-data; boundary=" BOUNDARY);
                 esp_http_client_set_header(client, "Accept", "audio/wav, application/json");
+                esp_http_client_set_header(client, "X-Device-Mode", voice_get_mode_str());
                 if (s_active_conversation_id[0] != '\0') {
                     esp_http_client_set_header(client, "X-Conversation-Id", s_active_conversation_id);
                 }
@@ -591,13 +672,15 @@ static void send_and_reply(const uint8_t *wav, size_t wav_len)
         ESP_LOGI(TAG, "Transcript: %s | Reply: %s | Intent: %s", h.transcript, h.reply, h.intent);
         if (h.needs_button) {
             display_show("Plan Drafted:", h.reply, NULL, "1: Accept  2: Cancel");
+        } else if (strcmp(h.intent, "coach_recommendation") == 0) {
+            display_show("Coach Idea:", h.reply, NULL, "1: Accept  2: Cancel");
         } else if (strcmp(h.intent, "clarify") == 0) {
             show_text("Clarification:", h.reply);
         } else {
-            show_text("GAP-AI:", h.reply);
+            show_text(s_device_mode == GAP_MODE_COACH ? "GAP-AI Coach:" : "GAP-AI:", h.reply);
         }
         if (play_wav_stream(client) != ESP_OK) {
-            show_text("GAP-AI:", h.reply);
+            show_text(s_device_mode == GAP_MODE_COACH ? "GAP-AI Coach:" : "GAP-AI:", h.reply);
         }
     } else {
         read_json_reply(client, &h);
@@ -931,6 +1014,31 @@ const char *voice_get_active_conversation_id(void)
 
 void voice_clear_active_conversation(void)
 {
+}
+
+gap_mode_t voice_get_mode(void)
+{
+    return GAP_MODE_PLAN;
+}
+
+void voice_set_mode(gap_mode_t mode)
+{
+    (void)mode;
+}
+
+gap_mode_t voice_toggle_mode(void)
+{
+    return GAP_MODE_PLAN;
+}
+
+const char *voice_get_mode_str(void)
+{
+    return "plan";
+}
+
+void voice_announce_mode(gap_mode_t mode)
+{
+    (void)mode;
 }
 
 #endif

@@ -77,6 +77,10 @@ class Settings(BaseSettings):
         validation_alias="TTS_MODEL",
     )
     tts_voice: str = Field(default="autumn", validation_alias="TTS_VOICE")
+    tts_coach_voice: str = Field(
+        default="troy",
+        validation_alias="TTS_COACH_VOICE",
+    )
     tts_timeout_seconds: float = Field(
         default=10.0,
         validation_alias="TTS_TIMEOUT_SECONDS",
@@ -95,6 +99,10 @@ class Settings(BaseSettings):
     tts_ai_voice: str = Field(
         default="af_heart",
         validation_alias="TTS_AI_VOICE",
+    )
+    tts_ai_coach_voice: str = Field(
+        default="am_adam",
+        validation_alias="TTS_AI_COACH_VOICE",
     )
     tts_ai_timeout_seconds: float = Field(
         default=30.0,

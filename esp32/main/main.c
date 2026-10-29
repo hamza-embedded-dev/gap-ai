@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "voice.h"
 #include "wifi.h"
+#include "gesture.h"
 
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 1, 0)
 #error "GAP-AI firmware needs ESP-IDF v5.1 or newer (v5.3 recommended)"
@@ -47,7 +48,8 @@ static void log_chip_info(void)
 
 static void show_idle(bool online)
 {
-    display_show("GAP-AI", online ? "Wi-Fi: Connected" : "Wi-Fi: Connecting...", NULL,
+    const char *mode_hdr = (voice_get_mode() == GAP_MODE_COACH) ? "GAP-AI Coach" : "GAP-AI Plan";
+    display_show(mode_hdr, online ? "Wi-Fi: Connected" : "Wi-Fi: Connecting...", NULL,
                  online ? "Hold 38:Talk 1:OK 2:X" : "Hold 1+2: Setup");
 }
 
@@ -85,7 +87,7 @@ void app_main(void)
 
     bool voice_ok = BOARD_HAS_VOICE_HW && voice_init() == ESP_OK;
     if (voice_ok) {
-        ESP_LOGI(TAG, "Speaker test: 1 kHz tone for 1 second");
+        ESP_LOGI(TAG, "Speaker test: 440 Hz cue (70 ms, volume limited for 0.5 W 8-ohm speaker)");
         voice_speaker_test();
     }
     if (!voice_ok) {
@@ -98,11 +100,8 @@ void app_main(void)
     bool online = false;
     int64_t next_health = 0;
 
-    // Dual button hold state tracking
-    int64_t both_held_start = 0;
-    bool both_holding = false;
-    bool suppress_single_clicks = false;
-    int last_remaining_sec = -1;
+    gesture_tracker_t gesture;
+    gesture_init(&gesture);
 
     while (true) {
         int64_t now = esp_timer_get_time() / 1000;
@@ -114,52 +113,28 @@ void app_main(void)
 
         bool connected = wifi_is_connected();
 
-        // 1. Dual-Button Combo Detection (Button 1: GPIO 1 & Button 2: GPIO 2)
-        // Holding both buttons together for 3 seconds opens the Configuration Portal.
+        // 1. Gesture Tracking for Button 1 (GPIO 1) and Button 2 (GPIO 2)
         bool b1 = voice_ok && voice_accept_button_pressed();
         bool b2 = voice_ok && voice_cancel_button_pressed();
+        gesture_event_t gev = gesture_update(&gesture, now, b1, b2);
 
-        if (b1 && b2) {
-            if (!both_holding) {
-                both_holding = true;
-                both_held_start = now;
-                suppress_single_clicks = true;
-                last_remaining_sec = -1;
-                ESP_LOGI(TAG, "Buttons 1 & 2 held: hold for 3 seconds to enter setup mode...");
-            }
-
-            int64_t held_ms = now - both_held_start;
-            int remaining_sec = (COMBO_HOLD_DURATION_MS - held_ms + 999) / 1000;
-            if (remaining_sec < 0) remaining_sec = 0;
-
-            if (remaining_sec != last_remaining_sec) {
-                last_remaining_sec = remaining_sec;
-                char line1[24];
-                snprintf(line1, sizeof(line1), "Hold 1 & 2: %ds", remaining_sec);
-                display_show("Setup Mode", line1, "Keep holding...", NULL);
-            }
-
-            if (held_ms >= COMBO_HOLD_DURATION_MS) {
-                ESP_LOGI(TAG, "Both buttons held for 3 seconds: entering configuration portal!");
-                portal_start();
-                continue;
-            }
-
+        if (gev == GESTURE_EVENT_HOLDING_SETUP) {
+            char line1[24];
+            snprintf(line1, sizeof(line1), "Hold 1 & 2: %ds", gesture.remaining_sec);
+            display_show("Setup Mode", line1, "Keep holding...", NULL);
             vTaskDelay(pdMS_TO_TICKS(POLL_MS));
-            continue; // While both buttons are held, skip single button checks
-        } else if (both_holding) {
-            // User released buttons before 3 seconds
-            ESP_LOGI(TAG, "Setup combo cancelled (released early)");
-            both_holding = false;
-            suppress_single_clicks = true; // Keep suppressed until all buttons are fully released
-            both_held_start = 0;
-            last_remaining_sec = -1;
+            continue;
+        } else if (gev == GESTURE_EVENT_COMBO_LONG_SETUP) {
+            ESP_LOGI(TAG, "Both buttons held for 3 seconds: entering configuration portal!");
+            portal_start();
+            continue;
+        } else if (gev == GESTURE_EVENT_COMBO_SHORT) {
+            gap_mode_t new_mode = voice_toggle_mode();
+            ESP_LOGI(TAG, "Short combo: switched to %s mode", new_mode == GAP_MODE_COACH ? "COACH" : "PLAN");
+            voice_announce_mode(new_mode);
+            vTaskDelay(pdMS_TO_TICKS(1500));
             show_idle(wifi_is_connected());
-        }
-
-        // Reset single-click suppression once all buttons are fully released
-        if (!b1 && !b2) {
-            suppress_single_clicks = false;
+            continue;
         }
 
         // 2. Check Talk button (GPIO 38) or Enter on serial
@@ -178,17 +153,9 @@ void app_main(void)
             ESP_LOGI(TAG, "Ready: hold talk button (GPIO 38) to talk; press 1 to accept, 2 to cancel");
         }
 
-        // 3. Check Accept button (GPIO 1) or 'c' on serial
-        bool accept_btn = voice_ok && b1 && !suppress_single_clicks;
+        // 3. Check Accept action (Gesture or 'c' on serial)
         bool accept_key = voice_ok && voice_serial_confirm_key();
-        if (connected && (accept_btn || accept_key)) {
-            if (accept_btn) {
-                // Anti-misclick debounce: ensure button 2 isn't being pressed slightly out of sync
-                vTaskDelay(pdMS_TO_TICKS(BUTTON_DEBOUNCE_MS));
-                if (voice_cancel_button_pressed()) {
-                    continue; // Transition into dual-button hold
-                }
-            }
+        if (connected && (gev == GESTURE_EVENT_SINGLE_ACCEPT || accept_key)) {
             voice_accept_proposal();
             vTaskDelay(pdMS_TO_TICKS(3000));
             while (voice_accept_button_pressed()) {
@@ -198,17 +165,9 @@ void app_main(void)
             online = !connected;
         }
 
-        // 4. Check Cancel button (GPIO 2) or 'x' on serial
-        bool cancel_btn = voice_ok && b2 && !suppress_single_clicks;
+        // 4. Check Cancel action (Gesture or 'x' on serial)
         bool cancel_key = voice_ok && voice_serial_cancel_key();
-        if (connected && (cancel_btn || cancel_key)) {
-            if (cancel_btn) {
-                // Anti-misclick debounce: ensure button 1 isn't being pressed slightly out of sync
-                vTaskDelay(pdMS_TO_TICKS(BUTTON_DEBOUNCE_MS));
-                if (voice_accept_button_pressed()) {
-                    continue; // Transition into dual-button hold
-                }
-            }
+        if (connected && (gev == GESTURE_EVENT_SINGLE_CANCEL || cancel_key)) {
             voice_reject_proposal();
             vTaskDelay(pdMS_TO_TICKS(3000));
             while (voice_cancel_button_pressed()) {
