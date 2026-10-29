@@ -87,7 +87,7 @@ void app_main(void)
 
     bool voice_ok = BOARD_HAS_VOICE_HW && voice_init() == ESP_OK;
     if (voice_ok) {
-        ESP_LOGI(TAG, "Speaker test: 1 kHz tone for 1 second");
+        ESP_LOGI(TAG, "Speaker test: 440 Hz cue (70 ms, volume limited for 0.5 W 8-ohm speaker)");
         voice_speaker_test();
     }
     if (!voice_ok) {

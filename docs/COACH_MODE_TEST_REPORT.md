@@ -14,6 +14,7 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
 2. **Coach Mode:** Seamless connection to the existing personalized recommendation engine (`apply_policy`, `calculate_recommendations`, `build_contextual_recommendations`). Spoken using a verified male voice (`troy` on Groq, `am_adam` on TTS.ai fallback). Supports user feedback (`dismissed` / `accepted`), date/time adjustments, and cycling without duplicate reading.
 3. **Dual-Button Gesture State Machine:** Simultaneous Button 1 + Button 2 short press (<3s) toggles between Plan Mode and Coach Mode with spoken audio confirmation. Holding both for >=3s reliably opens the existing Wi-Fi setup portal (`portal_start()`) without accidental mode toggling. Staggered threshold (250ms) and 60ms debounce prevent false triggers.
 4. **Firmware Audio Reliability & Button Lockout Fix:** Replaced the legacy fixed 768 KB audio buffer (`MAX_REPLY_WAV_BYTES`) in `play_wav_stream` with a chunked streaming reader directly to I2S. Polling accept/cancel buttons during chunked playback allows instant interruption, eliminating button lockout during long speech playback.
+5. **Speaker Rating & Digital Volume Limiter:** Corrected hardware speaker specification to **0.5 W, 8 Ohm** (not 3 W). Implemented a centralized, configurable digital volume limiter (`audio_limiter.c`) with a conservative default scale of 0.35 across all audio paths (streamed TTS, beeps, announcements, startup cues). Eliminated high-level sustained tones.
 
 ---
 
@@ -21,6 +22,8 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
 
 | Issue | Root Cause | Implemented Solution |
 | :--- | :--- | :--- |
+| **Speaker Power Mismatch (0.5 W, 8 Ohm)** | MAX98357A Class D amplifier with 5V VIN and 9 dB gain can deliver up to ~1.56 W into 8 Ohm, exceeding the small 0.5 W speaker's thermal/mechanical power limit. | Implemented `audio_limiter` module applying high-pass voice-coil protection (250 Hz cutoff), smooth fade-in, and configurable digital attenuation (default 0.35x = -9.1 dBFS). Protects all speaker output paths including streamed TTS, beeps, and announcements. |
+| **Sustained Boot Tone Risk** | Legacy `voice_speaker_test()` ran a 1000 Hz tone at 12000 amplitude for 1 full second (1000 ms), risking voice-coil overheating. | Replaced with a gentle, brief 70 ms 440 Hz cue at conservative amplitude through the limiter. All system beeps are bounded to <= 80 ms. |
 | **Audio Truncation (Ses Kesilmesi)** | Fixed 768 KB buffer (`MAX_REPLY_WAV_BYTES = 768 * 1024`) in `esp32/main/voice.c` truncated any WAV longer than ~16.3s at 24 kHz 16-bit mono. | Implemented streaming HTTP-to-I2S chunked playback (`audio_play_write`) directly from `esp_http_client_read`. Supports arbitrary audio length with zero PSRAM buffer overflow. |
 | **Button Lockout During Playback** | Synchronous blocking audio read loop did not poll GPIO pins during audio output. | Added non-blocking button state checks (`voice_accept_button_pressed()`, `voice_cancel_button_pressed()`) in each 20ms audio chunk; immediately aborts playback to process user action. |
 | **Pending Plan Proposal Lost** | Intervening queries like `"Do I have pending plans?"` triggered LLM classification that cleared or overrode the pending session context. | Implemented `is_pending_plan_query()` in `ConversationEngine` to recognize informational status inquiries, preserve the pending proposal ID, and remind the user of the pending summary without re-prompting. |
@@ -30,7 +33,35 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
 
 ---
 
-## 3. Male TTS Voice Configuration
+## 3. Hardware Inspection & Digital Volume Limiter
+
+### 3.1 Amplifier Board Wiring & Gain Configuration
+- **Amplifier IC:** Maxim Integrated MAX98357A (mono I2S Class D DAC/Amp).
+- **Supply Voltage (VIN):** 5V rail from development board header.
+- **Hardware GAIN Pin:** **Unconnected (floating)**, configuring internal 9 dB voltage gain (~2.82 V/V) as defined in `esp32/main/board_pins.h`.
+- **Connected Speaker:** **0.5 W rated power, 8 Ohm nominal impedance**.
+- **Power Analysis:**
+  $$\text{At } V_{supply} = 5.0\text{V, } P_{max} \approx \frac{(5.0 / \sqrt{2})^2}{8} \approx 1.56\text{ W RMS into 8 }\Omega$$
+  Full scale 0 dBFS unattenuated digital audio would exceed the 0.5 W rating by more than 3x.
+- **Digital Volume Limiter (`esp32/main/audio_limiter.c`):**
+  - Starting attenuation factor: `AUDIO_LIMITER_DEFAULT_SCALE = 0.35f` (-9.1 dBFS).
+  - Runtime configurable: `audio_play_set_volume_limit(float)` / `audio_play_get_volume_limit()`.
+  - Power reduction: $0.35^2 \approx 0.1225$ (> 8x electrical power reduction relative to full scale for equivalent waveform).
+  - Clamping: Strict ceiling $32767 \times \text{scale}$ prevents digital clipping or arithmetic overflow.
+  - High-pass voice-coil filter: 1-pole high-pass at 250 Hz filters out sub-bass frequencies that small 0.5 W drivers cannot acoustically reproduce.
+
+> [!WARNING]
+> **Electrical Power Disclaimer:**
+> Digital scaling is a conservative starting attenuation value, **NOT a guaranteed 0.5 W physical power limit**. Exact electrical and acoustic power delivered to the speaker depends on:
+> 1. Power supply rail voltage and impedance (e.g. 5V USB rail droop).
+> 2. Physical GAIN pin connection (floating vs tied to GND/VIN).
+> 3. Speaker impedance curve across frequency (nominal 8 Ohm, but varies with resonance).
+> 4. Audio signal crest factor and spectral distribution.
+> Physical oscilloscope or true-RMS voltmeter measurement across speaker terminals during playback is required to verify actual wattage in a physical lab environment.
+
+---
+
+## 4. Male TTS Voice Configuration
 
 - **Groq Orpheus TTS:** Configured default `tts_coach_voice = "troy"` (verified male voice supported in Groq production).
 - **TTS.ai Kokoro Fallback:** Configured fallback `tts_ai_coach_voice = "am_adam"` (verified male voice supported in TTS.ai).
@@ -38,9 +69,31 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
 
 ---
 
-## 4. Automated Verification Results
+## 5. Automated Verification Results
 
-### 4.1 Host Unit Tests: Dual-Button Gesture State Machine
+### 5.1 Host Unit Tests: Digital Volume Limiter (0.5 W Speaker Protection)
+- **Test File:** `tests/firmware_host/test_audio_limiter.c` + `esp32/main/audio_limiter.c`
+- **Compiler:** `gcc -Wall -Wextra -Iesp32/main -lm`
+- **Command:**
+  ```bash
+  gcc -Wall -Wextra -Iesp32/main tests/firmware_host/test_audio_limiter.c esp32/main/audio_limiter.c -lm -o /tmp/test_audio_limiter && /tmp/test_audio_limiter
+  ```
+- **Output:**
+  ```
+  Running firmware host audio limiter tests for 0.5W 8-ohm speaker protection...
+  PASS: test_default_scale_and_init
+  PASS: test_positive_full_scale_bounded (out <= 11468)
+  PASS: test_negative_full_scale_bounded (out >= -11468)
+  PASS: test_alternating_square_wave_worst_case (all in [-11468, +11468])
+  PASS: test_configurable_scales
+  PASS: test_scale_clamping
+  PASS: test_beep_path_bounded
+  PASS: test_stereo_interleaving
+  PASS: test_fade_in_profile
+  All 9 audio limiter host tests PASSED successfully!
+  ```
+
+### 5.2 Host Unit Tests: Dual-Button Gesture State Machine
 - **Test File:** `tests/firmware_host/test_gesture.c` + `esp32/main/gesture.c`
 - **Compiler:** `gcc -Wall -Wextra -Iesp32/main`
 - **Command:**
@@ -62,7 +115,7 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
   All 9 firmware gesture host tests PASSED!
   ```
 
-### 4.2 ESP-IDF Firmware Build
+### 5.3 ESP-IDF Firmware Build
 - **Target Chip:** ESP32-S3
 - **Toolchain:** ESP-IDF v6.2 (xtensa-esp-elf)
 - **Command:**
@@ -71,12 +124,12 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
   ```
 - **Result:**
   ```
-  gap_device.bin binary size 0x102980 bytes. Smallest app partition is 0x177000 bytes. 0x74680 bytes (31%) free.
+  gap_device.bin binary size 0x102af0 bytes. Smallest app partition is 0x177000 bytes. 0x74510 bytes (31%) free.
   Project build complete.
   ```
 - **Errors/Warnings:** 0 errors, 0 critical warnings.
 
-### 4.3 Backend Test Suite (Pytest)
+### 5.4 Backend Test Suite (Pytest)
 - **Command:**
   ```bash
   backend/.venv/bin/pytest backend/tests -q
@@ -92,7 +145,7 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
   4. `test_scenario_d_convert_recommendation_to_plan`: PASSED
   5. `test_scenario_e_mode_announcement_endpoint`: PASSED
 
-### 4.4 Web Frontend Test Suite (Node test runner)
+### 5.5 Web Frontend Test Suite (Node test runner)
 - **Command:**
   ```bash
   cd web && npm test
@@ -105,16 +158,20 @@ This report documents the verification of the GAP-AI dual-mode voice assistant o
   ℹ fail 0
   ```
 
-### 4.5 Git Integrity & Cleanliness Checks
+### 5.6 Git Integrity & Cleanliness Checks
 - `git diff --check`: 0 whitespace or formatting errors.
 - `git rev-parse v1.2.0^{commit}`: `604fab3eba5f4a6f1676862762e7fa9aafecb3eb` (Unchanged).
 
 ---
 
-## 5. Test Environment & Hardware Status
+## 6. Test Environment & Physical Hardware Status
 
 > [!IMPORTANT]
 > **Distinction Between Host Tests and Physical Hardware:**
-> - The dual-button gesture state machine was strictly validated via **host unit test simulation** (`tests/firmware_host/test_gesture.c`), verifying debounce, staggered presses (250ms), hold threshold (3000ms), and single-trigger guarantees.
-> - The firmware binary `gap_device.bin` compiled and linked cleanly with ESP-IDF v6.2 targeting ESP32-S3.
-> - Final physical button tactile feel, acoustic microphone quality in noisy physical rooms, and physical speaker frequency response require on-device bench testing with physical hardware attached.
+> - Both the dual-button gesture state machine and the audio volume limiter were strictly validated via **host unit test simulation** (`test_gesture.c` 9/9 passed, `test_audio_limiter.c` 9/9 passed).
+> - Firmware binary `gap_device.bin` compiled and linked cleanly with ESP-IDF v6.2.
+> - **On-Device Bench Testing Remaining:**
+>   1. Electrical output voltage measurement across the 8 Ohm speaker terminals with an oscilloscope/multimeter under live playback to verify power levels.
+>   2. Audio distortion and perceptual loudness check at low starting volume (scale 0.35).
+>   3. Physical button tactile feel and dual-button combo ergonomics.
+>   4. Acoustic microphone response in real-room reverberant conditions.

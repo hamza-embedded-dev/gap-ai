@@ -20,11 +20,15 @@ static const char *TAG = "audio_play";
 
 static i2s_chan_handle_t s_tx;
 static uint32_t s_rate;
-static float s_hp_alpha, s_hp_prev_in, s_hp_prev_out;
-static uint32_t s_fade_total, s_fade_done;
+static audio_limiter_t s_limiter;
+static bool s_limiter_inited = false;
 
 esp_err_t audio_play_init(void)
 {
+    if (!s_limiter_inited) {
+        audio_limiter_init(&s_limiter, AUDIO_LIMITER_DEFAULT_SCALE, 16000);
+        s_limiter_inited = true;
+    }
     gpio_reset_pin(PIN_AMP_SD);
     gpio_set_direction(PIN_AMP_SD, GPIO_MODE_OUTPUT);
     return gpio_set_level(PIN_AMP_SD, 0);
@@ -79,12 +83,13 @@ esp_err_t audio_play_begin(uint32_t sample_rate)
     }
 
     s_rate = sample_rate;
-    float rc = 1.0f / (2.0f * (float)M_PI * HIGH_PASS_HZ);
-    float dt = 1.0f / (float)sample_rate;
-    s_hp_alpha = rc / (rc + dt);
-    s_hp_prev_in = s_hp_prev_out = 0;
-    s_fade_total = sample_rate * FADE_IN_MS / 1000;
-    s_fade_done = 0;
+    if (!s_limiter_inited) {
+        audio_limiter_init(&s_limiter, AUDIO_LIMITER_DEFAULT_SCALE, sample_rate);
+        s_limiter_inited = true;
+    } else {
+        float cur_scale = s_limiter.scale;
+        audio_limiter_init(&s_limiter, cur_scale, sample_rate);
+    }
 
     write_silence(sample_rate / 50); // clocks running before the amp wakes up
     gpio_set_level(PIN_AMP_SD, 1);
@@ -99,20 +104,7 @@ esp_err_t audio_play_write(const int16_t *samples, size_t count)
     static int16_t out[CHUNK_FRAMES * 2]; // static: keeps the caller's stack small
     while (count > 0) {
         size_t n = count < CHUNK_FRAMES ? count : CHUNK_FRAMES;
-        for (size_t i = 0; i < n; i++) {
-            float x = samples[i];
-            float y = s_hp_alpha * (s_hp_prev_out + x - s_hp_prev_in);
-            s_hp_prev_in = x;
-            s_hp_prev_out = y;
-
-            float gain = AUDIO_PLAY_VOLUME;
-            if (s_fade_done < s_fade_total) {
-                gain *= (float)s_fade_done++ / (float)s_fade_total;
-            }
-            float v = y * gain;
-            v = v > 32767.0f ? 32767.0f : v < -32768.0f ? -32768.0f : v;
-            out[2 * i] = out[2 * i + 1] = (int16_t)v; // same sample in both slots
-        }
+        audio_limiter_process_stereo(&s_limiter, samples, out, n);
         size_t written;
         esp_err_t err = i2s_channel_write(s_tx, out, n * 4, &written, portMAX_DELAY);
         if (err != ESP_OK) {
@@ -137,6 +129,24 @@ void audio_play_end(void)
     s_tx = NULL;
 }
 
+float audio_play_get_volume_limit(void)
+{
+    if (!s_limiter_inited) {
+        audio_limiter_init(&s_limiter, AUDIO_LIMITER_DEFAULT_SCALE, 16000);
+        s_limiter_inited = true;
+    }
+    return audio_limiter_get_scale(&s_limiter);
+}
+
+void audio_play_set_volume_limit(float limit)
+{
+    if (!s_limiter_inited) {
+        audio_limiter_init(&s_limiter, AUDIO_LIMITER_DEFAULT_SCALE, 16000);
+        s_limiter_inited = true;
+    }
+    audio_limiter_set_scale(&s_limiter, limit);
+}
+
 #else
 
 esp_err_t audio_play_init(void)
@@ -156,6 +166,16 @@ esp_err_t audio_play_write(const int16_t *samples, size_t count)
 
 void audio_play_end(void)
 {
+}
+
+float audio_play_get_volume_limit(void)
+{
+    return AUDIO_LIMITER_DEFAULT_SCALE;
+}
+
+void audio_play_set_volume_limit(float limit)
+{
+    (void)limit;
 }
 
 #endif

@@ -201,7 +201,7 @@ static void beep(float hz, int ms)
     int total = 16 * ms;
     for (int done = 0; done < total; done += 160) {
         for (int i = 0; i < 160; i++) {
-            buf[i] = (int16_t)(sinf(2.0f * (float)M_PI * hz * (done + i) / 16000.0f) * 12000.0f);
+            buf[i] = (int16_t)(sinf(2.0f * (float)M_PI * hz * (done + i) / 16000.0f) * 10000.0f);
         }
         audio_play_write(buf, 160);
     }
@@ -210,7 +210,8 @@ static void beep(float hz, int ms)
 
 void voice_speaker_test(void)
 {
-    beep(1000.0f, 1000);
+    // Brief, gentle 70ms 440 Hz tone (A4) through the volume limiter instead of a sustained 1s blast
+    beep(440.0f, 70);
 }
 
 static void show_text(const char *title, const char *text)
